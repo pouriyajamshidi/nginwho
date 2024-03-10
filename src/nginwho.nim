@@ -7,7 +7,7 @@ const
     NGINX_DEFAULT_LOG_PATH = "/var/log/nginx/access.log"
     DB_FILE = "/var/log/nginwho.db"
     TEN_SECONDS = 10000
-    VERSION = "0.3.0"
+    VERSION = "0.5.0"
 
 
 type Log = object
@@ -26,9 +26,10 @@ type Log = object
 
 type
   Flags = tuple[
-    nginxLogPath: string,
+    logPath: string,
     dbPath: string,
-    interval: int
+    interval: int,
+    omitReferrer: string
   ]
   Logs = seq[Log]
 
@@ -36,18 +37,24 @@ type
 proc usage() =
   echo """
 
-  --help, -h        : show help
-  --version         : Display version and quit
-  --dbPath,         : Path to SQLite database to log reports (default: /var/log/nginwho.db)
-  --nginxLogPath,   : Path to nginx access logs (default: /var/log/nginx/access.log)
-  --interval        : Refresh interval in seconds (default: 10)
+  --help, -h         : show help
+  --version, -v      : Display version and quit
+  --dbPath,          : Path to SQLite database to log reports (default: /var/log/nginwho.db)
+  --logPath,         : Path to nginx access logs (default: /var/log/nginx/access.log)
+  --interval         : Refresh interval in seconds (default: 10)
+  --omit-referrer    : omit a specific referrer from being logged
 
   """
   quit()
 
 
 proc getArgs(): Flags =
-  var flags: Flags = (nginxLogPath: NGINX_DEFAULT_LOG_PATH, dbPath:DB_FILE, interval: TEN_SECONDS)
+  var flags: Flags = (
+      logPath: NGINX_DEFAULT_LOG_PATH,
+      dbPath:DB_FILE,
+      interval: TEN_SECONDS,
+      omitReferrer: ""
+    )
 
   var p = initOptParser()
 
@@ -58,38 +65,41 @@ proc getArgs(): Flags =
     of cmdShortOption, cmdLongOption:
       case p.key
       of "help", "h": usage()
-      of "version":
+      of "version", "v":
         echo VERSION
         quit(0)
-      of "nginxLogPath": flags.nginxLogPath = p.val
+      of "logPath": flags.logPath = p.val
       of "dbPath": flags.dbPath = p.val
       of "interval": flags.interval = parseInt(p.val)
+      of "omit-referrer": flags.omitReferrer = p.val
     of cmdArgument: discard
+
+  if flags.dbPath == "": flags.dbPath = DB_FILE
+  if flags.logPath == "": flags.logPath = NGINX_DEFAULT_LOG_PATH
+  if flags.interval == 0: flags.interval = TEN_SECONDS
 
   return flags
 
 
-proc writeToDatabase(logs: var seq[Log], databaseName: string) =
-  let db = open(databaseName, "", "", "")
-
+proc writeToDatabase(logs: var seq[Log], db: DbConn) =
   db.exec(sql"""CREATE TABLE IF NOT EXISTS nginwho
                 (
                   id                  INTEGER PRIMARY KEY,
-                  remoteIP            TEXT NOT NULL,
-                  remoteUser          TEXT NOT NULL,
-                  authenticatedUser   TEXT NOT NULL,
                   date                TEXT NOT NULL,
+                  remoteIP            TEXT NOT NULL,
                   httpMethod          TEXT NOT NULL,
                   requestURI          TEXT NOT NULL,
                   statusCode          TEXT NOT NULL,
                   responseSize        TEXT NOT NULL,
                   referrer            TEXT NOT NULL,
                   userAgent           TEXT NOT NULL,
-                  nonStandard         TEXT
+                  nonStandard         TEXT,
+                  remoteUser          TEXT NOT NULL,
+                  authenticatedUser   TEXT NOT NULL
                 )"""
-    )
+  )
 
-  let lastEntryDate = db.getRow(sql"SELECT date FROM nginwho WHERE TRIM(date) <> '' ORDER BY rowid DESC LIMIT 1;")
+  let lastEntryDate: Row = db.getRow(sql"SELECT date FROM nginwho WHERE TRIM(date) <> '' ORDER BY rowid DESC LIMIT 1;")
   var lastEntryDateValue: string
 
   if lastEntryDate[0] == "":
@@ -116,9 +126,9 @@ proc writeToDatabase(logs: var seq[Log], databaseName: string) =
                     responseSize,
                     referrer,
                     userAgent,
+                    nonStandard,
                     remoteUser,
-                    authenticatedUser,
-                    nonStandard) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    authenticatedUser) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     log.date,
                     log.remoteIP,
                     log.httpMethod,
@@ -133,13 +143,12 @@ proc writeToDatabase(logs: var seq[Log], databaseName: string) =
     )
 
   db.exec(sql"COMMIT")
-  db.close()
   
 
-proc parseLogEntry(logLine: string): Log =
+proc parseLogEntry(logLine: string, omit: string): Log =
   var log: Log
 
-  let matches = logLine.split(re"[ ]+")
+  let matches: seq[string] = logLine.split(re"[ ]+")
 
   if matches.len >= 12:
     log.remoteIP = matches[0].replace("\"", "")
@@ -149,13 +158,11 @@ proc parseLogEntry(logLine: string): Log =
     log.statusCode = matches[8].replace("\"", "")
     log.responseSize = matches[9].replace("\"", "")
 
-    var referrer = matches[10].replace("\"", "")
-    #TODO: Try `contains` instead
-    # if referrer.contains("thegraynode.io"):
-    if referrer.startsWith("https://thegraynode.io") or referrer.startsWith("https://www.thegraynode.io"):
-      referrer = ""
+    let referrer = matches[10].replace("\"", "")
+    if omit != "" and referrer.contains(omit):
+      log.referrer = ""
     elif referrer == "-":
-      referrer = ""
+      log.referrer = ""
     else:
       log.referrer = referrer
       
@@ -169,17 +176,23 @@ proc parseLogEntry(logLine: string): Log =
 
 
 proc main() = 
-  let args = getArgs()
+  let args: Flags = getArgs()
+
+  if not fileExists(args.logPath):
+    echo fmt"File not found: {args.logPath}"
+    quit(1)
+
+  let db: DbConn = open(args.dbPath, "", "", "")
+  defer: db.close()
 
   while true:
     var logs: Logs
 
-    for line in lines(args.nginxLogPath):
-      let log = parseLogEntry(line)
+    for line in lines(args.logPath):
+      let log = parseLogEntry(line, args.omitReferrer)
       logs.add(log)
 
-    writeToDatabase(logs, args.dbPath)
-    # logs = newSeq[Log]()
+    writeToDatabase(logs, db)
     sleep args.interval
   
 

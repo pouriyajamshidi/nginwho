@@ -1,11 +1,11 @@
 [Unit]
-Description=nginx log analyzer
+Description=nginx log parser and analyzer
 After=Network.target
 
 [Service]
 Type=simple
 RemainAfterExit=yes
-ExecStart=/usr/local/bin/nginwho --nginxLogPath:/var/log/nginx/access.log --dbPath:/var/log/nginwho.db
+ExecStart=/usr/local/bin/nginwho --logPath:/var/log/nginx/access.log --dbPath:/var/log/nginwho.db
 Restart=on-failure
 RestartSec=5
 
