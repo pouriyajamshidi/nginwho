@@ -32,7 +32,9 @@ By default, **nginwho** reads `nginx` logs from `/var/log/nginx/access.log` and 
    ```bash
     nginwho --logPath:/var/log/nginx/access.log --dbPath:/var/log/nginwho.db
     # If you want to omit a certain referrer from being logged:
-    nginwho --logPath:/var/log/nginx/access.log --dbPath:/var/log/nginwho.db --omit-referrer:thegraynode.io
+    nginwho --logPath:/var/log/nginx/access.log \
+            --dbPath:/var/log/nginwho.db \
+            --omit-referrer:thegraynode.io
    ```
 
 4. Optionally, use the [accompanying systemd](https://github.com/pouriyajamshidi/nginwho/blob/master/nginwho.service) service to run `nginwho` in the background and for the program to survive system reboots:
