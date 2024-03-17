@@ -1,13 +1,14 @@
 import std/[strutils, os, strformat, re]
 import db_connector/db_sqlite
 from parseopt import CmdLineKind, initOptParser, next
+include realip
 
 
 const
     NGINX_DEFAULT_LOG_PATH = "/var/log/nginx/access.log"
     DB_FILE = "/var/log/nginwho.db"
-    TEN_SECONDS = 10000
-    VERSION = "0.5.0"
+    TEN_SECONDS = 10_000
+    VERSION = "0.7.0"
 
 
 type Log = object
@@ -29,7 +30,8 @@ type
     logPath: string,
     dbPath: string,
     interval: int,
-    omitReferrer: string
+    omitReferrer: string,
+    showRealIPs: bool
   ]
   Logs = seq[Log]
 
@@ -37,12 +39,13 @@ type
 proc usage() =
   echo """
 
-  --help, -h         : show help
+  --help, -h         : Show help
   --version, -v      : Display version and quit
   --dbPath,          : Path to SQLite database to log reports (default: /var/log/nginwho.db)
   --logPath,         : Path to nginx access logs (default: /var/log/nginx/access.log)
   --interval         : Refresh interval in seconds (default: 10)
-  --omit-referrer    : omit a specific referrer from being logged
+  --omit-referrer    : Omit a specific referrer from being logged
+  --show-real-ips    : Show real IP of visitors by getting Cloudflare CIDRs to include in nginx config. Self-updates every six hours.
 
   """
   quit()
@@ -53,7 +56,8 @@ proc getArgs(): Flags =
       logPath: NGINX_DEFAULT_LOG_PATH,
       dbPath:DB_FILE,
       interval: TEN_SECONDS,
-      omitReferrer: ""
+      omitReferrer: "",
+      showRealIPs: false
     )
 
   var p = initOptParser()
@@ -70,13 +74,10 @@ proc getArgs(): Flags =
         quit(0)
       of "logPath": flags.logPath = p.val
       of "dbPath": flags.dbPath = p.val
-      of "interval": flags.interval = parseInt(p.val)
+      of "interval": flags.interval = parseInt(p.val) * 1000 # convert to seconds
       of "omit-referrer": flags.omitReferrer = p.val
+      of "show-real-ips": flags.showRealIPs = parseBool(p.val)
     of cmdArgument: discard
-
-  if flags.dbPath == "": flags.dbPath = DB_FILE
-  if flags.logPath == "": flags.logPath = NGINX_DEFAULT_LOG_PATH
-  if flags.interval == 0: flags.interval = TEN_SECONDS
 
   return flags
 
@@ -175,13 +176,7 @@ proc parseLogEntry(logLine: string, omit: string): Log =
   return log
 
 
-proc main() = 
-  let args: Flags = getArgs()
-
-  if not fileExists(args.logPath):
-    echo fmt"File not found: {args.logPath}"
-    quit(1)
-
+proc processLogs(args: Flags) {.async.} =
   let db: DbConn = open(args.dbPath, "", "", "")
   defer: db.close()
 
@@ -193,8 +188,24 @@ proc main() =
       logs.add(log)
 
     writeToDatabase(logs, db)
-    sleep args.interval
-  
+
+    await sleepAsync args.interval
+
+
+proc main() = 
+  let args: Flags = getArgs()
+
+  if not fileExists(args.logPath):
+    echo fmt"File not found: {args.logPath}"
+    quit(1)
+
+  if args.showRealIPs:
+    echo "Scheduling CIDRs retrieval to display real visitors IPs"
+    asyncCheck fetchAndProcessIPCidrs()
+
+  asyncCheck processLogs(args)
+
+  runForever()
 
 when is_main_module:
   main()
