@@ -24,7 +24,8 @@ include /etc/nginx/reverse_proxies;
 
 So that the fetched CIDRs could be loaded into your configuration.
 
-> !important The `--show-real-ips:true` option causes a **soft reload** (nginx -s reload) at 3AM **only if there are CIDR changes** in comparison to the last fetch. Specifying the reload time will be available through a flag in the future.
+> [!IMPORTANT]
+> The `--show-real-ips:true` option causes a **soft reload** (nginx -s reload) at 3AM **only if there are CIDR changes** in comparison to the last fetch. Specifying the reload time will be available through a flag in the future.
 
 ## Usage
 
