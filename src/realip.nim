@@ -14,7 +14,7 @@ proc reloadNginxAt(hour: int = 3, minute: int = 0) {.async.} =
   while true:
     let now: DateTime = getTime().local()
     if now.hour == hour and now.minute == minute:
-      let testResult = testNginxConfig()
+      let testResult: int = testNginxConfig()
       if testResult != 0:
         echo fmt"{now} - nginx configuration test failed"
         continue
@@ -34,13 +34,14 @@ proc populateReverseProxyFile(filePath: string=DEFAULT_OUTPUT_PATH, ipCidr: IPCi
       defer: file.close()
 
       file.write("# Cloudflare ranges\n")
+      file.write("# Last update: ", now, "\n")
       file.write("# Last etag: ", ipCidr.etag, "\n\n")
-      file.write("# IPv4 CIDRS\n")
+      file.write("# IPv4 CIDRs\n")
 
       for cidr in ipCidr.ipv4:
         file.write(CFG_SET_REAL_IP_FROM, " ", cidr.getStr(), ";", "\n")
 
-      file.write("\n# IPv6 CIDRS\n")
+      file.write("\n# IPv6 CIDRs\n")
 
       for cidr in ipCidr.ipv6:
         file.write(CFG_SET_REAL_IP_FROM, " ", cidr.getStr(), ";", "\n")
