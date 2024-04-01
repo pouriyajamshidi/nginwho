@@ -5,6 +5,7 @@ After=Network.target
 [Service]
 Type=simple
 RemainAfterExit=yes
+User=root
 ExecStart=/usr/local/bin/nginwho --logPath:/var/log/nginx/access.log --dbPath:/var/log/nginwho.db --show-real-ips:true
 Restart=on-failure
 RestartSec=5

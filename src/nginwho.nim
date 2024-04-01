@@ -7,8 +7,9 @@ include realip
 const
     NGINX_DEFAULT_LOG_PATH = "/var/log/nginx/access.log"
     DB_FILE = "/var/log/nginwho.db"
+    FIVE_SECONDS = 5_000
     TEN_SECONDS = 10_000
-    VERSION = "0.7.0"
+    VERSION = "0.7.1"
 
 
 type Log = object
@@ -184,6 +185,9 @@ proc processLogs(args: Flags) {.async.} =
     var logs: Logs
 
     for line in lines(args.logPath):
+      if line.len() == 0:
+        await sleepAsync(FIVE_SECONDS)
+        continue
       let log = parseLogEntry(line, args.omitReferrer)
       logs.add(log)
 
