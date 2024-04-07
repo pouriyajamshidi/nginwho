@@ -2,6 +2,7 @@ import std/[strutils, os, strformat, re]
 import db_connector/db_sqlite
 from parseopt import CmdLineKind, initOptParser, next
 include realip
+include filter
 
 
 const
@@ -197,6 +198,9 @@ proc processLogs(args: Flags) {.async.} =
 
 
 proc main() = 
+  start()
+  quit(0)
+
   let args: Flags = getArgs()
 
   if not fileExists(args.logPath):

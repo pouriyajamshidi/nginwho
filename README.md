@@ -14,6 +14,9 @@ Additionally, it has the ability (`--show-real-ips` flag) to continuously parse 
 
 By default, **nginwho** reads `nginx` logs from `/var/log/nginx/access.log` and stores the parsed results in `/var/log/nginwho.db` unless overridden by the [available flags](#flags).
 
+> [!IMPORTANT]
+> nginwho only supports the default nginx log format
+
 Using the `--show-real-ips` flag requires **root privileges** and leads to fetching the Cloudflare CIDRs every six hours and storing them in `/etc/nginx/reverse_proxies`.
 
 Inside your nginx configuration add this line:
