@@ -1,4 +1,4 @@
-import std/[json, os, strformat, times]
+import std/[json, os, strformat, times, strutils]
 
 const
     # DEFAULT_NFT_FILE_PATH = "/etc/nftables.conf"
@@ -27,29 +27,171 @@ var cfElements: seq[string] = @[
   "127.0.0.1/32",
 ]
 
-proc createSet(cidrs: seq[string]): JsonNode=
-  let mamoosh = %*
-  {
-    "set": {
+
+proc createRules(): JsonNode =
+  let now: string = getTime().format("yyyy-MM-dd HH:mm:ss")
+
+  echo fmt"{now} - Creating nginwho rules"
+
+  return %* [
+    {
+      "rule": {
         "family": "inet",
-        "name": "CF_CDN_EDGE",
         "table": "filter",
-        "type": "ipv4_addr",
-        "handle": 5,
-        "flags": [
-            "interval"
-        ],
-        "elem": [
-            {
-                "prefix": {
-                    "addr": "103.21.244.0",
-                    "len": 22
+        "chain": "nginwho",
+        "handle": 12,
+        "expr": [
+          {
+            "match": {
+              "op": "in",
+              "left": {
+                "ct": {
+                    "key": "state"
                 }
+              },
+              "right": [
+                "established",
+                "related"
+              ]
+            }
+          },
+          {
+            "accept": newJnull()
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "filter",
+        "chain": "nginwho",
+        "handle": 13,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                  "protocol": "ip",
+                  "field": "saddr"
+                }
+              },
+            "right": "@CF_CDN_EDGE"
+          }
+          },
+          {
+              "match": {
+                  "op": "==",
+                  "left": {
+                      "payload": {
+                          "protocol": "tcp",
+                          "field": "dport"
+                      }
+                  },
+                  "right": {
+                      "set": [
+                          80,
+                          443
+                      ]
+                  }
+              }
+            },
+            {
+              "accept": newJnull()
             }
         ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "filter",
+        "chain": "nginwho",
+        "handle": 14,
+        "expr": [
+          {
+            "match": {
+              "op": "!=",
+              "left": {
+                "payload": {
+                  "protocol": "ip",
+                  "field": "saddr"
+                }
+              },
+              "right": "@CF_CDN_EDGE"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                    "protocol": "tcp",
+                    "field": "dport"
+                }
+              },
+              "right": {
+                "set": [
+                    80,
+                    443
+                ]
+              }
+            }
+          },
+          {
+            "drop": newJnull()
+          }
+        ]
+      }
     }
-  } 
-  return mamoosh
+  ]
+
+
+proc createChain(): JsonNode =
+  let now: string = getTime().format("yyyy-MM-dd HH:mm:ss")
+
+  echo fmt"{now} - Creating nginwho chain"
+
+  return %* {
+      "chain": {
+          "family": "inet",
+          "table": "filter",
+          "name": "nginwho",
+          "handle": 4,
+          "type": "filter",
+          "hook": "prerouting",
+          "prio": 0,
+          "policy": "accept"
+      }
+    }
+
+
+proc createSet(cidrs: seq[string]): JsonNode =
+  let now: string = getTime().format("yyyy-MM-dd HH:mm:ss")
+
+  echo fmt"{now} - Creating IPv4 set"
+
+  var ipSet: JsonNode = %*
+    {
+      "set": {
+          "family": "inet",
+          "name": "CF_CDN_EDGE",
+          "table": "filter",
+          "type": "ipv4_addr",
+          "handle": 50,
+          "flags": [
+              "interval"
+          ],
+          "elem": []
+      }
+    }
+
+  for cidr in cidrs:
+    let ipAndPrefixLen: seq[string] =  cidr.split("/")
+    ipSet["set"]["elem"].add(%*{"prefix": {"addr": ipAndPrefixLen[0],"len": parseInt(ipAndPrefixLen[1])}})
+
+  return ipSet
 
 proc nginwhoChainExists(configOutput: JsonNode): bool =
   let now: string = getTime().format("yyyy-MM-dd HH:mm:ss")
@@ -72,7 +214,7 @@ proc cloudflareSetExists(configOutput: JsonNode, tableName: string): bool =
   for element in 0..configOutput.len() - 1:
     if configOutput[element].contains("set"):
       if configOutput[element]["set"]["family"].getStr() == tableName:
-        echo fmt"Found Cloudflare's nftables set"
+        echo fmt"{now} - Found Cloudflare's nftables set"
         return true
 
   echo fmt"{now} - {NFT_SET_NAME_CF} does not exist"
@@ -89,7 +231,7 @@ proc getFilterTableName(configOutput: JsonNode): string =
         let tableFamily = configOutput[idx]["table"]["family"].getStr()
         if tableFamily notin ["inet", "ip"]:
           continue
-        echo fmt"Found table filter family with name: {tableFamily}"
+        echo fmt"{now} - Found table filter family with name: {tableFamily}"
         return tableFamily
   except Exception as e:
     echo fmt"{now} - Failed checking table existence: {e.msg}"
@@ -144,3 +286,5 @@ proc start() =
     echo "no - nginwho chain"
 
   echo createSet(cfElements)
+  echo createChain()
+  echo createRules()
