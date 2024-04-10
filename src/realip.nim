@@ -1,9 +1,10 @@
 import std/[asyncdispatch, httpclient, json, strformat, options, strutils]
-include consts, nginx
+include consts, nginx, filter
+
 
 
 type
-  IPCidrs = object
+  IPCidrs* = object
     ipv4: JsonNode
     ipv6: JsonNode
     etag: string
@@ -96,21 +97,22 @@ proc getCurrentEtag(configFile: string=DEFAULT_OUTPUT_PATH): string =
         return etagLine[1]
 
 
-proc fetchAndProcessIPCidrs() {.async.} =
+proc fetchAndProcessIPCidrs(blockUntrustedCidrs: bool=false) {.async.} =
   let now: string = getTime().format("yyyy-MM-dd HH:mm:ss")
 
   while true:
-    let etag: string = getCurrentEtag()
+    let currentEtag: string = getCurrentEtag()
     let cfCIDRs: Option[IPCidrs] = getCloudflareCIDRs()
 
     case cfCIDRs.isSome:
     of true:
       let cidrs: IPCidrs = cfCIDRs.get()
-      if etag != cidrs.etag:
+      if currentEtag != cidrs.etag:
         if populateReverseProxyFile(ipCidr=cidrs):
+          filter(cidrs)
           waitFor reloadNginxAt()
       else:
-          echo fmt"{now} - etag has not changed {etag}"
+          echo fmt"{now} - etag has not changed {currentEtag}"
     of false:
       echo fmt"{now} - Failed fetching CIDRs"
 
