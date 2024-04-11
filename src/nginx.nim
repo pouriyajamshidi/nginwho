@@ -1,27 +1,32 @@
-import std/[os, osproc, strformat, times]
+import std/[os, osproc, times]
+from consts import NGINX_PROCESS_NAME, NGINX_TEST_CMD, NGINX_RELOAD_CMD, DATE_FORMAT
+
+from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error, warn, fatal
 
 
-proc ensureNginxExists() =
-  let now: string = getTime().format("yyyy-MM-dd HH:mm:ss")
+var logger: ConsoleLogger = newConsoleLogger(fmtStr="[$date -- $time] - $levelname: ")
+
+
+proc ensureNginxExists*() =
+  info("Ensuring nginx command exists")
 
   let result: string = findExe(NGINX_PROCESS_NAME)
   if result == "":
-    quit(fmt"{now} - nginx command not found", 1)
+    error("nginx command not found")
+    quit(1)
 
 
-proc testNginxConfig(): int =
-  let now: string = getTime().format("yyyy-MM-dd HH:mm:ss")
-  echo fmt"{now} - Testing nginx configuration"
+proc testNginxConfig*(): int =
+  info("Testing nginx configuration")
 
   return execCmd(command=NGINX_TEST_CMD)
 
 
-proc reloadNginx() =
-  let now: string = getTime().format("yyyy-MM-dd HH:mm:ss")
+proc reloadNginx*() =
+  let now: string = getTime().format(DATE_FORMAT)
 
   let result: int = execCmd(command=NGINX_RELOAD_CMD)
   if result != 0:
-    echo fmt"{now} - nginx process reload failed"
+    error("nginx process reload failed")
   else:
-    echo fmt"{now} - nginx process reloaded successfully"
-
+    info("nginx process reloaded successfully")

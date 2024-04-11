@@ -1,16 +1,15 @@
-import std/[strutils, os, strformat, re]
+import std/[strutils, os, strformat, re, asyncdispatch]
 import db_connector/db_sqlite
 from parseopt import CmdLineKind, initOptParser, next
-include realip
-include filter
 
+import consts
+from cloudflare import fetchAndProcessIPCidrs
+from nftables import acceptOnly
 
-const
-    NGINX_DEFAULT_LOG_PATH = "/var/log/nginx/access.log"
-    DB_FILE = "/var/log/nginwho.db"
-    FIVE_SECONDS = 5_000
-    TEN_SECONDS = 10_000
-    VERSION = "0.7.1"
+from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error, warn, fatal
+
+var logger: ConsoleLogger = newConsoleLogger(fmtStr="[$date -- $time] - $levelname: ")
+addHandler(logger)
 
 
 type Log = object
@@ -33,7 +32,9 @@ type
     dbPath: string,
     interval: int,
     omitReferrer: string,
-    showRealIPs: bool
+    showRealIPs: bool,
+    blockUntrustedCidrs: bool,
+    analyzeNginxLogs: bool
   ]
   Logs = seq[Log]
 
@@ -41,25 +42,32 @@ type
 proc usage() =
   echo """
 
-  --help, -h         : Show help
-  --version, -v      : Display version and quit
-  --dbPath,          : Path to SQLite database to log reports (default: /var/log/nginwho.db)
-  --logPath,         : Path to nginx access logs (default: /var/log/nginx/access.log)
-  --interval         : Refresh interval in seconds (default: 10)
-  --omit-referrer    : Omit a specific referrer from being logged
-  --show-real-ips    : Show real IP of visitors by getting Cloudflare CIDRs to include in nginx config. Self-updates every six hours.
+  --help, -h              : Show help
+  --version, -v           : Display version and quit
+  --dbPath,               : Path to SQLite database to log reports (default: /var/log/nginwho.db)
+  --logPath,              : Path to nginx access logs (default: /var/log/nginx/access.log)
+  --interval              : Refresh interval in seconds (default: 10)
+  --omit-referrer         : Omit a specific referrer from being logged (default: none)
+  --show-real-ips         : Show real IP of visitors by getting Cloudflare CIDRs to include in nginx config.
+                            Self-updates every six hours (default: false)
+  --block-untrusted-cidrs : Block untrusted IP addresses using nftables. Only allows Cloudflare CIDRs (default: false)
+  --analyze-nginx-logs    : Whether to analyze nginx logs or not. (default: true)
 
   """
   quit()
 
 
 proc getArgs(): Flags =
+  info("Getting user provided logs")
+
   var flags: Flags = (
       logPath: NGINX_DEFAULT_LOG_PATH,
       dbPath:DB_FILE,
       interval: TEN_SECONDS,
       omitReferrer: "",
-      showRealIPs: false
+      showRealIPs: false,
+      blockUntrustedCidrs: false,
+      analyzeNginxLogs: true
     )
 
   var p = initOptParser()
@@ -79,12 +87,16 @@ proc getArgs(): Flags =
       of "interval": flags.interval = parseInt(p.val) * 1000 # convert to seconds
       of "omit-referrer": flags.omitReferrer = p.val
       of "show-real-ips": flags.showRealIPs = parseBool(p.val)
+      of "block-untrusted-cidrs": flags.blockUntrustedCidrs = parseBool(p.val)
+      of "analyze-nginx-logs": flags.analyzeNginxLogs = parseBool(p.val)
     of cmdArgument: discard
 
   return flags
 
 
 proc writeToDatabase(logs: var seq[Log], db: DbConn) =
+  info("Writing data to database")
+
   db.exec(sql"""CREATE TABLE IF NOT EXISTS nginwho
                 (
                   id                  INTEGER PRIMARY KEY,
@@ -106,14 +118,14 @@ proc writeToDatabase(logs: var seq[Log], db: DbConn) =
   var lastEntryDateValue: string
 
   if lastEntryDate[0] == "":
-    echo "First time fetcing date from DB"
+    info("First time fetcing date from DB")
   else:
     lastEntryDateValue = lastEntryDate[0]
 
   #TODO: Expand the conditional check (perhaps on user-agent and URL) to 
   # avoid missing entries on busy servers
   if logs[^1].date == lastEntryDateValue:
-    echo "Rows are already written to DB"
+    info("Rows are already written to DB")
     return
 
   db.exec(sql"BEGIN")
@@ -149,6 +161,8 @@ proc writeToDatabase(logs: var seq[Log], db: DbConn) =
   
 
 proc parseLogEntry(logLine: string, omit: string): Log =
+  info("Parsing log entries")
+
   var log: Log
 
   let matches: seq[string] = logLine.split(re"[ ]+")
@@ -172,13 +186,15 @@ proc parseLogEntry(logLine: string, omit: string): Log =
     log.userAgent = matches[11..^1].join(" ").replace("\"", "")
     log.nonStandard = ""
   else:
-    echo fmt"Could not parse: {logLine}"
+    error(fmt"Could not parse: {logLine}")
     log.nonStandard = logLine
 
   return log
 
 
 proc processLogs(args: Flags) {.async.} =
+  info("Processing log entries")
+
   let db: DbConn = open(args.dbPath, "", "", "")
   defer: db.close()
 
@@ -197,21 +213,23 @@ proc processLogs(args: Flags) {.async.} =
     await sleepAsync args.interval
 
 
-proc main() = 
-  start()
-  quit(0)
+proc main() =
+  info("Starting nginwho")
 
   let args: Flags = getArgs()
 
-  if not fileExists(args.logPath):
-    echo fmt"File not found: {args.logPath}"
-    quit(1)
+  if args.analyzeNginxLogs:
+    if not fileExists(args.logPath):
+      error(fmt"nginx log file not found: {args.logPath}")
+      quit(1)
+    asyncCheck processLogs(args)
 
   if args.showRealIPs:
-    echo "Scheduling CIDRs retrieval to display real visitors IPs"
-    asyncCheck fetchAndProcessIPCidrs()
-
-  asyncCheck processLogs(args)
+    asyncCheck fetchAndProcessIPCidrs(args.blockUntrustedCidrs)
+  
+  if args.blockUntrustedCidrs and not args.showRealIPs:
+    # asyncCheck acceptOnly(NGINX_CIDR_FILE)
+    asyncCheck acceptOnly(TEMP_PROXY_FILE_PATH)
 
   runForever()
 

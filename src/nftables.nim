@@ -1,24 +1,17 @@
-import std/[json, os, strformat]
+import std/[asyncdispatch, os, strformat, json]
 
-from strutils import split
+from strutils import split, parseInt, isDigit, join, replace
 from json import parseFile
 from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error, warn, fatal
-from osproc import execProcess
+from osproc import execProcess, execCmd
+from net import parseIpAddress, IpAddressFamily
 
+import consts
 
-const
-    DEFAULT_NFT_CONFIG_FILE_PATH = "/etc/nftables.conf"
-    TEMP_NFT_FILE_PATH = "nft_working_output.json"
+from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error, warn, fatal
 
-    NFTABLES_MIN_RULE_LEN = 2
-
-    NFT = "nftables"
-    NFT_SET_NAME_CF = "Cloudflare"
-    NFT_CHAIN_NAME = "nginwho"
-    NFT_GET_RULESET_CMD = "nft -j list ruleset"
-
-    # RULES_FILE = "/tmp/nginwho.nft"
-    RULES_FILE = "nginwho.nft"
+var logger: ConsoleLogger = newConsoleLogger(fmtStr="[$date -- $time] - $levelname: ")
+# addHandler(logger)
 
 
 var cfElements: seq[string] = @[
@@ -40,21 +33,19 @@ var cfElements: seq[string] = @[
   "127.0.0.1/32",
 ]
 
-var logger: ConsoleLogger = newConsoleLogger(fmtStr="[$date -- $time] - $levelname: ")
-addHandler(logger)
 
-
-proc applyRules(fileName: string=RULES_FILE) =
+proc applyRules(fileName: string=NFT_CIDR_RULES_FILE) =
   info("Applying nftables rules")
 
   let res: int = execCmd(fmt"nft -j -f {filename}")
   if res != 0:
     error("Failed applying nftables rules - Are you root?")
+    quit(1)
   else:
     info("Successfully applied nftables rules")
 
 
-proc writeRules(fileName: string=RULES_FILE, rules: JsonNode) =
+proc writeRules(fileName: string=NFT_CIDR_RULES_FILE, rules: JsonNode) =
   info(fmt"Writing nginwho rules to {fileName}")
 
   try:
@@ -83,7 +74,7 @@ proc createChain(): JsonNode =
   }
 
 
-proc createSet(cidrs: seq[string]): JsonNode =
+proc createSet(cidrs: JsonNode): JsonNode =
   info("Creating IPv4 set")
 
   var ipSet: JsonNode = %* {
@@ -103,7 +94,7 @@ proc createSet(cidrs: seq[string]): JsonNode =
   }
 
   for cidr in cidrs:
-    let ipAndPrefixLen: seq[string] =  cidr.split("/")
+    let ipAndPrefixLen: seq[string] =  cidr.getStr().split("/")
 
     ipSet["add"]["set"]["elem"].add(%*{
       "prefix": {
@@ -116,13 +107,13 @@ proc createSet(cidrs: seq[string]): JsonNode =
   return ipSet
 
 
-proc createRules(family: string): JsonNode =
+proc createRules(family: string, cidrs: JsonNode): JsonNode =
   info(fmt"Creating nginwho rules for {family} family")
 
   var rules = %* {
     "nftables": [
       createChain(),
-      createSet(cfElements),
+      createSet(cidrs),
       {
         "add": {
           "rule": {
@@ -270,6 +261,38 @@ proc cloudflareSetExists(configOutput: JsonNode, tableName: string): bool =
   warn(fmt"{NFT_SET_NAME_CF} does not exist")
 
 
+proc fetchCidrsFrom(fileName: string=NGINX_CIDR_FILE): JsonNode = 
+  info(fmt"Fetching CIDRs from {fileName}")
+
+  if not fileExists(fileName):
+    error(fmt"{fileName} does not exist")
+    quit(1)
+  
+  var cidrs: seq[string] = @[]
+
+  for line in lines(fileName):
+    if line.len() == 0:
+      continue
+    
+    let splitLine = line.split(" ")
+    if splitLine.len() < 2 or splitLine.len() > 2:
+      continue
+
+    if splitLine[1][0].isDigit():
+      let ipAndMask = splitLine[1].replace(";", "")
+      let ipAddr = parseIpAddress(ipAndMask.split("/")[0])
+      # TODO: Add IPv6 support
+      if ipAddr.family == IpAddressFamily.IPv6:
+        continue
+      cidrs.add($ipAndMask)
+  
+  if cidrs.len() == 0:
+    error(fmt"No CIDRs found")
+    quit(1)
+
+  return %* cidrs
+
+
 proc getFilterTableName(configOutput: JsonNode): string =
   info("Getting nftables filter table name")
 
@@ -288,7 +311,7 @@ proc getFilterTableName(configOutput: JsonNode): string =
 proc getCurrentRules(configFile: string=""): JsonNode = 
   # TODO: we do not need to get configFile or to parse files
   # we only care about the `else` part of this function - remove after tests
-  if configFile == DEFAULT_NFT_CONFIG_FILE_PATH or configFile == TEMP_NFT_FILE_PATH:
+  if configFile == NFT_CONFIG_FILE_PATH or configFile == TEMP_NFT_FILE_PATH:
     info(fmt"Getting nftables rules from {configFile}")
 
     if not fileExists(configFile):
@@ -311,23 +334,45 @@ proc getCurrentRules(configFile: string=""): JsonNode =
 proc ensureNftExists() = 
   info("Checking existence of nftables")
 
-  let result = findExe("nft")
+  let result: string = findExe("nft")
 
   if result == "":
     fatal("nftables command not found")
     quit(1)
     
 
-proc filter(ipCidr: IPCidrs) = 
+proc acceptOnly*(cidrs: JsonNode) = 
   ensureNftExists()
   
-  var configOutput: JsonNode = getCurrentRules(TEMP_NFT_FILE_PATH)
+  let configOutput: JsonNode = getCurrentRules(TEMP_NFT_FILE_PATH)
   
   let filterTableName: string = getFilterTableName(configOutput[NFT])
   if filterTableName.len() == 0:
-    error("No `inet` nftables filter found - please create one of them manually")
+    error("No `inet` nftables filter found - please create it manually")
     quit(1)
 
-  let rules: JsonNode = createRules(filterTableName)
+  if cidrs.len() != 0:
+    let rules: JsonNode = createRules(filterTableName, cidrs)
+    writeRules(rules=rules)
+    applyRules()
+  else:
+    warn("Received empty CIDRs")
+
+
+proc acceptOnly*(path: string) {.async.} = 
+  ensureNftExists()
+  
+  let configOutput: JsonNode = getCurrentRules(TEMP_NFT_FILE_PATH)
+  
+  let filterTableName: string = getFilterTableName(configOutput[NFT])
+  if filterTableName.len() == 0:
+    error("No `inet` nftables filter found - please create it manually")
+    quit(1)
+
+  let parsedCidrs: JsonNode = fetchCidrsFrom(path)
+  let rules: JsonNode = createRules(filterTableName, parsedCidrs)
+    
   writeRules(rules=rules)
   applyRules()
+
+  await sleepAsync(SIX_HOURS)
