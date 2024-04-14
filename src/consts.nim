@@ -35,7 +35,8 @@ const
   NFT_MIN_RULE_LEN*: int = 2
   NFT_SET_NAME_CF_IPv4*: string = "Cloudflare_IPv4"
   NFT_SET_NAME_CF_IPv6*: string = "Cloudflare_IPv6"
-  NFT_CHAIN_NAME*: string = "nginwho"
+  NFT_CHAIN_NGINWHO_NAME*: string = "nginwho"
+  NFT_CHAIN_INPUT_NAME*: string = "input"
   # NFT_CIDR_RULES_FILE* = "/tmp/nginwho.nft"
   NFT_CIDR_RULES_FILE*: string = "nginwho.nft"
   

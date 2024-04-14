@@ -1,13 +1,22 @@
 import std/[asyncdispatch, os, strformat, json]
 
 from strutils import split, parseInt, isDigit, join, replace, repeat
-from algorithm import sort, sorted
+from algorithm import sorted
 from json import parseFile
 from logging import info, error, warn, fatal
 from osproc import execProcess, execCmd
 from net import parseIpAddress, IpAddressFamily
 
 import consts
+
+
+type
+  NftAttrs = object
+    withNginwhoChain: bool
+    withNginwhoPolicy: bool
+    withCloudflareSet: bool
+    withInputChain: bool
+    withInputPolicy: bool
 
 
 proc applyRules(fileName: string=NFT_CIDR_RULES_FILE) =
@@ -83,7 +92,7 @@ proc createSet(cidrs: JsonNode): JsonNode =
   return ipSet
 
 
-proc createRules(family: string, cidrs: JsonNode): JsonNode =
+proc createRules(family: string, cidrs: JsonNode, nftAttes: NftAttrs): JsonNode =
   info(fmt"Creating nginwho rules for {family} family")
 
   var rules: JsonNode = %* {
@@ -156,6 +165,47 @@ proc createRules(family: string, cidrs: JsonNode): JsonNode =
   return rules
 
 
+proc inputChainHasPolicy(nftOutput: JsonNode): bool =
+  info("Checking nftables input chain for existing policy")
+
+  for element in 0..nftOutput.len() - 1:
+    if not nftOutput[element].contains("rule"):
+      continue
+    
+    let chainName = nftOutput[element]["rule"]["chain"].getStr()
+    if chainName != NFT_CHAIN_INPUT_NAME:
+      continue
+
+    let expression = nftOutput[element]["rule"]["expr"]
+    if expression.len() < 3:
+      continue
+
+    try:
+      if expression[0]["match"]["right"].contains("set"):
+        let service = expression[0]["match"]["right"]["set"].getElems()
+        if service.len() == 2 and
+          service[0].getInt() == 80 and
+          service[1].getInt() == 443:
+          info("input chain already has the required policy")
+          return true
+    except:
+      continue
+
+  warn(fmt"{NFT_CHAIN_INPUT_NAME} chain does not exist")
+
+
+proc inputChainExists(nftOutput: JsonNode): bool =
+  info("Checking nftables input chain existence")
+
+  for element in 0..nftOutput.len() - 1:
+    if nftOutput[element].contains("chain"):
+      if nftOutput[element]["chain"]["name"].getStr() == NFT_CHAIN_INPUT_NAME:
+        info(fmt"Found nftables {NFT_CHAIN_INPUT_NAME} chain")
+        return true
+
+  warn(fmt"{NFT_CHAIN_INPUT_NAME} does not exist")
+
+
 proc nginwhoChainHasPolicy(nftOutput: JsonNode): bool =
   info("Checking nftables nginwho chain for existing policy")
 
@@ -164,7 +214,7 @@ proc nginwhoChainHasPolicy(nftOutput: JsonNode): bool =
       continue
     
     let chainName = nftOutput[element]["rule"]["chain"].getStr()
-    if chainName != NFT_CHAIN_NAME:
+    if chainName != NFT_CHAIN_NGINWHO_NAME:
       continue
 
     let expression = nftOutput[element]["rule"]["expr"]
@@ -181,7 +231,7 @@ proc nginwhoChainHasPolicy(nftOutput: JsonNode): bool =
       info("nginwho chain already has the required policy")
       return true
 
-  warn(fmt"{NFT_CHAIN_NAME} does not exist")
+  warn(fmt"{NFT_CHAIN_NGINWHO_NAME} does not exist")
 
 
 proc nginwhoChainExists(nftOutput: JsonNode): bool =
@@ -189,11 +239,11 @@ proc nginwhoChainExists(nftOutput: JsonNode): bool =
 
   for element in 0..nftOutput.len() - 1:
     if nftOutput[element].contains("chain"):
-      if nftOutput[element]["chain"]["name"].getStr() == NFT_CHAIN_NAME:
-        info(fmt"Found {NFT_CHAIN_NAME} nftables chain")
+      if nftOutput[element]["chain"]["name"].getStr() == NFT_CHAIN_NGINWHO_NAME:
+        info(fmt"Found nftables {NFT_CHAIN_NGINWHO_NAME} chain")
         return true
 
-  warn(fmt"{NFT_CHAIN_NAME} does not exist")
+  warn(fmt"{NFT_CHAIN_NGINWHO_NAME} does not exist")
 
 
 proc cloudflareSetChanged(nftOutput: JsonNode, newCidrs: JsonNode): bool =
@@ -206,8 +256,8 @@ proc cloudflareSetChanged(nftOutput: JsonNode, newCidrs: JsonNode): bool =
       continue
     if nftOutput[element]["set"]["name"].getStr() == NFT_SET_NAME_CF_IPv4:
       for elem in nftOutput[element]["set"]["elem"]:
-        var address = elem["prefix"]["addr"].getStr()
-        var length = elem["prefix"]["len"].getInt()
+        let address = elem["prefix"]["addr"].getStr()
+        let length = elem["prefix"]["len"].getInt()
         let addressAndLen = fmt"{address}/{length}"
         currentSets.add(addressAndLen)
 
@@ -317,7 +367,7 @@ proc ensureNftExists() =
     quit(1)
     
 
-proc runPrechecks(cidrs: JsonNode) =
+proc runPrechecks(cidrs: JsonNode): NftAttrs =
   info("Running nftables pre-checks")
   
   ensureNftExists()
@@ -329,18 +379,26 @@ proc runPrechecks(cidrs: JsonNode) =
     error("No `inet` nftables filter found - please create it manually like:\n\n",  fmt"{NFT_SAMPLE_POLICY}")
     quit(1)
   
-  discard nginwhoChainExists(nftOutput)
-  if cloudflareSetExists(nftOutput):
-    discard cloudflareSetChanged(nftOutput, cidrs)
-  discard nginwhoChainHasPolicy(nftOutput)
+  var nftAttrs: NftAttrs
 
+  # TODO: Reverse the logic here
+  nftAttrs.withNginwhoChain = nginwhoChainExists(nftOutput)
+  nftAttrs.withNginwhoPolicy = nginwhoChainHasPolicy(nftOutput)
+
+  if cloudflareSetExists(nftOutput):
+    nftAttrs.withCloudflareSet = cloudflareSetChanged(nftOutput, cidrs)
+  
+  nftAttrs.withInputChain = inputChainExists(nftOutput)
+  nftAttrs.withInputPolicy = inputChainHasPolicy(nftOutput)
+
+  echo nftAttrs
   quit(0)
 
 
 proc acceptOnly*(cidrs: JsonNode) = 
   if cidrs.len() != 0:
-    runPrechecks(cidrs)
-    let rules: JsonNode = createRules("inet", cidrs)
+    let nftAttrs: NftAttrs = runPrechecks(cidrs)
+    let rules: JsonNode = createRules("inet", cidrs, nftAttrs)
     writeRulesAndApply(rules)
   else:
     warn("Received empty CIDRs")
@@ -348,9 +406,9 @@ proc acceptOnly*(cidrs: JsonNode) =
 
 proc acceptOnly*(path: string) {.async.} = 
   let cidrs: JsonNode = fetchCidrsFrom(path)
-  runPrechecks(cidrs)
+  let nftAttrs: NftAttrs = runPrechecks(cidrs)
 
-  let rules: JsonNode = createRules("inet", cidrs)
+  let rules: JsonNode = createRules("inet", cidrs, nftAttrs)
   writeRulesAndApply(rules)
 
   await sleepAsync(SIX_HOURS)
