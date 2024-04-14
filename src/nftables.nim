@@ -1,37 +1,13 @@
 import std/[asyncdispatch, os, strformat, json]
 
-from strutils import split, parseInt, isDigit, join, replace
+from strutils import split, parseInt, isDigit, join, replace, repeat
+from algorithm import sort, sorted
 from json import parseFile
-from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error, warn, fatal
+from logging import info, error, warn, fatal
 from osproc import execProcess, execCmd
 from net import parseIpAddress, IpAddressFamily
 
 import consts
-
-from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error, warn, fatal
-
-var logger: ConsoleLogger = newConsoleLogger(fmtStr="[$date -- $time] - $levelname: ")
-# addHandler(logger)
-
-
-var cfElements: seq[string] = @[
-  "103.21.244.0/22",
-  "103.22.200.0/22",
-  "103.31.4.0/22",
-  "104.16.0.0/13",
-  "104.24.0.0/14",
-  "108.162.192.0/18",
-  "131.0.72.0/22",
-  "141.101.64.0/18",
-  "162.158.0.0/15",
-  "172.64.0.0/13",
-  "173.245.48.0/20",
-  "188.114.96.0/20",
-  "190.93.240.0/20",
-  "197.234.240.0/22",
-  "198.41.128.0/17",
-  "127.0.0.1/32",
-]
 
 
 proc applyRules(fileName: string=NFT_CIDR_RULES_FILE) =
@@ -81,7 +57,7 @@ proc createSet(cidrs: JsonNode): JsonNode =
     "add": {
       "set": {
         "family": "inet",
-        "name": "CF_CDN_EDGE",
+        "name": NFT_SET_NAME_CF_IPv4,
         "table": "filter",
         "type": "ipv4_addr",
         "handle": 50,
@@ -110,7 +86,7 @@ proc createSet(cidrs: JsonNode): JsonNode =
 proc createRules(family: string, cidrs: JsonNode): JsonNode =
   info(fmt"Creating nginwho rules for {family} family")
 
-  var rules = %* {
+  var rules: JsonNode = %* {
     "nftables": [
       createChain(),
       createSet(cidrs),
@@ -121,25 +97,7 @@ proc createRules(family: string, cidrs: JsonNode): JsonNode =
             "table": "filter",
             "chain": "nginwho",
             "handle": 1,
-            "expr": [
-              {
-                "match": {
-                  "op": "in",
-                  "left": {
-                    "ct": {
-                      "key": "state"
-                    }
-                  },
-                  "right": [
-                    "established",
-                    "related"
-                  ]
-                }
-              },
-              {
-                "accept": newJNull()
-              }
-            ]
+            "expr": [{ "log": { "prefix": "NGINWHO_DROPPED " } }]
           }
         }
       },
@@ -153,36 +111,20 @@ proc createRules(family: string, cidrs: JsonNode): JsonNode =
             "expr": [
               {
                 "match": {
-                  "op": "==",
-                  "left": {
-                    "payload": {
-                      "protocol": "ip",
-                      "field": "saddr"
-                    }
-                  },
-                  "right": "@CF_CDN_EDGE"
+                  "op": "!=",
+                  "left": { "payload": { "protocol": "ip", "field": "saddr" } },
+                  "right": fmt"@{NFT_SET_NAME_CF_IPv4}"
                 }
               },
               {
                 "match": {
                   "op": "==",
-                  "left": {
-                    "payload": {
-                      "protocol": "tcp",
-                      "field": "dport"
-                    }
-                  },
-                  "right": {
-                    "set": [
-                      80,
-                      443
-                    ]
-                  }
+                  "left": { "payload": { "protocol": "tcp", "field": "dport" } },
+                  "right": { "set": [80, 443] }
                 }
               },
-              {
-                "accept": newJNull()
-              }
+              { "counter": { "packets": 0, "bytes": 0 } },
+              { "drop": newJNull() }
             ]
           }
         }
@@ -192,41 +134,18 @@ proc createRules(family: string, cidrs: JsonNode): JsonNode =
           "rule": {
             "family": family,
             "table": "filter",
-            "chain": "nginwho",
-            "handle": 3,
+            "chain": "input",
+            "handle": 1,
             "expr": [
               {
                 "match": {
-                  "op": "!=",
-                  "left": {
-                    "payload": {
-                      "protocol": "ip",
-                      "field": "saddr"
-                    }
-                  },
-                  "right": "@CF_CDN_EDGE"
-                }
-              },
-              {
-                "match": {
                   "op": "==",
-                  "left": {
-                    "payload": {
-                      "protocol": "tcp",
-                      "field": "dport"
-                    }
-                  },
-                  "right": {
-                    "set": [
-                      80,
-                      443
-                    ]
-                  }
+                  "left": { "payload": { "protocol": "tcp", "field": "dport" } },
+                  "right": { "set": [80, 443] }
                 }
               },
-              {
-                "drop": newJNull()
-              }
+              { "counter": { "packets": 0, "bytes": 0 } },
+              { "accept": newJNull() }
             ]
           }
         }
@@ -237,28 +156,79 @@ proc createRules(family: string, cidrs: JsonNode): JsonNode =
   return rules
 
 
-proc nginwhoChainExists(configOutput: JsonNode): bool =
+proc nginwhoChainHasPolicy(nftOutput: JsonNode): bool =
+  info("Checking nftables nginwho chain for existing policy")
+
+  for element in 0..nftOutput.len() - 1:
+    if not nftOutput[element].contains("rule"):
+      continue
+    
+    let chainName = nftOutput[element]["rule"]["chain"].getStr()
+    if chainName != NFT_CHAIN_NAME:
+      continue
+
+    let expression = nftOutput[element]["rule"]["expr"]
+    if expression.len() < 4:
+      continue
+
+    let destination = expression[0]["match"]["right"].getStr()
+    let service = expression[1]["match"]["right"]["set"].getElems()
+
+    if destination == fmt"@{NFT_SET_NAME_CF_IPv4}" and
+      service.len() == 2 and
+      service[0].getInt() == 80 and
+      service[1].getInt() == 443:
+      info("nginwho chain already has the required policy")
+      return true
+
+  warn(fmt"{NFT_CHAIN_NAME} does not exist")
+
+
+proc nginwhoChainExists(nftOutput: JsonNode): bool =
   info("Checking nftables nginwho chain existence")
 
-  for element in 0..configOutput.len() - 1:
-    if configOutput[element].contains("chain"):
-      if configOutput[element]["chain"]["name"].getStr() == NFT_CHAIN_NAME:
+  for element in 0..nftOutput.len() - 1:
+    if nftOutput[element].contains("chain"):
+      if nftOutput[element]["chain"]["name"].getStr() == NFT_CHAIN_NAME:
         info(fmt"Found {NFT_CHAIN_NAME} nftables chain")
         return true
 
   warn(fmt"{NFT_CHAIN_NAME} does not exist")
 
 
-proc cloudflareSetExists(configOutput: JsonNode, tableName: string): bool =
+proc cloudflareSetChanged(nftOutput: JsonNode, newCidrs: JsonNode): bool =
+  info("Checking nftables Cloudflare Set for changes")
+
+  var currentSets = newSeq[string]()
+
+  for element in 0..nftOutput.len() - 1:
+    if not nftOutput[element].contains("set"):
+      continue
+    if nftOutput[element]["set"]["name"].getStr() == NFT_SET_NAME_CF_IPv4:
+      for elem in nftOutput[element]["set"]["elem"]:
+        var address = elem["prefix"]["addr"].getStr()
+        var length = elem["prefix"]["len"].getInt()
+        let addressAndLen = fmt"{address}/{length}"
+        currentSets.add(addressAndLen)
+
+  if sorted(currentSets) == sorted(newCidrs.to(seq[string])):
+    info("Cloudflare Set has not changed")
+    return false
+
+  info("Cloudflare Set has changed")
+  return true
+
+
+proc cloudflareSetExists(nftOutput: JsonNode, tableName: string="inet"): bool =
   info("Checking Cloudflare nftables set existence")
 
-  for element in 0..configOutput.len() - 1:
-    if configOutput[element].contains("set"):
-      if configOutput[element]["set"]["family"].getStr() == tableName:
+  for element in 0..nftOutput.len() - 1:
+    if nftOutput[element].contains("set"):
+      if nftOutput[element]["set"]["family"].getStr() == tableName:
         info("Found Cloudflare's nftables set")
         return true
 
-  warn(fmt"{NFT_SET_NAME_CF} does not exist")
+  warn(fmt"{NFT_SET_NAME_CF_IPv4} does not exist")
 
 
 proc fetchCidrsFrom(fileName: string=NGINX_CIDR_FILE): JsonNode = 
@@ -293,19 +263,20 @@ proc fetchCidrsFrom(fileName: string=NGINX_CIDR_FILE): JsonNode =
   return %* cidrs
 
 
-proc getFilterTableName(configOutput: JsonNode): string =
-  info("Getting nftables filter table name")
+proc inetFilterExists(nftOutput: JsonNode): bool =
+  info("Checking nftables inet filter table existence")
 
   try:
-    for idx in 0..configOutput.len() - 1:
-      if configOutput[idx].contains("table"):
-        let tableFamily = configOutput[idx]["table"]["family"].getStr()
-        if tableFamily notin ["inet", "ip"]:
+    for idx in 0..nftOutput.len() - 1:
+      if nftOutput[idx].contains("table"):
+        let tableFamily: string = nftOutput[idx]["table"]["family"].getStr()
+        # if tableFamily notin ["inet", "ip"]:
+        if tableFamily != "inet":
           continue
-        info(fmt"Found table filter family with name: {tableFamily}")
-        return tableFamily
+        info(fmt"Found table inet filter family: `{tableFamily}`")
+        return true
   except Exception as e:
-    error(fmt"Failed checking table existence: {e.msg}")
+    error(fmt"Failed checking `inet` table existence: {e.msg}")
 
 
 proc getCurrentRules(configFile: string=""): JsonNode = 
@@ -331,6 +302,11 @@ proc getCurrentRules(configFile: string=""): JsonNode =
       error(fmt"Failed parsing JSON: {e.msg}")
 
 
+proc writeRulesAndApply(rules: JsonNode) =
+  writeRules(rules=rules)
+  applyRules()
+
+
 proc ensureNftExists() = 
   info("Checking existence of nftables")
 
@@ -341,38 +317,40 @@ proc ensureNftExists() =
     quit(1)
     
 
-proc acceptOnly*(cidrs: JsonNode) = 
+proc runPrechecks(cidrs: JsonNode) =
+  info("Running nftables pre-checks")
+  
   ensureNftExists()
   
-  let configOutput: JsonNode = getCurrentRules(TEMP_NFT_FILE_PATH)
-  
-  let filterTableName: string = getFilterTableName(configOutput[NFT])
-  if filterTableName.len() == 0:
-    error("No `inet` nftables filter found - please create it manually")
-    quit(1)
+  # let nftOutput: JsonNode = getCurrentRules(TEMP_NFT_FILE_PATH)[NFT_CMD]
+  let nftOutput: JsonNode = getCurrentRules()[NFT_CMD]
 
+  if not inetFilterExists(nftOutput):
+    error("No `inet` nftables filter found - please create it manually like:\n\n",  fmt"{NFT_SAMPLE_POLICY}")
+    quit(1)
+  
+  discard nginwhoChainExists(nftOutput)
+  if cloudflareSetExists(nftOutput):
+    discard cloudflareSetChanged(nftOutput, cidrs)
+  discard nginwhoChainHasPolicy(nftOutput)
+
+  quit(0)
+
+
+proc acceptOnly*(cidrs: JsonNode) = 
   if cidrs.len() != 0:
-    let rules: JsonNode = createRules(filterTableName, cidrs)
-    writeRules(rules=rules)
-    applyRules()
+    runPrechecks(cidrs)
+    let rules: JsonNode = createRules("inet", cidrs)
+    writeRulesAndApply(rules)
   else:
     warn("Received empty CIDRs")
 
 
 proc acceptOnly*(path: string) {.async.} = 
-  ensureNftExists()
-  
-  let configOutput: JsonNode = getCurrentRules(TEMP_NFT_FILE_PATH)
-  
-  let filterTableName: string = getFilterTableName(configOutput[NFT])
-  if filterTableName.len() == 0:
-    error("No `inet` nftables filter found - please create it manually")
-    quit(1)
+  let cidrs: JsonNode = fetchCidrsFrom(path)
+  runPrechecks(cidrs)
 
-  let parsedCidrs: JsonNode = fetchCidrsFrom(path)
-  let rules: JsonNode = createRules(filterTableName, parsedCidrs)
-    
-  writeRules(rules=rules)
-  applyRules()
+  let rules: JsonNode = createRules("inet", cidrs)
+  writeRulesAndApply(rules)
 
   await sleepAsync(SIX_HOURS)

@@ -17,12 +17,12 @@ By default, **nginwho** reads `nginx` logs from `/var/log/nginx/access.log` and 
 > [!IMPORTANT]
 > nginwho only supports the default nginx log format
 
-Using the `--show-real-ips` flag requires **root privileges** and leads to fetching the Cloudflare CIDRs every six hours and storing them in `/etc/nginx/reverse_proxies`.
+Using the `--show-real-ips` flag requires **root privileges** and leads to fetching the Cloudflare CIDRs every six hours and storing them in `/etc/nginx/nginwho`.
 
 Inside your nginx configuration add this line:
 
 ```text
-include /etc/nginx/reverse_proxies;
+include /etc/nginx/nginwho;
 ```
 
 So that the fetched CIDRs could be loaded into your configuration.

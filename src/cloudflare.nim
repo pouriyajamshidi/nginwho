@@ -1,14 +1,11 @@
 import std/[asyncdispatch, httpclient, json, strformat, options, strutils, times]
+
 from os import fileExists
+from logging import info, error, warn, fatal
 
 import consts
-from nginx import reloadNginx, testNginxConfig
+from nginx import reloadNginx
 from nftables import acceptOnly
-
-from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error, warn, fatal
-
-var logger: ConsoleLogger = newConsoleLogger(fmtStr="[$date -- $time] - $levelname: ")
-# addHandler(logger)
 
 
 type
@@ -20,16 +17,11 @@ type
 
 
 proc reloadNginxAt(hour: int = 3, minute: int = 0) {.async.} =
-  info(fmt"Preparing to reload nginx at {hour}:{minute}")
+  info(fmt"Preparing to soft-reload nginx at {hour}:{minute}")
 
   while true:
     let now: DateTime = getTime().local()
     if now.hour == hour and now.minute == minute:
-      let testResult: int = testNginxConfig()
-      if testResult != 0:
-        error("nginx configuration test failed")
-        continue
-
       reloadNginx()
 
     await sleepAsync(ONE_MINUTE)
@@ -108,10 +100,10 @@ proc getCurrentEtag(configFile: string=NGINX_CIDR_FILE): string =
 
 
 proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool=false) {.async.} =
+  info("Fetching and processing Cloudflare CIDRs")
+
   if blockUntrustedCidrs:
-    info("Fetching and processing Cloudflare CIDRs - will block untrusted CIDRs")
-  else:
-    info("Fetching and processing Cloudflare CIDRs")
+    warn("will block untrusted CIDRs using nftables")
 
   while true:
     let currentEtag: string = getCurrentEtag()

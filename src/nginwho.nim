@@ -1,12 +1,13 @@
 import std/[strutils, os, strformat, re, asyncdispatch]
 import db_connector/db_sqlite
+
 from parseopt import CmdLineKind, initOptParser, next
+from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error, warn, fatal
 
 import consts
 from cloudflare import fetchAndProcessIPCidrs
 from nftables import acceptOnly
 
-from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error, warn, fatal
 
 var logger: ConsoleLogger = newConsoleLogger(fmtStr="[$date -- $time] - $levelname: ")
 addHandler(logger)
@@ -27,7 +28,9 @@ type Log = object
 
 
 type
-  Flags = tuple[
+  Logs = seq[Log]
+
+  Args = tuple[
     logPath: string,
     dbPath: string,
     interval: int,
@@ -36,10 +39,9 @@ type
     blockUntrustedCidrs: bool,
     analyzeNginxLogs: bool
   ]
-  Logs = seq[Log]
 
 
-proc usage() =
+proc usage(errorCode: int = 0) =
   echo """
 
   --help, -h              : Show help
@@ -54,15 +56,22 @@ proc usage() =
   --analyze-nginx-logs    : Whether to analyze nginx logs or not. (default: true)
 
   """
-  quit()
+  quit(errorCode)
 
 
-proc getArgs(): Flags =
+proc validateArgs(args: Args) =
+  if not args.analyzeNginxLogs and
+  not args.showRealIPs and 
+  not args.blockUntrustedCidrs:
+    error("Provided flags mean do nothing... Exiting")
+    usage(1)
+
+proc getArgs(): Args =
   info("Getting user provided logs")
 
-  var flags: Flags = (
+  var args: Args = (
       logPath: NGINX_DEFAULT_LOG_PATH,
-      dbPath:DB_FILE,
+      dbPath:NGINWHO_DB_FILE,
       interval: TEN_SECONDS,
       omitReferrer: "",
       showRealIPs: false,
@@ -82,16 +91,18 @@ proc getArgs(): Flags =
       of "version", "v":
         echo VERSION
         quit(0)
-      of "logPath": flags.logPath = p.val
-      of "dbPath": flags.dbPath = p.val
-      of "interval": flags.interval = parseInt(p.val) * 1000 # convert to seconds
-      of "omit-referrer": flags.omitReferrer = p.val
-      of "show-real-ips": flags.showRealIPs = parseBool(p.val)
-      of "block-untrusted-cidrs": flags.blockUntrustedCidrs = parseBool(p.val)
-      of "analyze-nginx-logs": flags.analyzeNginxLogs = parseBool(p.val)
+      of "logPath": args.logPath = p.val
+      of "dbPath": args.dbPath = p.val
+      of "interval": args.interval = parseInt(p.val) * 1000 # convert to seconds
+      of "omit-referrer": args.omitReferrer = p.val
+      of "show-real-ips": args.showRealIPs = parseBool(p.val)
+      of "block-untrusted-cidrs": args.blockUntrustedCidrs = parseBool(p.val)
+      of "analyze-nginx-logs": args.analyzeNginxLogs = parseBool(p.val)
     of cmdArgument: discard
 
-  return flags
+  validateArgs(args)
+
+  return args
 
 
 proc writeToDatabase(logs: var seq[Log], db: DbConn) =
@@ -192,8 +203,12 @@ proc parseLogEntry(logLine: string, omit: string): Log =
   return log
 
 
-proc processLogs(args: Flags) {.async.} =
+proc processLogs(args: Args) {.async.} =
   info("Processing log entries")
+
+  if not fileExists(args.logPath):
+    error(fmt"nginx log file not found: {args.logPath}")
+    quit(1)
 
   let db: DbConn = open(args.dbPath, "", "", "")
   defer: db.close()
@@ -216,20 +231,16 @@ proc processLogs(args: Flags) {.async.} =
 proc main() =
   info("Starting nginwho")
 
-  let args: Flags = getArgs()
+  let args: Args = getArgs()
 
   if args.analyzeNginxLogs:
-    if not fileExists(args.logPath):
-      error(fmt"nginx log file not found: {args.logPath}")
-      quit(1)
     asyncCheck processLogs(args)
 
   if args.showRealIPs:
     asyncCheck fetchAndProcessIPCidrs(args.blockUntrustedCidrs)
   
   if args.blockUntrustedCidrs and not args.showRealIPs:
-    # asyncCheck acceptOnly(NGINX_CIDR_FILE)
-    asyncCheck acceptOnly(TEMP_PROXY_FILE_PATH)
+    asyncCheck acceptOnly(NGINX_CIDR_FILE)
 
   runForever()
 
