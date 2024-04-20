@@ -5,8 +5,9 @@ from parseopt import CmdLineKind, initOptParser, next
 from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error, warn, fatal
 
 import consts
+from nginx import ensureNginxExists
 from cloudflare import fetchAndProcessIPCidrs
-from nftables import acceptOnly
+from nftables import acceptOnly, ensureNftExists
 
 
 var logger: ConsoleLogger = newConsoleLogger(fmtStr="[$date -- $time] - $levelname: ")
@@ -67,7 +68,7 @@ proc validateArgs(args: Args) =
     usage(1)
 
 proc getArgs(): Args =
-  info("Getting user provided logs")
+  info("Getting user provided arguments")
 
   var args: Args = (
       logPath: NGINX_DEFAULT_LOG_PATH,
@@ -109,20 +110,20 @@ proc writeToDatabase(logs: var seq[Log], db: DbConn) =
   info("Writing data to database")
 
   db.exec(sql"""CREATE TABLE IF NOT EXISTS nginwho
-                (
-                  id                  INTEGER PRIMARY KEY,
-                  date                TEXT NOT NULL,
-                  remoteIP            TEXT NOT NULL,
-                  httpMethod          TEXT NOT NULL,
-                  requestURI          TEXT NOT NULL,
-                  statusCode          TEXT NOT NULL,
-                  responseSize        TEXT NOT NULL,
-                  referrer            TEXT NOT NULL,
-                  userAgent           TEXT NOT NULL,
-                  nonStandard         TEXT,
-                  remoteUser          TEXT NOT NULL,
-                  authenticatedUser   TEXT NOT NULL
-                )"""
+          (
+            id                  INTEGER PRIMARY KEY,
+            date                TEXT NOT NULL,
+            remoteIP            TEXT NOT NULL,
+            httpMethod          TEXT NOT NULL,
+            requestURI          TEXT NOT NULL,
+            statusCode          TEXT NOT NULL,
+            responseSize        TEXT NOT NULL,
+            referrer            TEXT NOT NULL,
+            userAgent           TEXT NOT NULL,
+            nonStandard         TEXT,
+            remoteUser          TEXT NOT NULL,
+            authenticatedUser   TEXT NOT NULL
+          )"""
   )
 
   let lastEntryDate: Row = db.getRow(sql"SELECT date FROM nginwho WHERE TRIM(date) <> '' ORDER BY rowid DESC LIMIT 1;")
@@ -143,37 +144,35 @@ proc writeToDatabase(logs: var seq[Log], db: DbConn) =
 
   for log in logs:
     db.exec(sql"""INSERT INTO nginwho
-                  (
-                    date,
-                    remoteIP,
-                    httpMethod,
-                    requestURI,
-                    statusCode,
-                    responseSize,
-                    referrer,
-                    userAgent,
-                    nonStandard,
-                    remoteUser,
-                    authenticatedUser) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    log.date,
-                    log.remoteIP,
-                    log.httpMethod,
-                    log.requestURI,
-                    log.statusCode,
-                    log.responseSize,
-                    log.referrer,
-                    log.userAgent,
-                    log.nonStandard,
-                    log.remoteUser,
-                    log.authenticatedUser
+            (
+              date,
+              remoteIP,
+              httpMethod,
+              requestURI,
+              statusCode,
+              responseSize,
+              referrer,
+              userAgent,
+              nonStandard,
+              remoteUser,
+              authenticatedUser) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+              log.date,
+              log.remoteIP,
+              log.httpMethod,
+              log.requestURI,
+              log.statusCode,
+              log.responseSize,
+              log.referrer,
+              log.userAgent,
+              log.nonStandard,
+              log.remoteUser,
+              log.authenticatedUser
     )
 
   db.exec(sql"COMMIT")
   
 
 proc parseLogEntry(logLine: string, omit: string): Log =
-  info("Parsing log entries")
-
   var log: Log
 
   let matches: seq[string] = logLine.split(re"[ ]+")
@@ -228,10 +227,22 @@ proc processLogs(args: Args) {.async.} =
     await sleepAsync args.interval
 
 
+proc runPreChecks(args: Args) =
+  info("Running pre-checks based on provided user arguments")
+
+  if args.analyzeNginxLogs:
+    ensureNginxExists()
+
+  if args.blockUntrustedCidrs:
+    ensureNftExists()  
+
+
 proc main() =
   info("Starting nginwho")
 
   let args: Args = getArgs()
+
+  runPreChecks(args)
 
   if args.analyzeNginxLogs:
     asyncCheck processLogs(args)

@@ -5,7 +5,7 @@ from logging import info, error, warn, fatal
 from consts import NGINX_CMD, NGINX_TEST_CMD, NGINX_RELOAD_CMD
 
 
-proc ensureNginxExists() =
+proc ensureNginxExists*() =
   info("Ensuring nginx command exists")
 
   let result: string = findExe(NGINX_CMD)
@@ -22,8 +22,6 @@ proc testNginxConfig(): int =
 
 proc reloadNginx*() =
   info("Attempting to soft-reload nginx")
-
-  ensureNginxExists()
 
   let testResult: int = testNginxConfig()
   if testResult != 0:

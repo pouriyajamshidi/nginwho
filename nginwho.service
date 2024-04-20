@@ -1,12 +1,12 @@
 [Unit]
-Description=nginx log parser and analyzer
+Description=nginwho - nginx log parser and analyzer
 After=Network.target
 
 [Service]
 Type=simple
 RemainAfterExit=yes
 User=root
-ExecStart=/usr/local/bin/nginwho --logPath:/var/log/nginx/access.log --dbPath:/var/log/nginwho.db --show-real-ips:true
+ExecStart=/usr/local/bin/nginwho --logPath:/var/log/nginx/access.log --dbPath:/var/log/nginwho.db --interval:30 --show-real-ips:true --block-untrusted-cidrs:true
 Restart=on-failure
 RestartSec=5
 

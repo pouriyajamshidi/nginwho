@@ -112,10 +112,12 @@ proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool=false) {.async.} =
     case cfCIDRs.isSome:
     of true:
       let cidrs: Cidrs = cfCIDRs.get()
+      
+      if blockUntrustedCidrs:
+        acceptOnly(cidrs.ipv4)
+        
       if currentEtag != cidrs.etag:
         if populateReverseProxyFile(NGINX_CIDR_FILE, cidrs):
-          if blockUntrustedCidrs:
-            acceptOnly(cidrs.ipv4)
           waitFor reloadNginxAt()
       else:
           info(fmt"etag has not changed {currentEtag}")

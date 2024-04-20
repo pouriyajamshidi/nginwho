@@ -14,9 +14,9 @@ type
   NftAttrs = object
     withNginwhoChain: bool
     withNginwhoPolicy: bool
-    withCloudflareSet: bool
     withInputChain: bool
     withInputPolicy: bool
+    withCloudflareSet: bool
 
 
 proc applyRules(fileName: string=NFT_CIDR_RULES_FILE) =
@@ -40,7 +40,7 @@ proc writeRules(fileName: string=NFT_CIDR_RULES_FILE, rules: JsonNode) =
     error(fmt"Failed writing nginwho rules to {fileName}: {e.msg}")
 
 
-proc createChain(): JsonNode =
+proc createNginwhoChain(name: string="nginwho"): JsonNode =
   info("Creating nginwho chain")
 
   return %* {
@@ -48,8 +48,8 @@ proc createChain(): JsonNode =
       "chain": {
         "family": "inet",
         "table": "filter",
-        "name": "nginwho",
-        "handle": 4,
+        "name": name,
+        "handle": 1,
         "type": "filter",
         "hook": "prerouting",
         "prio": -10,
@@ -59,7 +59,101 @@ proc createChain(): JsonNode =
   }
 
 
-proc createSet(cidrs: JsonNode): JsonNode =
+proc createNginwhoLogPolicy(family: string): JsonNode =
+  info("Creating nginwho log policy")
+
+  return %* {
+    "add": {
+      "rule": {
+        "family": family,
+        "table": "filter",
+        "chain": "nginwho",
+        "handle": 1,
+        "expr": [{ "log": { "prefix": NFT_LOG_PREFIX } }]
+      }
+    }
+  }
+
+
+proc createNginwhoPolicy(family: string): JsonNode =
+  info("Creating nginwho policy")
+
+  return %* {
+    "add": {
+      "rule": {
+        "family": family,
+        "table": "filter",
+        "chain": "nginwho",
+        "handle": 2,
+        "expr": [
+          {
+            "match": {
+              "op": "!=",
+              "left": { "payload": { "protocol": "ip", "field": "saddr" } },
+              "right": fmt"@{NFT_SET_NAME_CF_IPv4}"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": { "payload": { "protocol": "tcp", "field": "dport" } },
+              "right": { "set": [80, 443] }
+            }
+          },
+          { "counter": { "packets": 0, "bytes": 0 } },
+          { "drop": newJNull() }
+        ]
+      }
+    }
+  }
+
+
+proc createInputChain(name: string="input"): JsonNode =
+  info("Creating input chain")
+
+  return %* {
+    "add": {
+      "chain": {
+        "family": "inet",
+        "table": "filter",
+        "name": name,
+        "handle": 1,
+        "type": "filter",
+        "hook": "input",
+        "prio": 0,
+        "policy": "accept"
+      }
+    }
+  }
+
+
+proc createInputPolicy(family: string): JsonNode =
+  info("Creating input policy")
+
+  return %* {
+    "add": {
+      "rule": {
+        "family": family,
+        "table": "filter",
+        "chain": "input",
+        "handle": 2,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": { "payload": { "protocol": "tcp", "field": "dport" } },
+              "right": { "set": [80, 443] }
+            }
+          },
+          { "counter": { "packets": 0, "bytes": 0 } },
+          { "accept": newJNull() }
+        ]
+      }
+    }
+  }
+
+
+proc createIPv4Set(cidrs: JsonNode): JsonNode =
   info("Creating IPv4 set")
 
   var ipSet: JsonNode = %* {
@@ -92,76 +186,29 @@ proc createSet(cidrs: JsonNode): JsonNode =
   return ipSet
 
 
-proc createRules(family: string, cidrs: JsonNode, nftAttes: NftAttrs): JsonNode =
-  info(fmt"Creating nginwho rules for {family} family")
+proc createRules(family: string, cidrs: JsonNode, nftAttrs: NftAttrs): JsonNode =
+  info(fmt"Creating nftables rules")
 
-  var rules: JsonNode = %* {
-    "nftables": [
-      createChain(),
-      createSet(cidrs),
-      {
-        "add": {
-          "rule": {
-            "family": family,
-            "table": "filter",
-            "chain": "nginwho",
-            "handle": 1,
-            "expr": [{ "log": { "prefix": "NGINWHO_DROPPED " } }]
-          }
-        }
-      },
-      {
-        "add": {
-          "rule": {
-            "family": family,
-            "table": "filter",
-            "chain": "nginwho",
-            "handle": 2,
-            "expr": [
-              {
-                "match": {
-                  "op": "!=",
-                  "left": { "payload": { "protocol": "ip", "field": "saddr" } },
-                  "right": fmt"@{NFT_SET_NAME_CF_IPv4}"
-                }
-              },
-              {
-                "match": {
-                  "op": "==",
-                  "left": { "payload": { "protocol": "tcp", "field": "dport" } },
-                  "right": { "set": [80, 443] }
-                }
-              },
-              { "counter": { "packets": 0, "bytes": 0 } },
-              { "drop": newJNull() }
-            ]
-          }
-        }
-      },
-      {
-        "add": {
-          "rule": {
-            "family": family,
-            "table": "filter",
-            "chain": "input",
-            "handle": 1,
-            "expr": [
-              {
-                "match": {
-                  "op": "==",
-                  "left": { "payload": { "protocol": "tcp", "field": "dport" } },
-                  "right": { "set": [80, 443] }
-                }
-              },
-              { "counter": { "packets": 0, "bytes": 0 } },
-              { "accept": newJNull() }
-            ]
-          }
-        }
-      }
-    ]
-  }
+  var rules: JsonNode = %* { "nftables": [] }
+  
+  if nftAttrs.withCloudflareSet:
+    rules["nftables"].add(createIPv4Set(cidrs))
 
+  if nftAttrs.withNginwhoChain:
+    rules["nftables"].add(createNginwhoChain())
+
+  if nftAttrs.withNginwhoPolicy:
+    rules["nftables"].add(createNginwhoLogPolicy(family))
+    rules["nftables"].add(createNginwhoPolicy(family))
+
+  if nftAttrs.withInputChain:
+    rules["nftables"].add(createInputChain())
+
+  if nftAttrs.withInputPolicy:
+    rules["nftables"].add(createInputPolicy(family))
+
+  info(fmt"Successfully created nftables rules")
+  
   return rules
 
 
@@ -191,7 +238,7 @@ proc inputChainHasPolicy(nftOutput: JsonNode): bool =
     except:
       continue
 
-  warn(fmt"{NFT_CHAIN_INPUT_NAME} chain does not exist")
+  warn(fmt"{NFT_CHAIN_INPUT_NAME} chain does not have the required policy")
 
 
 proc inputChainExists(nftOutput: JsonNode): bool =
@@ -231,7 +278,7 @@ proc nginwhoChainHasPolicy(nftOutput: JsonNode): bool =
       info("nginwho chain already has the required policy")
       return true
 
-  warn(fmt"{NFT_CHAIN_NGINWHO_NAME} does not exist")
+  warn(fmt"{NFT_CHAIN_NGINWHO_NAME} chain does not have the required policy")
 
 
 proc nginwhoChainExists(nftOutput: JsonNode): bool =
@@ -243,7 +290,7 @@ proc nginwhoChainExists(nftOutput: JsonNode): bool =
         info(fmt"Found nftables {NFT_CHAIN_NGINWHO_NAME} chain")
         return true
 
-  warn(fmt"{NFT_CHAIN_NGINWHO_NAME} does not exist")
+  warn(fmt"Chain {NFT_CHAIN_NGINWHO_NAME} does not exist")
 
 
 proc cloudflareSetChanged(nftOutput: JsonNode, newCidrs: JsonNode): bool =
@@ -306,10 +353,6 @@ proc fetchCidrsFrom(fileName: string=NGINX_CIDR_FILE): JsonNode =
         continue
       cidrs.add($ipAndMask)
   
-  if cidrs.len() == 0:
-    error(fmt"No CIDRs found")
-    quit(1)
-
   return %* cidrs
 
 
@@ -357,7 +400,7 @@ proc writeRulesAndApply(rules: JsonNode) =
   applyRules()
 
 
-proc ensureNftExists() = 
+proc ensureNftExists*() = 
   info("Checking existence of nftables")
 
   let result: string = findExe("nft")
@@ -367,48 +410,70 @@ proc ensureNftExists() =
     quit(1)
     
 
+proc changesRequired(nftAttrs: NftAttrs): bool =
+  info("Checking to see if there are any nftables changes required")
+  
+  for _, value in nftAttrs.fieldPairs():
+    if value == true:
+      info("nftables requires changes")
+      return true
+    
+  info("No changes to nftables are required")
+
+  return false
+
+
 proc runPrechecks(cidrs: JsonNode): NftAttrs =
   info("Running nftables pre-checks")
   
-  ensureNftExists()
-  
-  # let nftOutput: JsonNode = getCurrentRules(TEMP_NFT_FILE_PATH)[NFT_CMD]
   let nftOutput: JsonNode = getCurrentRules()[NFT_CMD]
 
   if not inetFilterExists(nftOutput):
-    error("No `inet` nftables filter found - please create it manually like:\n\n",  fmt"{NFT_SAMPLE_POLICY}")
+    error("No `inet` nftables filter found - please create it manually like:\n\n", fmt"{NFT_SAMPLE_POLICY}")
     quit(1)
   
   var nftAttrs: NftAttrs
 
-  # TODO: Reverse the logic here
-  nftAttrs.withNginwhoChain = nginwhoChainExists(nftOutput)
-  nftAttrs.withNginwhoPolicy = nginwhoChainHasPolicy(nftOutput)
+  nftAttrs.withNginwhoChain = if nginwhoChainExists(nftOutput): false else: true
+  nftAttrs.withNginwhoPolicy = if nginwhoChainHasPolicy(nftOutput): false else: true
 
   if cloudflareSetExists(nftOutput):
-    nftAttrs.withCloudflareSet = cloudflareSetChanged(nftOutput, cidrs)
+    nftAttrs.withCloudflareSet = if cloudflareSetChanged(nftOutput, cidrs): true else: false
+  else:
+    nftAttrs.withCloudflareSet = true
   
-  nftAttrs.withInputChain = inputChainExists(nftOutput)
-  nftAttrs.withInputPolicy = inputChainHasPolicy(nftOutput)
+  nftAttrs.withInputChain = if inputChainExists(nftOutput): false else: true
+  nftAttrs.withInputPolicy = if inputChainHasPolicy(nftOutput): false else: true
 
-  echo nftAttrs
-  quit(0)
+  return nftAttrs
 
 
 proc acceptOnly*(cidrs: JsonNode) = 
-  if cidrs.len() != 0:
-    let nftAttrs: NftAttrs = runPrechecks(cidrs)
+  info(fmt"Using `{NFT_GET_RULESET_CMD}` to construct nftables rules ")
+
+  if cidrs.len() == 0:
+    warn("Received empty CIDRs")
+    return
+
+  let nftAttrs: NftAttrs = runPrechecks(cidrs)
+
+  if changesRequired(nftAttrs):
     let rules: JsonNode = createRules("inet", cidrs, nftAttrs)
     writeRulesAndApply(rules)
-  else:
-    warn("Received empty CIDRs")
 
 
 proc acceptOnly*(path: string) {.async.} = 
+  info(fmt"Using {path} to construct nftables rules ")
+
   let cidrs: JsonNode = fetchCidrsFrom(path)
+  if cidrs.len() == 0:
+    warn("Received empty CIDRs")
+    return
+
   let nftAttrs: NftAttrs = runPrechecks(cidrs)
 
-  let rules: JsonNode = createRules("inet", cidrs, nftAttrs)
-  writeRulesAndApply(rules)
+  if changesRequired(nftAttrs):
+    let rules: JsonNode = createRules("inet", cidrs, nftAttrs)
+    writeRulesAndApply(rules)
 
   await sleepAsync(SIX_HOURS)
