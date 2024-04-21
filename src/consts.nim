@@ -15,7 +15,7 @@ const
 
   CLOUDFLARE_CIDR_API_URL*: string = "https://api.cloudflare.com/client/v4/ips"
 
-  FASTLY_CIDR_API_URL:string = "https://api.fastly.com/public-ip-list"
+  # FASTLY_CIDR_API_URL:string = "https://api.fastly.com/public-ip-list"
   
   NGINX_CMD*: string = "nginx"
   NGINX_TEST_CMD*: string = "nginx -t"
@@ -35,6 +35,7 @@ const
   NFT_MIN_RULE_LEN*: int = 2
   NFT_SET_NAME_CF_IPv4*: string = "Cloudflare_IPv4"
   NFT_SET_NAME_CF_IPv6*: string = "Cloudflare_IPv6"
+  NFT_KEY_NAME*: string = "nftables"
   NFT_CHAIN_NGINWHO_NAME*: string = "nginwho"
   NFT_CHAIN_INPUT_NAME*: string = "input"
   NFT_CIDR_RULES_FILE* = "/tmp/nginwho.nft"

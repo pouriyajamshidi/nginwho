@@ -5,7 +5,7 @@ from logging import info, error, warn, fatal
 
 import consts
 from nginx import reloadNginx
-from nftables import acceptOnly
+from nftables import acceptOnly, NftSet
 
 
 type
@@ -114,7 +114,7 @@ proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool=false) {.async.} =
       let cidrs: Cidrs = cfCIDRs.get()
       
       if blockUntrustedCidrs:
-        acceptOnly(cidrs.ipv4)
+        acceptOnly(NftSet(ipv4: cidrs.ipv4, ipv6:cidrs.ipv6))
         
       if currentEtag != cidrs.etag:
         if populateReverseProxyFile(NGINX_CIDR_FILE, cidrs):
