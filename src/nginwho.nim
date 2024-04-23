@@ -1,15 +1,17 @@
-import std/[strutils, os, strformat, re]
+import std/[strutils, os, strformat, re, asyncdispatch]
 import db_connector/db_sqlite
+
 from parseopt import CmdLineKind, initOptParser, next
-include realip
+from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error, warn, fatal
+
+import consts
+from nginx import ensureNginxExists
+from cloudflare import fetchAndProcessIPCidrs
+from nftables import acceptOnly, ensureNftExists
 
 
-const
-    NGINX_DEFAULT_LOG_PATH = "/var/log/nginx/access.log"
-    DB_FILE = "/var/log/nginwho.db"
-    FIVE_SECONDS = 5_000
-    TEN_SECONDS = 10_000
-    VERSION = "0.7.1"
+var logger: ConsoleLogger = newConsoleLogger(fmtStr="[$date -- $time] - $levelname: ")
+addHandler(logger)
 
 
 type Log = object
@@ -27,38 +29,55 @@ type Log = object
 
 
 type
-  Flags = tuple[
+  Logs = seq[Log]
+
+  Args = tuple[
     logPath: string,
     dbPath: string,
     interval: int,
     omitReferrer: string,
-    showRealIPs: bool
+    showRealIPs: bool,
+    blockUntrustedCidrs: bool,
+    analyzeNginxLogs: bool
   ]
-  Logs = seq[Log]
 
 
-proc usage() =
+proc usage(errorCode: int = 0) =
   echo """
 
-  --help, -h         : Show help
-  --version, -v      : Display version and quit
-  --dbPath,          : Path to SQLite database to log reports (default: /var/log/nginwho.db)
-  --logPath,         : Path to nginx access logs (default: /var/log/nginx/access.log)
-  --interval         : Refresh interval in seconds (default: 10)
-  --omit-referrer    : Omit a specific referrer from being logged
-  --show-real-ips    : Show real IP of visitors by getting Cloudflare CIDRs to include in nginx config. Self-updates every six hours.
+  --help, -h              : Show help
+  --version, -v           : Display version and quit
+  --dbPath,               : Path to SQLite database to log reports (default: /var/log/nginwho.db)
+  --logPath,              : Path to nginx access logs (default: /var/log/nginx/access.log)
+  --interval              : Refresh interval in seconds (default: 10)
+  --omit-referrer         : Omit a specific referrer from being logged (default: none)
+  --show-real-ips         : Show real IP of visitors by getting Cloudflare CIDRs to include in nginx config.
+                            Self-updates every six hours (default: false)
+  --block-untrusted-cidrs : Block untrusted IP addresses using nftables. Only allows Cloudflare CIDRs (default: false)
+  --analyze-nginx-logs    : Whether to analyze nginx logs or not. (default: true)
 
   """
-  quit()
+  quit(errorCode)
 
 
-proc getArgs(): Flags =
-  var flags: Flags = (
+proc validateArgs(args: Args) =
+  if not args.analyzeNginxLogs and
+  not args.showRealIPs and 
+  not args.blockUntrustedCidrs:
+    error("Provided flags mean do nothing... Exiting")
+    usage(1)
+
+proc getArgs(): Args =
+  info("Getting user provided arguments")
+
+  var args: Args = (
       logPath: NGINX_DEFAULT_LOG_PATH,
-      dbPath:DB_FILE,
+      dbPath:NGINWHO_DB_FILE,
       interval: TEN_SECONDS,
       omitReferrer: "",
-      showRealIPs: false
+      showRealIPs: false,
+      blockUntrustedCidrs: false,
+      analyzeNginxLogs: true
     )
 
   var p = initOptParser()
@@ -73,75 +92,81 @@ proc getArgs(): Flags =
       of "version", "v":
         echo VERSION
         quit(0)
-      of "logPath": flags.logPath = p.val
-      of "dbPath": flags.dbPath = p.val
-      of "interval": flags.interval = parseInt(p.val) * 1000 # convert to seconds
-      of "omit-referrer": flags.omitReferrer = p.val
-      of "show-real-ips": flags.showRealIPs = parseBool(p.val)
+      of "logPath": args.logPath = p.val
+      of "dbPath": args.dbPath = p.val
+      of "interval": args.interval = parseInt(p.val) * 1000 # convert to seconds
+      of "omit-referrer": args.omitReferrer = p.val
+      of "show-real-ips": args.showRealIPs = parseBool(p.val)
+      of "block-untrusted-cidrs": args.blockUntrustedCidrs = parseBool(p.val)
+      of "analyze-nginx-logs": args.analyzeNginxLogs = parseBool(p.val)
     of cmdArgument: discard
 
-  return flags
+  validateArgs(args)
+
+  return args
 
 
 proc writeToDatabase(logs: var seq[Log], db: DbConn) =
+  info("Writing data to database")
+
   db.exec(sql"""CREATE TABLE IF NOT EXISTS nginwho
-                (
-                  id                  INTEGER PRIMARY KEY,
-                  date                TEXT NOT NULL,
-                  remoteIP            TEXT NOT NULL,
-                  httpMethod          TEXT NOT NULL,
-                  requestURI          TEXT NOT NULL,
-                  statusCode          TEXT NOT NULL,
-                  responseSize        TEXT NOT NULL,
-                  referrer            TEXT NOT NULL,
-                  userAgent           TEXT NOT NULL,
-                  nonStandard         TEXT,
-                  remoteUser          TEXT NOT NULL,
-                  authenticatedUser   TEXT NOT NULL
-                )"""
+          (
+            id                  INTEGER PRIMARY KEY,
+            date                TEXT NOT NULL,
+            remoteIP            TEXT NOT NULL,
+            httpMethod          TEXT NOT NULL,
+            requestURI          TEXT NOT NULL,
+            statusCode          TEXT NOT NULL,
+            responseSize        TEXT NOT NULL,
+            referrer            TEXT NOT NULL,
+            userAgent           TEXT NOT NULL,
+            nonStandard         TEXT,
+            remoteUser          TEXT NOT NULL,
+            authenticatedUser   TEXT NOT NULL
+          )"""
   )
 
   let lastEntryDate: Row = db.getRow(sql"SELECT date FROM nginwho WHERE TRIM(date) <> '' ORDER BY rowid DESC LIMIT 1;")
   var lastEntryDateValue: string
 
   if lastEntryDate[0] == "":
-    echo "First time fetcing date from DB"
+    info("First time fetcing date from DB")
   else:
     lastEntryDateValue = lastEntryDate[0]
 
   #TODO: Expand the conditional check (perhaps on user-agent and URL) to 
   # avoid missing entries on busy servers
   if logs[^1].date == lastEntryDateValue:
-    echo "Rows are already written to DB"
+    info("Rows are already written to DB")
     return
 
   db.exec(sql"BEGIN")
 
   for log in logs:
     db.exec(sql"""INSERT INTO nginwho
-                  (
-                    date,
-                    remoteIP,
-                    httpMethod,
-                    requestURI,
-                    statusCode,
-                    responseSize,
-                    referrer,
-                    userAgent,
-                    nonStandard,
-                    remoteUser,
-                    authenticatedUser) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    log.date,
-                    log.remoteIP,
-                    log.httpMethod,
-                    log.requestURI,
-                    log.statusCode,
-                    log.responseSize,
-                    log.referrer,
-                    log.userAgent,
-                    log.nonStandard,
-                    log.remoteUser,
-                    log.authenticatedUser
+            (
+              date,
+              remoteIP,
+              httpMethod,
+              requestURI,
+              statusCode,
+              responseSize,
+              referrer,
+              userAgent,
+              nonStandard,
+              remoteUser,
+              authenticatedUser) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+              log.date,
+              log.remoteIP,
+              log.httpMethod,
+              log.requestURI,
+              log.statusCode,
+              log.responseSize,
+              log.referrer,
+              log.userAgent,
+              log.nonStandard,
+              log.remoteUser,
+              log.authenticatedUser
     )
 
   db.exec(sql"COMMIT")
@@ -171,13 +196,19 @@ proc parseLogEntry(logLine: string, omit: string): Log =
     log.userAgent = matches[11..^1].join(" ").replace("\"", "")
     log.nonStandard = ""
   else:
-    echo fmt"Could not parse: {logLine}"
+    error(fmt"Could not parse: {logLine}")
     log.nonStandard = logLine
 
   return log
 
 
-proc processLogs(args: Flags) {.async.} =
+proc processLogs(args: Args) {.async.} =
+  info("Processing log entries")
+
+  if not fileExists(args.logPath):
+    error(fmt"nginx log file not found: {args.logPath}")
+    quit(1)
+
   let db: DbConn = open(args.dbPath, "", "", "")
   defer: db.close()
 
@@ -196,18 +227,31 @@ proc processLogs(args: Flags) {.async.} =
     await sleepAsync args.interval
 
 
-proc main() = 
-  let args: Flags = getArgs()
+proc runPreChecks(args: Args) =
+  info("Running pre-checks based on provided user arguments")
 
-  if not fileExists(args.logPath):
-    echo fmt"File not found: {args.logPath}"
-    quit(1)
+  if args.analyzeNginxLogs:
+    ensureNginxExists()
+
+  if args.blockUntrustedCidrs:
+    ensureNftExists()  
+
+
+proc main() =
+  info("Starting nginwho")
+
+  let args: Args = getArgs()
+
+  runPreChecks(args)
+
+  if args.analyzeNginxLogs:
+    asyncCheck processLogs(args)
 
   if args.showRealIPs:
-    echo "Scheduling CIDRs retrieval to display real visitors IPs"
-    asyncCheck fetchAndProcessIPCidrs()
-
-  asyncCheck processLogs(args)
+    asyncCheck fetchAndProcessIPCidrs(args.blockUntrustedCidrs)
+  
+  if args.blockUntrustedCidrs and not args.showRealIPs:
+    asyncCheck acceptOnly(NGINX_CIDR_FILE)
 
   runForever()
 

@@ -1,27 +1,36 @@
-import std/[os, osproc, strformat, times]
+from os import findExe
+from osproc import execCmd
+from logging import info, error, warn, fatal
+
+from consts import NGINX_CMD, NGINX_TEST_CMD, NGINX_RELOAD_CMD
 
 
-proc ensureNginxExists() =
-  let now: string = getTime().format("yyyy-MM-dd HH:mm:ss")
+proc ensureNginxExists*() =
+  info("Ensuring nginx command exists")
 
-  let result: string = findExe(NGINX_PROCESS_NAME)
+  let result: string = findExe(NGINX_CMD)
   if result == "":
-    quit(fmt"{now} - nginx command not found", 1)
+    error("nginx command not found")
+    quit(1)
 
 
 proc testNginxConfig(): int =
-  let now: string = getTime().format("yyyy-MM-dd HH:mm:ss")
-  echo fmt"{now} - Testing nginx configuration"
+  info("Testing nginx configuration")
 
   return execCmd(command=NGINX_TEST_CMD)
 
 
-proc reloadNginx() =
-  let now: string = getTime().format("yyyy-MM-dd HH:mm:ss")
+proc reloadNginx*() =
+  info("Attempting to soft-reload nginx")
+
+  let testResult: int = testNginxConfig()
+  if testResult != 0:
+    error("nginx configuration test failed... Aborting reload")
+    return
+
 
   let result: int = execCmd(command=NGINX_RELOAD_CMD)
   if result != 0:
-    echo fmt"{now} - nginx process reload failed"
+    error("nginx process reload failed")
   else:
-    echo fmt"{now} - nginx process reloaded successfully"
-
+    info("nginx process reloaded successfully")
