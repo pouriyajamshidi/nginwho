@@ -91,10 +91,52 @@ Let's see how nginwho works in a somewhat detailed yet short fashion.
 
 ### nginx Log Parser
 
-For the first feature and by default, **nginwho** reads `nginx` logs from `/var/log/nginx/access.log` and stores the parsed results in a **sqlite3** database located in `/var/log/nginwho.db` unless overridden by the [available flags](#flags).
+For the first and default feature, **nginwho** reads `nginx` logs from `/var/log/nginx/access.log` and stores the parsed results in a **sqlite3** database located in `/var/log/nginwho.db` unless overridden by the [available flags](#flags).
 
 > [!WARNING]
 > nginwho only supports the default nginx log format for now
+
+The table name inside the `nginwho.db` database is also named `ngiwho` and here is the schema of it:
+
+```text
+sqlite> PRAGMA table_info(nginwho);
++-----+-------------------+---------+---------+------------+----+
+| cid |       name        |  type   | notnull | dflt_value | pk |
++-----+-------------------+---------+---------+------------+----+
+| 0   | id                | INTEGER | 0       |            | 1  |
+| 1   | date              | TEXT    | 1       |            | 0  |
+| 2   | remoteIP          | TEXT    | 1       |            | 0  |
+| 3   | httpMethod        | TEXT    | 1       |            | 0  |
+| 4   | requestURI        | TEXT    | 1       |            | 0  |
+| 5   | statusCode        | TEXT    | 1       |            | 0  |
+| 6   | responseSize      | TEXT    | 1       |            | 0  |
+| 7   | referrer          | TEXT    | 1       |            | 0  |
+| 8   | userAgent         | TEXT    | 1       |            | 0  |
+| 9   | nonStandard       | TEXT    | 0       |            | 0  |
+| 10  | remoteUser        | TEXT    | 1       |            | 0  |
+| 11  | authenticatedUser | TEXT    | 1       |            | 0  |
++-----+-------------------+---------+---------+------------+----+
+```
+
+If you want to see the top 30 visited URIs of your server, then you could:
+
+1. Run `sqlite3`'s shell:
+
+   ```bash
+   sqlite3 --readonly --table /var/log/nginwho.db
+   ```
+
+2. run a **SQL** query like:
+
+   ```sql
+   SELECT requestURI, count(*) as visits
+   FROM nginwho
+   GROUP BY requestURI
+   ORDER BY visits DESC
+   LIMIT 30;
+   ```
+
+This will give you a nice table with your top 30 visited URIs.
 
 ### Restore Cloudflare Original Visitor IP
 
