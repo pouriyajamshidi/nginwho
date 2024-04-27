@@ -1,3 +1,5 @@
+import times
+
 const
   VERSION*: string = "1.0.0"
 
@@ -5,13 +7,12 @@ const
 
   NGINWHO_DB_FILE*: string = "/var/log/nginwho.db"
 
-  FIVE_SECONDS*: int = 5_000
-  TEN_SECONDS*: int = 10_000
-  ONE_MINUTE*: int = 60_000
-  THREE_HOURS*: int = 108_000_00
-  SIX_HOURS*: int = 216_000_00
-  TWELVE_HOURS*: int = 432_000_00
-  # TWELVE_HOURS*: int = int(12.hours.milliseconds)
+  FIVE_SECONDS*: int = int(initduration(seconds=5).inMilliseconds)
+  TEN_SECONDS*: int = int(initduration(seconds=10).inMilliseconds)
+  ONE_MINUTE*: int = int(initduration(minutes=1).inMilliseconds)
+  THREE_HOURS*: int = int(initduration(hours=3).inMilliseconds)
+  SIX_HOURS*: int = int(initduration(hours=6).inMilliseconds)
+  TWELVE_HOURS*: int = int(initduration(hours=12).inMilliseconds)
 
   CLOUDFLARE_CIDR_API_URL*: string = "https://api.cloudflare.com/client/v4/ips"
 
