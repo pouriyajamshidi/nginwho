@@ -69,23 +69,24 @@ proc getCloudflareCIDRs(): Option[Cidrs] =
 
   let jsonResponse: JsonNode = parseJson(response.body)
 
-  let etag: string =  jsonResponse["result"]["etag"].getStr()
-  
-  let apiSuccess: bool =  jsonResponse["success"].getBool()
+  let etag: string = jsonResponse["result"]["etag"].getStr()
+
+  let apiSuccess: bool = jsonResponse["success"].getBool()
   if apiSuccess != true:
     warn(fmt"API `success` is not true: {apiSuccess}")
     return none(Cidrs)
-  
-  let ipv4Cidrs: JsonNode =  jsonResponse["result"]["ipv4_cidrs"]
+
+  let ipv4Cidrs: JsonNode = jsonResponse["result"]["ipv4_cidrs"]
   let ipv6Cidrs: JsonNode = jsonResponse["result"]["ipv6_cidrs"]
 
   if ipv4Cidrs.isNil or ipv6Cidrs.isNil:
     return none(Cidrs)
   else:
-    return some(Cidrs(ipv4: ipv4Cidrs, ipv6: ipv6Cidrs, etag: etag, etagChanged: true))
+    return some(Cidrs(ipv4: ipv4Cidrs, ipv6: ipv6Cidrs, etag: etag,
+        etagChanged: true))
 
 
-proc getCurrentEtag(configFile: string=NGINX_CIDR_FILE): string = 
+proc getCurrentEtag(configFile: string = NGINX_CIDR_FILE): string =
   info("Getting current Cloudflare CIDRs ETAG")
 
   if not fileExists(configFile):
@@ -99,7 +100,7 @@ proc getCurrentEtag(configFile: string=NGINX_CIDR_FILE): string =
         return etagLine[1]
 
 
-proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool=false) {.async.} =
+proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool = false) {.async.} =
   info("Fetching and processing Cloudflare CIDRs")
 
   if blockUntrustedCidrs:
@@ -112,15 +113,15 @@ proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool=false) {.async.} =
     case cfCIDRs.isSome:
     of true:
       let cidrs: Cidrs = cfCIDRs.get()
-      
+
       if blockUntrustedCidrs:
-        acceptOnly(NftSet(ipv4: cidrs.ipv4, ipv6:cidrs.ipv6))
-        
+        acceptOnly(NftSet(ipv4: cidrs.ipv4, ipv6: cidrs.ipv6))
+
       if currentEtag != cidrs.etag:
         if populateReverseProxyFile(NGINX_CIDR_FILE, cidrs):
           waitFor reloadNginxAt()
       else:
-          info(fmt"etag has not changed {currentEtag}")
+        info(fmt"etag has not changed {currentEtag}")
     of false:
       error("Failed fetching CIDRs")
 

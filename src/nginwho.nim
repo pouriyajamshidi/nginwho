@@ -2,7 +2,8 @@ import std/[strutils, os, strformat, re, asyncdispatch]
 import db_connector/db_sqlite
 
 from parseopt import CmdLineKind, initOptParser, next
-from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error, warn, fatal
+from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
+    warn, fatal
 
 import consts
 from nginx import ensureNginxExists
@@ -10,7 +11,8 @@ from cloudflare import fetchAndProcessIPCidrs
 from nftables import acceptOnly, ensureNftExists
 
 
-var logger: ConsoleLogger = newConsoleLogger(fmtStr="[$date -- $time] - $levelname: ")
+var logger: ConsoleLogger = newConsoleLogger(
+    fmtStr = "[$date -- $time] - $levelname: ")
 addHandler(logger)
 
 
@@ -62,7 +64,7 @@ proc usage(errorCode: int = 0) =
 
 proc validateArgs(args: Args) =
   if not args.analyzeNginxLogs and
-  not args.showRealIPs and 
+  not args.showRealIPs and
   not args.blockUntrustedCidrs:
     error("Provided flags mean do nothing... Exiting")
     usage(1)
@@ -72,7 +74,7 @@ proc getArgs(): Args =
 
   var args: Args = (
       logPath: NGINX_DEFAULT_LOG_PATH,
-      dbPath:NGINWHO_DB_FILE,
+      dbPath: NGINWHO_DB_FILE,
       interval: TEN_SECONDS,
       omitReferrer: "",
       showRealIPs: false,
@@ -134,7 +136,7 @@ proc writeToDatabase(logs: var seq[Log], db: DbConn) =
   else:
     lastEntryDateValue = lastEntryDate[0]
 
-  #TODO: Expand the conditional check (perhaps on user-agent and URL) to 
+  #TODO: Expand the conditional check (perhaps on user-agent and URL) to
   # avoid missing entries on busy servers
   if logs[^1].date == lastEntryDateValue:
     info("Rows are already written to DB")
@@ -170,7 +172,7 @@ proc writeToDatabase(logs: var seq[Log], db: DbConn) =
     )
 
   db.exec(sql"COMMIT")
-  
+
 
 proc parseLogEntry(logLine: string, omit: string): Log =
   var log: Log
@@ -192,7 +194,7 @@ proc parseLogEntry(logLine: string, omit: string): Log =
       log.referrer = ""
     else:
       log.referrer = referrer
-      
+
     log.userAgent = matches[11..^1].join(" ").replace("\"", "")
     log.nonStandard = ""
   else:
@@ -234,7 +236,7 @@ proc runPreChecks(args: Args) =
     ensureNginxExists()
 
   if args.blockUntrustedCidrs:
-    ensureNftExists()  
+    ensureNftExists()
 
 
 proc main() =
@@ -249,7 +251,7 @@ proc main() =
 
   if args.showRealIPs:
     asyncCheck fetchAndProcessIPCidrs(args.blockUntrustedCidrs)
-  
+
   if args.blockUntrustedCidrs and not args.showRealIPs:
     asyncCheck acceptOnly(NGINX_CIDR_FILE)
 

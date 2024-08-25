@@ -17,7 +17,7 @@ proc ensureNginxExists*() =
 proc testNginxConfig(): int =
   info("Testing nginx configuration")
 
-  return execCmd(command=NGINX_TEST_CMD)
+  return execCmd(command = NGINX_TEST_CMD)
 
 
 proc reloadNginx*() =
@@ -29,7 +29,7 @@ proc reloadNginx*() =
     return
 
 
-  let result: int = execCmd(command=NGINX_RELOAD_CMD)
+  let result: int = execCmd(command = NGINX_RELOAD_CMD)
   if result != 0:
     error("nginx process reload failed")
   else:
