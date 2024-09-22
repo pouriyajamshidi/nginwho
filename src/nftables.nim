@@ -2,7 +2,7 @@ import std/[asyncdispatch, os, strformat, json]
 
 from strutils import split, parseInt, isDigit, join, replace, repeat
 from algorithm import sorted
-from json import parseFile
+# from json import parseFile
 from logging import info, error, warn, fatal
 from osproc import execProcess, execCmd
 from net import parseIpAddress, IpAddressFamily
