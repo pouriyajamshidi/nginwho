@@ -6,7 +6,7 @@ type Log* = object
   httpMethod*: string
   requestURI*: string
   statusCode*: string
-  responseSize*: string
+  responseSize*: int
   referrer*: string
   userAgent*: string
   nonStandard*: string

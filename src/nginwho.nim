@@ -12,7 +12,7 @@ from types import Args, Log, Logs
 from nginx import ensureNginxExists, ensureNginxLogExists
 from cloudflare import fetchAndProcessIPCidrs
 from nftables import acceptOnly, ensureNftExists
-from database import getDbConnection, closeDbConnection, writeToDatabase, createTables
+from database import getDbConnection, closeDbConnection, writeToDatabase, createTables, insertLog
 
 
 var logger: ConsoleLogger = newConsoleLogger(
@@ -103,7 +103,7 @@ proc parseLogEntry(logLine: string, omit: string): Log =
     log.httpMethod = matches[5].replace("\"", "")
     log.requestURI = matches[6].replace("\"", "")
     log.statusCode = matches[8]
-    log.responseSize = matches[9]
+    log.responseSize = parseInt(matches[9])
 
     let referrer = matches[10].replace("\"", "")
     if omit != "" and referrer.contains(omit):
@@ -140,7 +140,8 @@ proc processAndRecordLogs(args: Args) {.async.} =
       let log = parseLogEntry(line, args.omitReferrer)
       logs.add(log)
 
-    writeToDatabase(logs, db)
+    # writeToDatabase(logs, db)
+    insertLog(db, logs)
 
     await sleepAsync args.interval
 
