@@ -1,47 +1,24 @@
-import std/[strutils, os, strformat, re, asyncdispatch]
-import db_connector/db_sqlite
+import std/[strutils, strformat, re, asyncdispatch]
+from times import parse, Datetime, format
+from db_connector/db_sqlite import DbConn
+
 
 from parseopt import CmdLineKind, initOptParser, next
 from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
     warn, fatal
 
 import consts
-from nginx import ensureNginxExists
+from types import Args, Log, Logs
+from nginx import ensureNginxExists, ensureNginxLogExists
 from cloudflare import fetchAndProcessIPCidrs
 from nftables import acceptOnly, ensureNftExists
+from database import getDbConnection, closeDbConnection, writeToDatabase, createTables
 
 
 var logger: ConsoleLogger = newConsoleLogger(
     fmtStr = "[$date -- $time] - $levelname: ")
 addHandler(logger)
 
-
-type Log = object
-  remoteIP: string
-  remoteUser: string
-  authenticatedUser: string
-  date: string
-  httpMethod: string
-  requestURI: string
-  statusCode: string
-  responseSize: string
-  referrer: string
-  userAgent: string
-  nonStandard: string
-
-
-type
-  Logs = seq[Log]
-
-  Args = tuple[
-    logPath: string,
-    dbPath: string,
-    interval: int,
-    omitReferrer: string,
-    showRealIPs: bool,
-    blockUntrustedCidrs: bool,
-    analyzeNginxLogs: bool
-  ]
 
 
 proc usage(errorCode: int = 0) =
@@ -107,72 +84,10 @@ proc getArgs(): Args =
 
   return args
 
+proc convertDateFormat*(nginxDate: string): string =
+  let parsedDate: DateTime = parse(nginxDate, "d-MMM-yyyy:HH:mm:ss")
 
-proc writeToDatabase(logs: var seq[Log], db: DbConn) =
-  info("Writing data to database")
-
-  db.exec(sql"""CREATE TABLE IF NOT EXISTS nginwho
-          (
-            id                  INTEGER PRIMARY KEY,
-            date                TEXT NOT NULL,
-            remoteIP            TEXT NOT NULL,
-            httpMethod          TEXT NOT NULL,
-            requestURI          TEXT NOT NULL,
-            statusCode          TEXT NOT NULL,
-            responseSize        TEXT NOT NULL,
-            referrer            TEXT NOT NULL,
-            userAgent           TEXT NOT NULL,
-            nonStandard         TEXT,
-            remoteUser          TEXT NOT NULL,
-            authenticatedUser   TEXT NOT NULL
-          )"""
-  )
-
-  let lastEntryDate: Row = db.getRow(sql"SELECT date FROM nginwho WHERE TRIM(date) <> '' ORDER BY rowid DESC LIMIT 1;")
-  var lastEntryDateValue: string
-
-  if lastEntryDate[0] == "":
-    info("First time fetcing date from DB")
-  else:
-    lastEntryDateValue = lastEntryDate[0]
-
-  #TODO: Expand the conditional check (perhaps on user-agent and URL) to
-  # avoid missing entries on busy servers
-  if logs[^1].date == lastEntryDateValue:
-    info("Rows are already written to DB")
-    return
-
-  db.exec(sql"BEGIN")
-
-  for log in logs:
-    db.exec(sql"""INSERT INTO nginwho
-            (
-              date,
-              remoteIP,
-              httpMethod,
-              requestURI,
-              statusCode,
-              responseSize,
-              referrer,
-              userAgent,
-              nonStandard,
-              remoteUser,
-              authenticatedUser) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-              log.date,
-              log.remoteIP,
-              log.httpMethod,
-              log.requestURI,
-              log.statusCode,
-              log.responseSize,
-              log.referrer,
-              log.userAgent,
-              log.nonStandard,
-              log.remoteUser,
-              log.authenticatedUser
-    )
-
-  db.exec(sql"COMMIT")
-
+  return parsedDate.format("yyyy-MM-dd HH:mm:ss")
 
 proc parseLogEntry(logLine: string, omit: string): Log =
   var log: Log
@@ -180,12 +95,15 @@ proc parseLogEntry(logLine: string, omit: string): Log =
   let matches: seq[string] = logLine.split(re"[ ]+")
 
   if matches.len >= 12:
-    log.remoteIP = matches[0].replace("\"", "")
-    log.date = matches[3].replace("\"", "").replace("[", "").replace("/", "-")
+    log.remoteIP = matches[0]
+
+    log.date = convertDateFormat(matches[3].replace("\"", "").replace("[",
+        "").replace("/", "-"))
+
     log.httpMethod = matches[5].replace("\"", "")
     log.requestURI = matches[6].replace("\"", "")
-    log.statusCode = matches[8].replace("\"", "")
-    log.responseSize = matches[9].replace("\"", "")
+    log.statusCode = matches[8]
+    log.responseSize = matches[9]
 
     let referrer = matches[10].replace("\"", "")
     if omit != "" and referrer.contains(omit):
@@ -204,15 +122,13 @@ proc parseLogEntry(logLine: string, omit: string): Log =
   return log
 
 
-proc processLogs(args: Args) {.async.} =
+proc processAndRecordLogs(args: Args) {.async.} =
   info("Processing log entries")
 
-  if not fileExists(args.logPath):
-    error(fmt"nginx log file not found: {args.logPath}")
-    quit(1)
+  let db: DbConn = getDbConnection(args.dbPath)
+  defer: closeDbConnection(db)
 
-  let db: DbConn = open(args.dbPath, "", "", "")
-  defer: db.close()
+  createTables(db)
 
   while true:
     var logs: Logs
@@ -233,7 +149,9 @@ proc runPreChecks(args: Args) =
   info("Running pre-checks based on provided user arguments")
 
   if args.analyzeNginxLogs:
-    ensureNginxExists()
+    ensureNginxLogExists(args.logPath)
+    # TODO: Enable me
+    # ensureNginxExists()
 
   if args.blockUntrustedCidrs:
     ensureNftExists()
@@ -247,7 +165,7 @@ proc main() =
   runPreChecks(args)
 
   if args.analyzeNginxLogs:
-    asyncCheck processLogs(args)
+    asyncCheck processAndRecordLogs(args)
 
   if args.showRealIPs:
     asyncCheck fetchAndProcessIPCidrs(args.blockUntrustedCidrs)
