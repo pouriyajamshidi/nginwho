@@ -1,9 +1,17 @@
-from os import findExe
+from os import findExe, fileExists
 from osproc import execCmd
+from strformat import fmt
 from logging import info, error, warn, fatal
 
 from consts import NGINX_CMD, NGINX_TEST_CMD, NGINX_RELOAD_CMD
 
+
+proc ensureNginxLogExists*(logPath: string) =
+  info("Ensuring nginx logs exists")
+
+  if not fileExists(logPath):
+    error(fmt"nginx log file not found: {logPath}")
+    quit(1)
 
 proc ensureNginxExists*() =
   info("Ensuring nginx command exists")
