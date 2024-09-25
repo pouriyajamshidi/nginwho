@@ -1,8 +1,6 @@
 type Log* = object
-  remoteIP*: string
-  remoteUser*: string
-  authenticatedUser*: string
   date*: string
+  remoteIP*: string
   httpMethod*: string
   requestURI*: string
   statusCode*: string
@@ -10,6 +8,8 @@ type Log* = object
   referrer*: string
   userAgent*: string
   nonStandard*: string
+  remoteUser*: string
+  authenticatedUser*: string
 
 
 type

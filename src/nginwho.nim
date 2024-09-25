@@ -12,7 +12,8 @@ from types import Args, Log, Logs
 from nginx import ensureNginxExists, ensureNginxLogExists
 from cloudflare import fetchAndProcessIPCidrs
 from nftables import acceptOnly, ensureNftExists
-from database import getDbConnection, closeDbConnection, writeToDatabase, createTables, insertLog
+from database import getDbConnection, closeDbConnection, writeToDatabase,
+    createTables, insertLog
 
 
 var logger: ConsoleLogger = newConsoleLogger(
