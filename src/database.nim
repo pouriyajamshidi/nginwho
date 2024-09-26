@@ -5,6 +5,8 @@ from logging import info, warn, error
 
 from types import Log
 
+# TODO: Implement a hashing mechanism to make sure we do not write duplicates
+# ensure that we account for both standard and nonStandard logs
 
 proc getDbConnection*(dbPath: string): DbConn =
   try:
@@ -22,6 +24,13 @@ proc closeDbConnection*(db: DbConn) =
 
 proc createTables*(db: DbConn) =
   info("Creating database tables")
+
+  # TODO: Implement indexing:
+  # -- Create indexes for better query performance
+  # CREATE INDEX idx_logs_timestamp ON logs (timestamp);
+  # CREATE INDEX idx_logs_ip_address_id ON logs (ip_address_id);
+  # CREATE INDEX idx_logs_request_uri_id ON logs (request_uri_id);
+  # CREATE INDEX idx_logs_user_agent_id ON logs (user_agent_id);
 
   db.exec(sql"BEGIN")
 
@@ -146,77 +155,115 @@ proc createTables*(db: DbConn) =
 
   info("Created database tables")
 
-proc getOrInsertId(db: DbConn, table, column, value: string): int64 =
-  let row = db.getRow(sql("SELECT id, count FROM ? WHERE ? = ?"), table, column, value)
+proc insertOrUpdateColumn(db: DbConn, table, column, value: string): int64 =
+  let row = db.getRow(sql(fmt"SELECT id, count FROM {table} WHERE {column} = ?"), value)
 
-  if row[0].len == 0:
-    # db.exec(sql("INSERT INTO ? (?, count) VALUES (?, 1)"), table, column, value)
-    # let insertedRow = db.getRow(sql("SELECT id FROM ? WHERE ? = ?"),
-    #     table, column, value)
-    # let rowId = parseInt(insertedRow[0]).int64
-    return 0
+  if row[0] == "":
+    info(fmt"Inserting value {value} into column {column} in table {table}")
 
-  let rowId = parseInt(row[0]).int64
+    let insertedRowId = db.insertID(sql(
+        fmt"INSERT INTO {table} ({column}, count) VALUES (?, 1)"), value)
+
+    return insertedRowId
+
+  info(fmt"Updating value {value} into column {column} in table {table}")
+
+  let updatedRowId = parseInt(row[0]).int64
+
   let newCount = parseInt(row[1]) + 1
-  db.exec(sql("UPDATE ? SET count = ? WHERE id = ?"), table, newCount, rowId)
+  db.exec(sql(fmt"UPDATE {table} SET count = ? WHERE id = ?"), newCount, updatedRowId)
 
-  return rowId
+  return updatedRowId
 
 proc insertLog*(db: DbConn, logs: var seq[Log]) =
   info("Writing data to database")
 
   db.exec(sql"BEGIN")
 
+  let insertQuery = """
+    INSERT INTO nginwho 
+     (
+       date_id,
+       remoteIP_id,
+       httpMethod_id,
+       requestURI_id,
+       statusCode_id,
+       responseSize_id,
+       referrer_id,
+       userAgent_id,
+       nonStandard_id,
+       remoteUser_id,
+       authenticatedUser_id
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  """
+
+  let preparedStmt = db.prepare(insertQuery)
+  defer: preparedStmt.finalize()
+
   for log in logs:
-
     let
-      dateId = getOrInsertId(db, "date", "date", log.date)
-      remoteIPId = getOrInsertId(db, "remoteIP", "remoteIP", log.remoteIP)
-      httpMethodId = getOrInsertId(db, "httpMethod", "httpMethod",
+      dateId = insertOrUpdateColumn(db, "date", "date", log.date)
+      remoteIPId = insertOrUpdateColumn(db, "remoteIP", "remoteIP", log.remoteIP)
+      httpMethodId = insertOrUpdateColumn(db, "httpMethod", "httpMethod",
           log.httpMethod)
-      requestURIId = getOrInsertId(db, "requestURI", "requestURI",
+      requestURIId = insertOrUpdateColumn(db, "requestURI", "requestURI",
           log.requestURI)
-      statusCodeId = getOrInsertId(db, "statusCode", "statusCode",
+      statusCodeId = insertOrUpdateColumn(db, "statusCode", "statusCode",
           log.statusCode)
-      responseSizeId = getOrInsertId(db, "responseSize", "responseSize",
+      responseSizeId = insertOrUpdateColumn(db, "responseSize", "responseSize",
           $log.responseSize)
-      referrerId = getOrInsertId(db, "referrer", "referrer", log.referrer)
-      userAgentId = getOrInsertId(db, "userAgent", "userAgent", log.userAgent)
-      nonStandardId = getOrInsertId(db, "nonStandard", "nonStandard",
+      referrerId = insertOrUpdateColumn(db, "referrer", "referrer", log.referrer)
+      userAgentId = insertOrUpdateColumn(db, "userAgent", "userAgent", log.userAgent)
+      nonStandardId = insertOrUpdateColumn(db, "nonStandard", "nonStandard",
           log.nonStandard)
-      remoteUserId = getOrInsertId(db, "remoteUser", "remoteUser",
+      remoteUserId = insertOrUpdateColumn(db, "remoteUser", "remoteUser",
           log.remoteUser)
-      authenticatedUserId = getOrInsertId(db, "authenticatedUser", "user",
-          log.authenticatedUser)
+      authenticatedUserId = insertOrUpdateColumn(db, "authenticatedUser",
+          "authenticatedUser", log.authenticatedUser)
 
-    db.exec(sql"""INSERT INTO nginwho 
-            (
-              date_id,
-              remoteIP_id,
-              httpMethod_id,
-              requestURI_id,
-              statusCode_id,
-              responseSize_id,
-              referrer_id,
-              userAgent_id,
-              nonStandard_id,
-              remoteUser_id,
-              authenticatedUser_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            dateId,
-            remoteIPId,
-            httpMethodId,
-            requestURIId,
-            statusCodeId,
-            responseSizeId,
-            referrerId,
-            userAgentId,
-            nonStandardId,
-            remoteUserId,
-            authenticatedUserId
+    # db.exec(sql"""INSERT INTO nginwho
+    #         (
+    #           date_id,
+    #           remoteIP_id,
+    #           httpMethod_id,
+    #           requestURI_id,
+    #           statusCode_id,
+    #           responseSize_id,
+    #           referrer_id,
+    #           userAgent_id,
+    #           nonStandard_id,
+    #           remoteUser_id,
+    #           authenticatedUser_id
+    #         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+    #         dateId,
+    #         remoteIPId,
+    #         httpMethodId,
+    #         requestURIId,
+    #         statusCodeId,
+    #         responseSizeId,
+    #         referrerId,
+    #         userAgentId,
+    #         nonStandardId,
+    #         remoteUserId,
+    #         authenticatedUserId
+    # )
+    db.exec(
+      preparedStmt,
+      dateId,
+      remoteIPId,
+      httpMethodId,
+      requestURIId,
+      statusCodeId,
+      responseSizeId,
+      referrerId,
+      userAgentId,
+      nonStandardId,
+      remoteUserId,
+      authenticatedUserId
     )
 
   db.exec(sql"COMMIT")
+
 
 proc writeToDatabase*(logs: var seq[Log], db: DbConn) =
   info("Writing data to database")
