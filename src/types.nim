@@ -22,5 +22,8 @@ type
     omitReferrer: string,
     showRealIPs: bool,
     blockUntrustedCidrs: bool,
-    analyzeNginxLogs: bool
+    processNginxLogs: bool,
+    migrateV1ToV2Db: bool,
+    v1DbPath: string,
+    v2DbPath: string,
   ]
