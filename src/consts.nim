@@ -1,7 +1,7 @@
 import times
 
 const
-  VERSION*: string = "1.0.0"
+  VERSION*: string = "2.0.0"
 
   DATE_FORMAT*: string = "yyyy-MM-dd HH:mm:ss"
 
