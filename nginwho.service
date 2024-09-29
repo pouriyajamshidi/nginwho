@@ -6,7 +6,7 @@ After=Network.target
 Type=simple
 RemainAfterExit=yes
 User=root
-ExecStart=/usr/local/bin/nginwho --logPath:/var/log/nginx/access.log --dbPath:/var/log/nginwho.db --interval:30 --show-real-ips:true --block-untrusted-cidrs:true
+ExecStart=/usr/local/bin/nginwho --logPath:/var/log/nginx/access.log --dbPath:/var/log/nginwho.db --interval:30 --showRealIps:true --blockUntrustedCidrs:true
 Restart=on-failure
 RestartSec=5
 
