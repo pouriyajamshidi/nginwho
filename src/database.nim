@@ -350,6 +350,15 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
     closeDbConnection(v1Db)
     closeDbConnection(v2Db)
 
+  try:
+    let totalRecords = v1db.getRow(sql"SELECT COUNT(*) from nginwho")
+    info(fmt"{v1DbName} contains {totalRecords[0]} records")
+  except DbError as e:
+    error(fmt"Could not count rows in {v1DbName}: {e.msg}")
+    let recoveryCommand = fmt"sqlite3 {v1DbName} '.recover' | sqlite3 {v1DbName}_recovered.db"
+    error(fmt"Retry after recovering your DB with: {recoveryCommand}")
+    quit(1)
+
   createTables(v2Db)
 
   let selectStatement = sql"""
@@ -360,7 +369,7 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
     LIMIT ? OFFSET ?
   """
 
-  const migrationBatchSize = 10_000
+  const migrationBatchSize = 100_000
 
   var
     logs: Logs
@@ -371,15 +380,21 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
   while true:
     info(fmt"Processing records in batches of {migrationBatchSize} and offset {offset}")
 
-    let rows = v1Db.getAllRows(selectStatement, migrationBatchSize, offset)
-    if rows.len == 0:
+    var rows: seq[Row]
+
+    try:
+      rows = v1Db.getAllRows(selectStatement, migrationBatchSize, offset)
+      if rows.len == 0:
+        break
+    except DbError as e:
+      error(fmt"Could not get rows with limit of {migrationBatchSize} from offset {offset}: {e.msg}")
       break
 
     for row in rows:
       let httpMethod = row[2]
-      if httpMethod.contains("\\") or httpMethod.contains("x") or
-          httpMethod.contains("{"):
-        warn(fmt"Skipping due to bad format: {row}")
+      if httpMethod.contains("\\") or httpMethod.contains("{"):
+        warn(fmt"Skipping row due to bad format: {row}")
+        continue
 
       let log = Log(
         date: convertDateFormat(row[0]),

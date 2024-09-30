@@ -90,7 +90,7 @@ proc getArgs(): Args =
         if v1DbPath == "" or v2DbPath == "":
           error("Migration needs '--v1DbPath' and '--v2DbPath' flags")
           usage(1)
-        migrateV1ToV2("nginwho_v1.db", "nginwho_v2.db")
+        migrateV1ToV2(v1DbPath, v2DbPath)
 
       of "logPath": args.logPath = p.val
       of "dbPath": args.dbPath = p.val
@@ -166,8 +166,7 @@ proc runPreChecks(args: Args) =
 
   if args.processNginxLogs:
     ensureNginxLogExists(args.logPath)
-    # TODO: Enable me
-    # ensureNginxExists()
+    ensureNginxExists()
 
   if args.blockUntrustedCidrs:
     ensureNftExists()
