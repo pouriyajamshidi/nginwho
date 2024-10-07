@@ -1,16 +1,16 @@
 import db_connector/db_sqlite
 from std/strformat import fmt
 from std/os import fileExists
-from std/strutils import parseInt, contains
+from std/strutils import parseInt, contains, split, formatFloat, ffDecimal
+from std/times import format, epochTime
 from logging import info, warn, error
 
 from types import Log, Logs
 from utils import convertDateFormat
 
 # TODO:
-#  1. Implement a hashing mechanism to make sure we do not write duplicates
+#  1. Implement a mechanism to make sure we do not write duplicates
 #     ensure that we account for both standard and nonStandard logs
-#  2. create a separate table for `nonStandard`
 
 proc getDbConnection*(dbPath: string): DbConn =
   info(fmt"Opening Database connection to {dbPath}")
@@ -29,8 +29,9 @@ proc closeDbConnection*(db: DbConn) =
     db.close()
   except db_sqlite.DbError as e:
     warn(fmt"Could not close database: {e.msg}")
+    quit(1)
 
-proc showData() =
+proc showData*() =
   discard """
   SELECT
     nginwho.id,
@@ -136,7 +137,6 @@ proc createTables*(db: DbConn) =
           )"""
   )
 
-  # TODO: separate this into its own table
   db.exec(sql"""CREATE TABLE IF NOT EXISTS nonStandard
           (
             id INTEGER PRIMARY KEY,
@@ -197,22 +197,20 @@ proc insertOrUpdateColumn(db: DbConn, table, column, value: string): int64 =
   let row = db.getRow(sql(fmt"SELECT id, count FROM {table} WHERE {column} = ?"), value)
 
   if row[0] == "":
-    let insertedRowId = db.insertID(sql(
-        fmt"INSERT INTO {table} ({column}, count) VALUES (?, 1)"), value)
+    let insertedRowId = db.insertID(sql"INSERT INTO ? (?, count) VALUES (?, 1)",
+        table, column, value)
 
     return insertedRowId
 
   let updatedRowId = parseInt(row[0]).int64
   let newCount = parseInt(row[1]) + 1
 
-  db.exec(sql(fmt"UPDATE {table} SET count = ? WHERE id = ?"), newCount, updatedRowId)
+  db.exec(sql"UPDATE ? SET count = ? WHERE id = ?", table, newCount, updatedRowId)
 
   return updatedRowId
 
-proc insertLog*(db: DbConn, logs: var seq[Log]) =
+proc insertLog*(db: DbConn, logs: seq[Log]) =
   info(fmt"Writing {len(logs)} logs to database")
-
-  db.exec(sql"BEGIN TRANSACTION")
 
   let insertQuery = """
     INSERT INTO nginwho 
@@ -233,8 +231,25 @@ proc insertLog*(db: DbConn, logs: var seq[Log]) =
   let preparedStmt = db.prepare(insertQuery)
   defer: preparedStmt.finalize()
 
+  let insertNonStandardQuery = """
+    INSERT INTO nginwho 
+     (
+       nonStandard_id
+     ) VALUES (?)
+  """
+  let preparedNonStandardStmt = db.prepare(insertNonStandardQuery)
+  defer: preparedNonStandardStmt.finalize()
+
+
+  db.exec(sql"BEGIN TRANSACTION")
 
   for log in logs:
+    if len(log.nonStandard) != 0:
+      let nonStandardId = insertOrUpdateColumn(db, "nonStandard", "nonStandard",
+        $log.nonStandard)
+      db.exec(preparedNonStandardStmt, nonStandardId)
+      continue
+
     let
       dateId = insertOrUpdateColumn(db, "date", "date", log.date)
       remoteIPId = insertOrUpdateColumn(db, "remoteIP", "remoteIP", log.remoteIP)
@@ -350,13 +365,15 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
     closeDbConnection(v1Db)
     closeDbConnection(v2Db)
 
+  var totalRecords: string
+
   try:
-    let totalRecords = v1db.getRow(sql"SELECT COUNT(*) from nginwho")
-    info(fmt"{v1DbName} contains {totalRecords[0]} records")
+    totalRecords = v1db.getRow(sql"SELECT COUNT(*) from nginwho")[0]
+    info(fmt"{v1DbName} contains {totalRecords} records")
   except DbError as e:
     error(fmt"Could not count rows in {v1DbName}: {e.msg}")
-    let recoveryCommand = fmt"sqlite3 {v1DbName} '.recover' | sqlite3 {v1DbName}_recovered.db"
-    error(fmt"Retry after recovering your DB with: {recoveryCommand}")
+    let recoveryCommand = fmt"sqlite3 {v1DbName} '.recover' | sqlite3 {v1DbName.split('.')[0]}_recovered.db"
+    info(fmt"Retry after recovering your DB with: {recoveryCommand}")
     quit(1)
 
   createTables(v2Db)
@@ -369,22 +386,22 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
     LIMIT ? OFFSET ?
   """
 
-  const migrationBatchSize = 100_000
+  const migrationBatchSize = 50_000
 
   var
     logs: Logs
     batchCount = 0
     offset = 0
-    totalProcessedRecords = 0
+    totalRecordsToProcess = parseInt(totalRecords)
 
-  while true:
-    info(fmt"Processing records in batches of {migrationBatchSize} and offset {offset}")
+  while totalRecordsToProcess > 0:
+    info(fmt"🔥 Processing records from offset {offset} in batches of {migrationBatchSize}")
 
     var rows: seq[Row]
 
     try:
       rows = v1Db.getAllRows(selectStatement, migrationBatchSize, offset)
-      if rows.len == 0:
+      if len(rows) == 0:
         break
     except DbError as e:
       error(fmt"Could not get rows with limit of {migrationBatchSize} from offset {offset}: {e.msg}")
@@ -393,38 +410,45 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
     for row in rows:
       let httpMethod = row[2]
       if httpMethod.contains("\\") or httpMethod.contains("{"):
-        warn(fmt"Skipping row due to bad format: {row}")
+        # warn(fmt"Skipping row due to bad format: {row}")
+        warn(fmt"Experimentally adding: {row}")
+        logs.add(Log(nonStandard: $row))
         continue
 
-      let log = Log(
-        date: convertDateFormat(row[0]),
-        remoteIP: row[1],
-        httpMethod: httpMethod,
-        requestURI: row[3],
-        statusCode: row[4],
-        responseSize: parseInt(row[5]),
-        referrer: row[6],
-        userAgent: row[7],
-        remoteUser: row[8],
-        authenticatedUser: row[9]
+      logs.add(
+        Log(
+          date: convertDateFormat(row[0]),
+          remoteIP: row[1],
+          httpMethod: httpMethod,
+          requestURI: row[3],
+          statusCode: row[4],
+          responseSize: parseInt(row[5]),
+          referrer: row[6],
+          userAgent: row[7],
+          remoteUser: row[8],
+          authenticatedUser: row[9]
+        )
       )
-
-      logs.add(log)
 
       batchCount += 1
       if batchCount >= migrationBatchSize:
+        let start = epochTime()
         insertLog(v2Db, logs)
+        let elapsed = epochTime() - start
+        let elapsedStr = elapsed.formatFloat(format = ffDecimal, precision = 3)
+        info(fmt"Row insertion took {elapsedStr} seconds")
 
         batchCount = 0
-        logs = Logs(@[])
+        logs = @[]
 
     offset += migrationBatchSize
-    totalProcessedRecords += rows.len
+    totalRecordsToProcess = abs(totalRecordsToProcess - offset)
 
   # if there are leftovers, add them
   if batchCount > 0:
+    info(fmt"Adding {batchCount} leftovers")
     insertLog(v2Db, logs)
 
-  info(fmt"Processed {totalProcessedRecords} records")
+  info(fmt"Processed {totalRecords} records")
 
   quit(0)
