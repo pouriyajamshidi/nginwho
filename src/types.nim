@@ -4,10 +4,10 @@ type Log* = object
   httpMethod*: string
   requestURI*: string
   statusCode*: string
-  responseSize*: int
+  responseSize*: string
   referrer*: string
   userAgent*: string
-  nonStandard*: string
+  nonDefault*: string
   remoteUser*: string
   authenticatedUser*: string
 
