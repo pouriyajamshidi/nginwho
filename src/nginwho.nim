@@ -116,8 +116,14 @@ proc parseLogEntry(logLine: string, omit: string): Log =
   if matches.len >= 12:
     log.remoteIP = matches[0]
 
-    log.date = convertDateFormat(matches[3].replace("\"", "").replace("[",
-        "").replace("/", "-"))
+    # Nginx 1.24.0 has decided to write weird and incorrect dates
+    try:
+      log.date = convertDateFormat(matches[3].replace("\"", "").replace("[",
+          "").replace("/", "-"))
+    except Exception as e:
+      error(fmt"Failed parsing date: {e.msg}")
+      log.nonDefault = logLine
+      return log
 
     log.httpMethod = matches[5].replace("\"", "")
     log.requestURI = matches[6].replace("\"", "")
