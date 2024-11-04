@@ -1,5 +1,6 @@
 import std/[strutils, strformat, re, asyncdispatch]
 from db_connector/db_sqlite import DbConn
+from std/os import getLastModificationTime
 
 from parseopt import CmdLineKind, initOptParser, next
 from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
@@ -11,7 +12,7 @@ from nginx import ensureNginxExists, ensureNginxLogExists
 from cloudflare import fetchAndProcessIPCidrs
 from nftables import acceptOnly, ensureNftExists
 from database import getDbConnection, closeDbConnection,
-    createTables, insertLog, migrateV1ToV2
+    createTables, insertLogs, migrateV1ToV2
 from utils import convertDateFormat
 
 var logger: ConsoleLogger = newConsoleLogger(
@@ -50,6 +51,7 @@ proc validateArgs(args: Args) =
   not args.migrateV1ToV2Db:
     error("Provided flags say do nothing... Exiting")
     usage(1)
+
 
 proc getArgs(): Args =
   info("Getting user provided arguments")
@@ -105,6 +107,7 @@ proc getArgs(): Args =
 
   return args
 
+
 proc parseLogEntry(logLine: string, omit: string): Log =
   var log: Log
 
@@ -119,7 +122,7 @@ proc parseLogEntry(logLine: string, omit: string): Log =
     log.httpMethod = matches[5].replace("\"", "")
     log.requestURI = matches[6].replace("\"", "")
     log.statusCode = matches[8]
-    log.responseSize = parseInt(matches[9])
+    log.responseSize = matches[9]
 
     let referrer = matches[10].replace("\"", "")
     if omit != "" and referrer.contains(omit):
@@ -130,10 +133,10 @@ proc parseLogEntry(logLine: string, omit: string): Log =
       log.referrer = referrer
 
     log.userAgent = matches[11..^1].join(" ").replace("\"", "")
-    log.nonStandard = ""
+    log.nonDefault = ""
   else:
     error(fmt"Could not parse: {logLine}")
-    log.nonStandard = logLine
+    log.nonDefault = logLine
 
   return log
 
@@ -146,19 +149,39 @@ proc processAndRecordLogs(args: Args) {.async.} =
 
   createTables(db)
 
+  var lastModificationTime = getLastModificationTime(args.logPath)
+
   while true:
     var logs: Logs
 
     for line in lines(args.logPath):
       if line.len() == 0:
-        await sleepAsync(FIVE_SECONDS)
+        await sleepAsync(args.interval)
         continue
+
       let log = parseLogEntry(line, args.omitReferrer)
+
+      # TODO: Decide whether to exclude these or not
+      # not storing them saves up a lot of space
+      # but also lessens the view
+      if log.requestURI.endsWith(".woff2") or
+      log.requestURI.endsWith(".js") or
+      log.requestURI.endsWith(".xml") or
+      log.requestURI.endsWith(".css"):
+        continue
+
       logs.add(log)
 
-    insertLog(db, logs)
+    insertLogs(db, logs)
 
-    await sleepAsync args.interval
+    var currentModificationTime = getLastModificationTime(args.logPath)
+
+    while currentModificationTime == lastModificationTime:
+      info(fmt"{args.logPath} has not been modified... sleeping")
+      await sleepAsync(args.interval)
+      currentModificationTime = getLastModificationTime(args.logPath)
+
+    lastModificationTime = currentModificationTime
 
 
 proc runPreChecks(args: Args) =
