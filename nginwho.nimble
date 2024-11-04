@@ -10,4 +10,4 @@ bin           = @["nginwho"]
 
 # Dependencies
 
-requires "nim >= 2.0.2"
+requires "nim >= 2.2.0"
