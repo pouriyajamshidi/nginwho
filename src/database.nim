@@ -1,16 +1,14 @@
 import db_connector/db_sqlite
+from std/tables import initTable, mgetOrPut, pairs
 from std/strformat import fmt
 from std/os import fileExists
-from std/strutils import parseInt, contains, split, formatFloat, ffDecimal
+from std/strutils import parseInt, contains, split, endsWith, formatFloat, ffDecimal
 from std/times import format, epochTime
 from logging import info, warn, error
 
 from types import Log, Logs
 from utils import convertDateFormat
 
-# TODO:
-#  1. Implement a mechanism to make sure we do not write duplicates
-#     ensure that we account for both standard and nonStandard logs
 
 proc getDbConnection*(dbPath: string): DbConn =
   info(fmt"Opening Database connection to {dbPath}")
@@ -22,6 +20,7 @@ proc getDbConnection*(dbPath: string): DbConn =
     error(fmt"Could not open or connect to database: {e.msg}")
     quit(1)
 
+
 proc closeDbConnection*(db: DbConn) =
   info("Closing Database connection")
 
@@ -31,35 +30,38 @@ proc closeDbConnection*(db: DbConn) =
     warn(fmt"Could not close database: {e.msg}")
     quit(1)
 
+
 proc showData*() =
   discard """
   SELECT
     nginwho.id,
     date.date,
-    remoteIP.remoteIP,
-    httpMethod.httpMethod,
-    requestURI.requestURI,
-    statusCode.statusCode,
-    responseSize.responseSize,
-    referrer.referrer,
-    userAgent.userAgent,
-    nonStandard.nonStandard,
-    remoteUser.remoteUser,
-    authenticatedUser.authenticatedUser
+    remote_ips.remote_ip,
+    http_methods.http_method,
+    request_uris.request_uri,
+    status_codes.status_code,
+    response_sizes.response_size,
+    referrers.referrer,
+    user_agents.user_agent,
+    non_defaults.non_default,
+    remote_users.remote_user,
+    authenticated_users.authenticated_user
   FROM nginwho
   JOIN date ON nginwho.date_id = date.id
-  JOIN remoteIP ON nginwho.remoteIP_id = remoteIP.id
-  JOIN httpMethod ON nginwho.httpMethod_id = httpMethod.id
-  JOIN requestURI ON nginwho.requestURI_id = requestURI.id
-  JOIN statusCode ON nginwho.statusCode_id = statusCode.id
-  JOIN responseSize ON nginwho.responseSize_id = responseSize.id
+  JOIN remote_ip ON nginwho.remote_ip_id = remote_ip.id
+  JOIN http_method ON nginwho.httpMethod_id = http_method.id
+  JOIN request_uri ON nginwho.requestURI_id = request_uri.id
+  JOIN status_code ON nginwho.statusCode_id = status_code.id
+  JOIN response_size ON nginwho.responseSize_id = response_size.id
   JOIN referrer ON nginwho.referrer_id = referrer.id
-  JOIN userAgent ON nginwho.userAgent_id = userAgent.id
-  JOIN nonStandard ON nginwho.nonStandard_id = nonStandard.id
-  JOIN remoteUser ON nginwho.remoteUser_id = remoteUser.id
-  JOIN authenticatedUser ON nginwho.authenticatedUser_id = authenticatedUser.id
+  JOIN user_agent ON nginwho.userAgent_id = user_agent.id
+  JOIN nondefault ON nginwho.nondefault_id = nondefault.id
+  JOIN remote_user ON nginwho.remoteUser_id = remote_user.id
+  JOIN authenticated_user ON nginwho.authenticated_user_id = authenticated_user.id
   ORDER BY nginwho.id ASC
+  LIMIT 10
   """
+
 
 proc createTables*(db: DbConn) =
   info("Creating database tables")
@@ -73,221 +75,235 @@ proc createTables*(db: DbConn) =
 
   db.exec(sql"BEGIN TRANSACTION")
 
-  db.exec(sql"""CREATE TABLE IF NOT EXISTS date
-          (
-            id INTEGER PRIMARY KEY,
-            date TEXT UNIQUE NOT NULL,
-            count INTEGER NOT NULL DEFAULT 1
-          )"""
-  )
+  let columns = [
+    "date",
+    "remote_ip",
+    "http_method",
+    "request_uri",
+    "status_code",
+    "response_size",
+    "referrer",
+    "user_agent",
+    "non_default",
+    "remote_user",
+    "authenticated_user"
+  ]
 
-  db.exec(sql"""CREATE TABLE IF NOT EXISTS remoteIP
-          (
-            id INTEGER PRIMARY KEY,
-            remoteIP TEXT UNIQUE NOT NULL,
-            count INTEGER NOT NULL DEFAULT 1
-          )"""
-  )
-
-  db.exec(sql"""CREATE TABLE IF NOT EXISTS httpMethod
-          (
-            id INTEGER PRIMARY KEY,
-            httpMethod TEXT UNIQUE NOT NULL,
-            count INTEGER NOT NULL DEFAULT 1
-          )"""
-  )
-
-  db.exec(sql"""CREATE TABLE IF NOT EXISTS requestURI
-          (
-            id INTEGER PRIMARY KEY,
-            requestURI TEXT UNIQUE NOT NULL,
-            count INTEGER NOT NULL DEFAULT 1
-          )"""
-  )
-
-  db.exec(sql"""CREATE TABLE IF NOT EXISTS statusCode
-          (
-            id INTEGER PRIMARY KEY,
-            statusCode TEXT UNIQUE NOT NULL,
-            count INTEGER NOT NULL DEFAULT 1
-          )"""
-  )
-
-  db.exec(sql"""CREATE TABLE IF NOT EXISTS responseSize
-          (
-            id INTEGER PRIMARY KEY,
-            responseSize TEXT UNIQUE NOT NULL,
-            count INTEGER NOT NULL DEFAULT 1
-          )"""
-  )
-
-  db.exec(sql"""CREATE TABLE IF NOT EXISTS referrer
-          (
-            id INTEGER PRIMARY KEY,
-            referrer TEXT UNIQUE NOT NULL,
-            count INTEGER NOT NULL DEFAULT 1
-          )"""
-  )
-
-  db.exec(sql"""CREATE TABLE IF NOT EXISTS userAgent
-          (
-            id INTEGER PRIMARY KEY,
-            userAgent TEXT UNIQUE NOT NULL,
-            count INTEGER NOT NULL DEFAULT 1
-          )"""
-  )
-
-  db.exec(sql"""CREATE TABLE IF NOT EXISTS nonStandard
-          (
-            id INTEGER PRIMARY KEY,
-            nonStandard TEXT UNIQUE,
-            count INTEGER NOT NULL DEFAULT 1
-          )"""
-  )
-
-  db.exec(sql"""CREATE TABLE IF NOT EXISTS remoteUser
-          (
-            id INTEGER PRIMARY KEY,
-            remoteUser TEXT UNIQUE,
-            count INTEGER NOT NULL DEFAULT 1
-          )"""
-  )
-
-  db.exec(sql"""CREATE TABLE IF NOT EXISTS authenticatedUser
-          (
-            id INTEGER PRIMARY KEY,
-            authenticatedUser TEXT UNIQUE,
-            count INTEGER NOT NULL DEFAULT 1
-          )"""
-  )
+  for column in columns:
+    db.exec(sql(fmt"""CREATE TABLE IF NOT EXISTS {column}s
+        (
+          id INTEGER PRIMARY KEY,
+          {column} TEXT UNIQUE NOT NULL,
+          count INTEGER NOT NULL DEFAULT 1
+        )"""
+      )
+    )
 
   db.exec(sql"""CREATE TABLE IF NOT EXISTS nginwho
-          (
-            id INTEGER PRIMARY KEY,
-            date_id INTEGER NOT NULL,
-            remoteIP_id INTEGER NOT NULL,
-            httpMethod_id INTEGER NOT NULL,
-            requestURI_id INTEGER NOT NULL,
-            statusCode_id INTEGER NOT NULL,
-            responseSize_id INTEGER NOT NULL,
-            referrer_id INTEGER NOT NULL,
-            userAgent_id INTEGER NOT NULL,
-            nonStandard_id INTEGER,
-            remoteUser_id INTEGER,
-            authenticatedUser_id INTEGER,
-            FOREIGN KEY (date_id) REFERENCES date(id),
-            FOREIGN KEY (remoteIP_id) REFERENCES remoteIP(id),
-            FOREIGN KEY (httpMethod_id) REFERENCES httpMethod(id),
-            FOREIGN KEY (requestURI_id) REFERENCES requestURI(id),
-            FOREIGN KEY (statusCode_id) REFERENCES statusCode(id),
-            FOREIGN KEY (responseSize_id) REFERENCES responseSize(id),
-            FOREIGN KEY (referrer_id) REFERENCES referrer(id),
-            FOREIGN KEY (userAgent_id) REFERENCES userAgent(id),
-            FOREIGN KEY (nonStandard_id) REFERENCES nonStandard(id),
-            FOREIGN KEY (remoteUser_id) REFERENCES remoteUser(id),
-            FOREIGN KEY (authenticatedUser_id) REFERENCES authenticatedUser(id)
-          )"""
+    (
+      id INTEGER PRIMARY KEY,
+      date_id INTEGER NOT NULL,
+      remote_ip_id INTEGER NOT NULL,
+      http_method_id INTEGER NOT NULL,
+      request_uri_id INTEGER NOT NULL,
+      status_code_id INTEGER NOT NULL,
+      response_size_id INTEGER NOT NULL,
+      referrer_id INTEGER,
+      user_agent_id INTEGER NOT NULL,
+      remote_user_id INTEGER,
+      authenticated_user_id INTEGER,
+      FOREIGN KEY (date_id) REFERENCES dates(id),
+      FOREIGN KEY (remote_ip_id) REFERENCES remote_ips(id),
+      FOREIGN KEY (http_method_id) REFERENCES http_methods(id),
+      FOREIGN KEY (request_uri_id) REFERENCES request_uris(id),
+      FOREIGN KEY (status_code_id) REFERENCES status_codes(id),
+      FOREIGN KEY (response_size_id) REFERENCES response_sizes(id),
+      FOREIGN KEY (referrer_id) REFERENCES referrers(id),
+      FOREIGN KEY (user_agent_id) REFERENCES user_agents(id),
+      FOREIGN KEY (remote_user_id) REFERENCES remote_users(id),
+      FOREIGN KEY (authenticated_user_id) REFERENCES authenticated_users(id)
+    )"""
   )
 
   db.exec(sql"COMMIT")
 
-  info("Created database tables")
 
-proc insertOrUpdateColumn(db: DbConn, table, column, value: string): int64 =
-  let row = db.getRow(sql(fmt"SELECT id, count FROM {table} WHERE {column} = ?"), value)
+proc normalizeNginwhoTable(db: DbConn, logs: seq[Log]) =
+  info("Populating the nginwho table")
 
-  if row[0] == "":
-    let insertedRowId = db.insertID(sql"INSERT INTO ? (?, count) VALUES (?, 1)",
-        table, column, value)
-
-    return insertedRowId
-
-  let updatedRowId = parseInt(row[0]).int64
-  let newCount = parseInt(row[1]) + 1
-
-  db.exec(sql"UPDATE ? SET count = ? WHERE id = ?", table, newCount, updatedRowId)
-
-  return updatedRowId
-
-proc insertLog*(db: DbConn, logs: seq[Log]) =
-  info(fmt"Writing {len(logs)} logs to database")
-
-  let insertQuery = """
-    INSERT INTO nginwho 
-     (
-       date_id,
-       remoteIP_id,
-       httpMethod_id,
-       requestURI_id,
-       statusCode_id,
-       responseSize_id,
-       referrer_id,
-       userAgent_id,
-       nonStandard_id,
-       remoteUser_id,
-       authenticatedUser_id
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  let defaultQuery = sql"""
+    INSERT INTO nginwho (
+      date_id,
+      remote_ip_id,
+      http_method_id,
+      request_uri_id,
+      status_code_id,
+      response_size_id,
+      referrer_id,
+      user_agent_id,
+      remote_user_id,
+      authenticated_user_id
+    )
+    SELECT
+      (SELECT id FROM dates WHERE date = ?),
+      (SELECT id FROM remote_ips WHERE remote_ip = ?),
+      (SELECT id FROM http_methods WHERE http_method = ?),
+      (SELECT id FROM request_uris WHERE request_uri = ?),
+      (SELECT id FROM status_codes WHERE status_code = ?),
+      (SELECT id FROM response_sizes WHERE response_size = ?),
+      (SELECT id FROM referrers WHERE referrer = ?),
+      (SELECT id FROM user_agents WHERE user_agent = ?),
+      (SELECT id FROM remote_users WHERE remote_user = ?),
+      (SELECT id FROM authenticated_users WHERE authenticated_user = ?)
   """
-  let preparedStmt = db.prepare(insertQuery)
-  defer: preparedStmt.finalize()
 
-  let insertNonStandardQuery = """
-    INSERT INTO nginwho 
-     (
-       nonStandard_id
-     ) VALUES (?)
+  for log in logs:
+    if log.nonDefault != "":
+      continue
+
+    db.exec(defaultQuery,
+      log.date,
+      log.remoteIP,
+      log.httpMethod,
+      log.requestURI,
+      log.statusCode,
+      log.responseSize,
+      log.referrer,
+      log.userAgent,
+      log.remoteUser,
+      log.authenticatedUser
+    )
+
+
+proc upsert(db: DbConn, table, column: string, values: seq[string]) =
+  info(fmt"Processing {table} table")
+
+  if len(values) < 1:
+    info(fmt"No values to insert in {table} table")
+    return
+
+  let insertQuery = fmt"""
+    INSERT INTO {table} ({column}, count)
+    VALUES (?, ?)
+    ON CONFLICT ({column})
+    DO UPDATE SET
+      count = count + excluded.count
   """
-  let preparedNonStandardStmt = db.prepare(insertNonStandardQuery)
-  defer: preparedNonStandardStmt.finalize()
 
+  var valueCounts = initTable[string, int]()
+  for value in values:
+    valueCounts.mgetOrPut(value, 0).inc
+
+  for value, count in valueCounts.pairs:
+    db.exec(sql(insertQuery), value, count)
+
+  # NOTE: Left for potential future rewrite
+  # let preparedStmt = db.prepare(insertQuery)
+  # defer: preparedStmt.finalize()
+
+  # for value, count in valueCounts.pairs:
+  #   echo(fmt"Binding {value} to {count}")
+  #   preparedStmt.bindParam(1, value)
+  #   preparedStmt.bindParam(2, count)
+
+  # db.exec(preparedStmt)
+
+
+proc rowExists(db: DbConn, log: Log): bool =
+  info("Checking record existence in database")
+
+  let selectStatement = sql"""
+    SELECT 
+      d.date,
+      r.remote_ip,
+      u.request_uri
+    FROM nginwho n
+    JOIN dates d ON n.date_id = d.id
+    JOIN remote_ips r ON n.remote_ip_id = r.id
+    JOIN request_uris u ON n.request_uri_id = u.id
+    ORDER BY n.id DESC
+    LIMIT 1
+  """
+
+  let lastRow: Row = db.getRow(selectStatement)
+
+  if len(lastRow) == 0:
+    return false
+
+  let
+    date = lastRow[0]
+    remoteIP = lastRow[1]
+    requestURI = lastRow[2]
+
+  if log.date == date and
+    log.remoteIP == remoteIP and
+    log.requestURI == requestURI:
+    return true
+
+  return false
+
+
+proc insertLogs*(db: DbConn, logs: seq[Log], migrate_mode = false) =
+  let logsLen = len(logs)
+  if logsLen < 1:
+    warn("No logs received")
+    return
+
+  if not migrate_mode:
+    if rowExists(db, logs[^1]):
+      info("Database is up to date with the latest logs")
+      return
+
+  info(fmt"Inserting {logsLen} logs to database")
+
+  var
+    dates: seq[string]
+    remoteIPs: seq[string]
+    httpMethods: seq[string]
+    requestURIs: seq[string]
+    statusCodes: seq[string]
+    responseSizes: seq[string]
+    referrers: seq[string]
+    userAgents: seq[string]
+    nonDefaults: seq[string]
+    remoteUsers: seq[string]
+    authenticatedUsers: seq[string]
+
+  for log in logs:
+    if len(log.date) > 0: dates.add(log.date)
+    if len(log.remoteIP) > 0: remoteIPs.add(log.remoteIP)
+    if len(log.httpMethod) > 0: httpMethods.add(log.httpMethod)
+    if len(log.requestURI) > 0: requestURIs.add(log.requestURI)
+    if len(log.statusCode) > 0: statusCodes.add(log.statusCode)
+    if len(log.responseSize) > 0: responseSizes.add(log.responseSize)
+    if len(log.referrer) > 0: referrers.add(log.referrer)
+    if len(log.userAgent) > 0: userAgents.add(log.userAgent)
+    if len(log.nonDefault) > 0: nonDefaults.add(log.nonDefault)
+    if len(log.remoteUser) > 0: remoteUsers.add(log.remoteUser)
+    if len(log.authenticatedUser) > 0: authenticatedUsers.add(
+        log.authenticatedUser)
 
   db.exec(sql"BEGIN TRANSACTION")
 
-  for log in logs:
-    if len(log.nonStandard) != 0:
-      let nonStandardId = insertOrUpdateColumn(db, "nonStandard", "nonStandard",
-        $log.nonStandard)
-      db.exec(preparedNonStandardStmt, nonStandardId)
-      continue
+  upsert(db, "dates", "date", dates)
+  upsert(db, "remote_ips", "remote_ip", remoteIPs)
+  upsert(db, "http_methods", "http_method", httpMethods)
+  upsert(db, "request_uris", "request_uri", requestURIs)
+  upsert(db, "status_codes", "status_code", statusCodes)
+  upsert(db, "response_sizes", "response_size", responseSizes)
+  upsert(db, "referrers", "referrer", referrers)
+  upsert(db, "user_agents", "user_agent", userAgents)
+  upsert(db, "non_defaults", "non_default", nonDefaults)
+  upsert(db, "remote_users", "remote_user", remoteUsers)
+  upsert(db, "authenticated_users", "authenticated_user", authenticatedUsers)
 
-    let
-      dateId = insertOrUpdateColumn(db, "date", "date", log.date)
-      remoteIPId = insertOrUpdateColumn(db, "remoteIP", "remoteIP", log.remoteIP)
-      httpMethodId = insertOrUpdateColumn(db, "httpMethod", "httpMethod",
-          log.httpMethod)
-      requestURIId = insertOrUpdateColumn(db, "requestURI", "requestURI",
-          log.requestURI)
-      statusCodeId = insertOrUpdateColumn(db, "statusCode", "statusCode",
-          log.statusCode)
-      responseSizeId = insertOrUpdateColumn(db, "responseSize", "responseSize",
-          $log.responseSize)
-      referrerId = insertOrUpdateColumn(db, "referrer", "referrer", log.referrer)
-      userAgentId = insertOrUpdateColumn(db, "userAgent", "userAgent", log.userAgent)
-      nonStandardId = insertOrUpdateColumn(db, "nonStandard", "nonStandard",
-          log.nonStandard)
-      remoteUserId = insertOrUpdateColumn(db, "remoteUser", "remoteUser",
-          log.remoteUser)
-      authenticatedUserId = insertOrUpdateColumn(db, "authenticatedUser",
-          "authenticatedUser", log.authenticatedUser)
-
-    db.exec(
-      preparedStmt,
-      dateId,
-      remoteIPId,
-      httpMethodId,
-      requestURIId,
-      statusCodeId,
-      responseSizeId,
-      referrerId,
-      userAgentId,
-      nonStandardId,
-      remoteUserId,
-      authenticatedUserId
-    )
+  normalizeNginwhoTable(db, logs)
 
   db.exec(sql"COMMIT")
 
-proc insertLogV1*(logs: var seq[Log], db: DbConn) {.deprecated: "use insertLog instead".} =
+
+proc insertLogV1(db: DbConn, logs: var seq[
+    Log]) {.deprecated: "use insertLogs instead".} =
   info("Writing data to database")
 
   db.exec(sql"""CREATE TABLE IF NOT EXISTS nginwho
@@ -296,7 +312,7 @@ proc insertLogV1*(logs: var seq[Log], db: DbConn) {.deprecated: "use insertLog i
             date                TEXT NOT NULL,
             remoteIP            TEXT NOT NULL,
             httpMethod          TEXT NOT NULL,
-            requestURI          TEXT NOT NULL,
+            requesnonDefault   TEXT NOT NULL,
             statusCode          TEXT NOT NULL,
             responseSize        TEXT NOT NULL,
             referrer            TEXT NOT NULL,
@@ -332,7 +348,7 @@ proc insertLogV1*(logs: var seq[Log], db: DbConn) {.deprecated: "use insertLog i
               responseSize,
               referrer,
               userAgent,
-              nonStandard,
+              nonDefault,
               remoteUser,
               authenticatedUser) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
               log.date,
@@ -343,12 +359,13 @@ proc insertLogV1*(logs: var seq[Log], db: DbConn) {.deprecated: "use insertLog i
               log.responseSize,
               log.referrer,
               log.userAgent,
-              log.nonStandard,
+              log.nonDefault,
               log.remoteUser,
               log.authenticatedUser
     )
 
   db.exec(sql"COMMIT")
+
 
 proc migrateV1ToV2*(v1DbName, v2DbName: string) =
   info(fmt"Migrating v1 database at '{v1DbName}' to v2 database at '{v2DbName}'")
@@ -379,14 +396,14 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
   createTables(v2Db)
 
   let selectStatement = sql"""
-    SELECT date, remoteIP, httpMethod, requestURI, statusCode, responseSize, 
+    SELECT date, remoteIP, httpMethod, requestURI, statusCode, responseSize,
            referrer, userAgent, remoteUser, authenticatedUser
     FROM nginwho
     WHERE date IS NOT NULL AND date != ''
     LIMIT ? OFFSET ?
   """
 
-  const migrationBatchSize = 50_000
+  const migrationBatchSize = 100_000
 
   var
     logs: Logs
@@ -408,11 +425,20 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
       break
 
     for row in rows:
-      let httpMethod = row[2]
+      var httpMethod = row[2]
       if httpMethod.contains("\\") or httpMethod.contains("{"):
-        # warn(fmt"Skipping row due to bad format: {row}")
         warn(fmt"Experimentally adding: {row}")
-        logs.add(Log(nonStandard: $row))
+        logs.add(Log(nonDefault: $row))
+        continue
+
+      if httpMethod == "":
+        httpMethod = "Invalid"
+
+      let requestURI = row[3]
+      if requestURI.endsWith(".woff2") or
+      requestURI.endsWith(".js") or
+      requestURI.endsWith(".xml") or
+      requestURI.endsWith(".css"):
         continue
 
       logs.add(
@@ -420,9 +446,9 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
           date: convertDateFormat(row[0]),
           remoteIP: row[1],
           httpMethod: httpMethod,
-          requestURI: row[3],
+          requestURI: requestURI,
           statusCode: row[4],
-          responseSize: parseInt(row[5]),
+          responseSize: row[5],
           referrer: row[6],
           userAgent: row[7],
           remoteUser: row[8],
@@ -433,7 +459,7 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
       batchCount += 1
       if batchCount >= migrationBatchSize:
         let start = epochTime()
-        insertLog(v2Db, logs)
+        insertLogs(v2Db, logs, true)
         let elapsed = epochTime() - start
         let elapsedStr = elapsed.formatFloat(format = ffDecimal, precision = 3)
         info(fmt"Row insertion took {elapsedStr} seconds")
@@ -447,7 +473,7 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
   # if there are leftovers, add them
   if batchCount > 0:
     info(fmt"Adding {batchCount} leftovers")
-    insertLog(v2Db, logs)
+    insertLogs(v2Db, logs, true)
 
   info(fmt"Processed {totalRecords} records")
 
