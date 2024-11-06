@@ -3,6 +3,7 @@ from std/tables import initTable, mgetOrPut, pairs
 from std/strformat import fmt
 from std/os import fileExists
 from std/strutils import parseInt, contains, split, endsWith, formatFloat, ffDecimal
+from std/sequtils import any
 from std/times import format, epochTime
 from logging import info, warn, error
 
@@ -66,13 +67,6 @@ proc showData*() =
 proc createTables*(db: DbConn) =
   info("Creating database tables")
 
-  # TODO: Implement indexing:
-  # -- Create indexes for better query performance
-  # CREATE INDEX idx_logs_timestamp ON logs (timestamp);
-  # CREATE INDEX idx_logs_ip_address_id ON logs (ip_address_id);
-  # CREATE INDEX idx_logs_request_uri_id ON logs (request_uri_id);
-  # CREATE INDEX idx_logs_user_agent_id ON logs (user_agent_id);
-
   db.exec(sql"BEGIN TRANSACTION")
 
   let columns = [
@@ -125,6 +119,16 @@ proc createTables*(db: DbConn) =
     )"""
   )
 
+  # TODO: Check how these can be utilized
+  # db.exec(sql"""
+  #   CREATE INDEX IF NOT EXISTS idx_nginwho_date ON nginwho(date_id);
+  #   CREATE INDEX IF NOT EXISTS idx_nginwho_remote_ip ON nginwho(remote_ip_id);
+  #   CREATE INDEX IF NOT EXISTS idx_nginwho_http_method ON nginwho(http_method_id);
+  #   CREATE INDEX IF NOT EXISTS idx_nginwho_request_uri ON nginwho(request_uri_id);
+  #   CREATE INDEX IF NOT EXISTS idx_nginwho_referrer ON nginwho(referrer_id);
+  #   CREATE INDEX IF NOT EXISTS idx_nginwho_user_agent ON nginwho(user_agent_id);
+  # """)
+
   db.exec(sql"COMMIT")
 
 
@@ -175,6 +179,39 @@ proc normalizeNginwhoTable(db: DbConn, logs: seq[Log]) =
     )
 
 
+proc getLastRow(db: DbConn): Log =
+  info("Getting the last record from database")
+
+  let selectStatement = sql"""
+    SELECT 
+      d.date,
+      ri.remote_ip,
+      hm.http_method,
+      ru.request_uri
+    FROM nginwho n
+    JOIN dates d ON n.date_id = d.id
+    JOIN remote_ips ri ON n.remote_ip_id = ri.id
+    JOIN http_methods hm on n.http_method_id = hm.id
+    JOIN request_uris ru ON n.request_uri_id = ru.id
+    ORDER BY n.id DESC
+    LIMIT 1
+  """
+
+  let row = db.getRow(selectStatement)
+
+  let hasResult = any(row, proc (s: string): bool = s != "")
+  if not hasResult:
+    info("No rows in database yet")
+    return
+
+  return Log(
+    date: row[0],
+    remoteIP: row[1],
+    httpMethod: row[2],
+    requestURI: row[3],
+  )
+
+
 proc upsert(db: DbConn, table, column: string, values: seq[string]) =
   info(fmt"Processing {table} table")
 
@@ -209,52 +246,33 @@ proc upsert(db: DbConn, table, column: string, values: seq[string]) =
   # db.exec(preparedStmt)
 
 
-proc rowExists(db: DbConn, log: Log): bool =
-  info("Checking record existence in database")
-
-  let selectStatement = sql"""
-    SELECT 
-      d.date,
-      r.remote_ip,
-      u.request_uri
-    FROM nginwho n
-    JOIN dates d ON n.date_id = d.id
-    JOIN remote_ips r ON n.remote_ip_id = r.id
-    JOIN request_uris u ON n.request_uri_id = u.id
-    ORDER BY n.id DESC
-    LIMIT 1
-  """
-
-  let lastRow: Row = db.getRow(selectStatement)
-
-  if len(lastRow) == 0:
-    return false
-
-  let
-    date = lastRow[0]
-    remoteIP = lastRow[1]
-    requestURI = lastRow[2]
-
-  if log.date == date and
-    log.remoteIP == remoteIP and
-    log.requestURI == requestURI:
-    return true
-
-  return false
-
-
-proc insertLogs*(db: DbConn, logs: seq[Log], migrate_mode = false) =
+proc insertLogs*(db: DbConn, logs: var seq[Log], migrate_mode = false) =
   let logsLen = len(logs)
   if logsLen < 1:
     warn("No logs received")
     return
 
   if not migrate_mode:
-    if rowExists(db, logs[^1]):
-      info("Database is up to date with the latest logs")
-      return
+    info(fmt"Received {logsLen} logs to process")
+    let lastLog = getLastRow(db)
+    var lastLogIndex= -1
 
-  info(fmt"Inserting {logsLen} logs to database")
+    for log in logs:
+      if log.date == lastLog.date and
+      log.remoteIP == lastLog.remoteIP and
+      log.httpMethod == lastLog.httpMethod and
+      log.requestURI == lastLog.requestURI:
+        lastLogIndex = find(logs, log)
+        break
+
+    if lastLogIndex != -1:
+      if logsLen == lastLogIndex + 1:
+        info("Database is up to date with the latest logs")
+        return
+
+      logs = logs[lastLogIndex+1..^1]
+
+  info(fmt"Inserting {len(logs)} logs to database")
 
   var
     dates: seq[string]
