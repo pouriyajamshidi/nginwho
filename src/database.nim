@@ -179,7 +179,7 @@ proc normalizeNginwhoTable(db: DbConn, logs: seq[Log]) =
     )
 
 
-proc getLastRow(db: DbConn): Log =
+proc getLastRow*(db: DbConn): Log =
   info("Getting the last record from database")
 
   let selectStatement = sql"""
@@ -246,33 +246,13 @@ proc upsert(db: DbConn, table, column: string, values: seq[string]) =
   # db.exec(preparedStmt)
 
 
-proc insertLogs*(db: DbConn, logs: var seq[Log], migrate_mode = false) =
+proc insertLogs*(db: DbConn, logs: seq[Log]) =
   let logsLen = len(logs)
   if logsLen < 1:
     warn("No logs received")
     return
 
-  if not migrate_mode:
-    info(fmt"Received {logsLen} logs to process")
-    let lastLog = getLastRow(db)
-    var lastLogIndex= -1
-
-    for log in logs:
-      if log.date == lastLog.date and
-      log.remoteIP == lastLog.remoteIP and
-      log.httpMethod == lastLog.httpMethod and
-      log.requestURI == lastLog.requestURI:
-        lastLogIndex = find(logs, log)
-        break
-
-    if lastLogIndex != -1:
-      if logsLen == lastLogIndex + 1:
-        info("Database is up to date with the latest logs")
-        return
-
-      logs = logs[lastLogIndex+1..^1]
-
-  info(fmt"Inserting {len(logs)} logs to database")
+  info(fmt"Inserting {logsLen} logs into database")
 
   var
     dates: seq[string]
@@ -320,7 +300,7 @@ proc insertLogs*(db: DbConn, logs: var seq[Log], migrate_mode = false) =
   db.exec(sql"COMMIT")
 
 
-proc insertLogV1(db: DbConn, logs: var seq[
+proc insertLogV1*(db: DbConn, logs: var seq[
     Log]) {.deprecated: "use insertLogs instead".} =
   info("Writing data to database")
 
@@ -477,7 +457,7 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
       batchCount += 1
       if batchCount >= migrationBatchSize:
         let start = epochTime()
-        insertLogs(v2Db, logs, true)
+        insertLogs(v2Db, logs)
         let elapsed = epochTime() - start
         let elapsedStr = elapsed.formatFloat(format = ffDecimal, precision = 3)
         info(fmt"Row insertion took {elapsedStr} seconds")
@@ -491,7 +471,7 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
   # if there are leftovers, add them
   if batchCount > 0:
     info(fmt"Adding {batchCount} leftovers")
-    insertLogs(v2Db, logs, true)
+    insertLogs(v2Db, logs)
 
   info(fmt"Processed {totalRecords} records")
 
