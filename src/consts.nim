@@ -28,6 +28,8 @@ const
   NGINX_REAL_IP_HEADER*: string = "real_ip_header"
   NGINX_CF_REAL_IP_HEADER*: string = "CF-Connecting-IP;"
 
+  LOG_NOT_FOUND* = -1
+
   TEMP_NFT_FILE_PATH*: string = "temp/nft_working_output.json"
 
   NFT_CMD*: string = "nftables"
