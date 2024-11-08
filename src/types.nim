@@ -1,3 +1,5 @@
+from std/json import JsonNode
+
 type Log* = object
   date*: string
   remoteIP*: string
@@ -27,3 +29,38 @@ type
     v1DbPath: string,
     v2DbPath: string,
   ]
+
+
+type
+  Cidrs* = object
+    ipv4*: JsonNode
+    ipv6*: JsonNode
+    etag*: string
+    etagChanged*: bool
+
+
+type
+  SetType* = enum
+    IPv4 = "ipv4_addr"
+    IPv6 = "ipv6_addr"
+
+  IPProtocol* = enum
+    IPv4 = "ip"
+    IPv6 = "ip6"
+
+
+type
+  NftSet* = object
+    ipv4*: JsonNode
+    ipv6*: JsonNode
+
+
+type
+  NftAttrs* = object
+    withCloudflareV4Set*: bool
+    withCloudflareV6Set*: bool
+    withNginwhoChain*: bool
+    withNginwhoIPv4Policy*: bool
+    withNginwhoIPv6Policy*: bool
+    withInputChain*: bool
+    withInputPolicy*: bool
