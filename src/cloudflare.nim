@@ -1,60 +1,13 @@
-import std/[asyncdispatch, httpclient, json, strformat, options, strutils, times]
+import std/[asyncdispatch, httpclient, json, strformat, options, strutils]
 
 from os import fileExists
 from logging import info, error, warn, fatal
 
 import consts
-from nginx import reloadNginx
-from nftables import acceptOnly, NftSet
+from nginx import reloadNginxAt, populateReverseProxyFile
+from nftables import acceptOnly
+from types import Cidrs, NftSet
 
-
-type
-  Cidrs = object
-    ipv4: JsonNode
-    ipv6: JsonNode
-    etag: string
-    etagChanged: bool
-
-
-proc reloadNginxAt(hour: int = 3, minute: int = 0) {.async.} =
-  info(fmt"Preparing to soft-reload nginx at {hour}:{minute}")
-
-  while true:
-    let now: DateTime = getTime().local()
-    if now.hour == hour and now.minute == minute:
-      reloadNginx()
-
-    await sleepAsync(ONE_MINUTE)
-
-
-proc populateReverseProxyFile(filePath: string, cidrs: Cidrs): bool =
-  info(fmt"Populating CIDRs file in {filePath}")
-
-  let now: string = getTime().format(DATE_FORMAT)
-
-  if cidrs.etagChanged:
-    try:
-      let file: File = open(filePath, fmWrite)
-      defer: file.close()
-
-      file.write("# Cloudflare ranges\n")
-      file.write("# Last update: ", now, "\n")
-      file.write("# Last etag: ", cidrs.etag, "\n\n")
-      file.write("# IPv4 CIDRs\n")
-
-      for cidr in cidrs.ipv4:
-        file.write(NGINX_SET_REAL_IP_FROM, " ", cidr.getStr(), ";", "\n")
-
-      file.write("\n# IPv6 CIDRs\n")
-
-      for cidr in cidrs.ipv6:
-        file.write(NGINX_SET_REAL_IP_FROM, " ", cidr.getStr(), ";", "\n")
-
-      file.write("\n\n", NGINX_REAL_IP_HEADER, " ", NGINX_CF_REAL_IP_HEADER, "\n")
-      return true
-    except:
-      error(fmt"Could not open {filePath}")
-      return false
 
 
 proc getCloudflareCIDRs(): Option[Cidrs] =
@@ -103,9 +56,6 @@ proc getCurrentEtag(configFile: string = NGINX_CIDR_FILE): string =
 proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool = false) {.async.} =
   info("Fetching and processing Cloudflare CIDRs")
 
-  if blockUntrustedCidrs:
-    warn("will block untrusted CIDRs using nftables")
-
   while true:
     let currentEtag: string = getCurrentEtag()
     let cfCIDRs: Option[Cidrs] = getCloudflareCIDRs()
@@ -115,15 +65,15 @@ proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool = false) {.async.} =
       let cidrs: Cidrs = cfCIDRs.get()
 
       if blockUntrustedCidrs:
+        warn("will block untrusted CIDRs using nftables")
         acceptOnly(NftSet(ipv4: cidrs.ipv4, ipv6: cidrs.ipv6))
 
       if currentEtag != cidrs.etag:
         if populateReverseProxyFile(NGINX_CIDR_FILE, cidrs):
-          waitFor reloadNginxAt()
+          waitFor reloadNginxAt(3, 0)
       else:
         info(fmt"etag has not changed {currentEtag}")
     of false:
       error("Failed fetching CIDRs")
 
     await sleepAsync(SIX_HOURS)
-
