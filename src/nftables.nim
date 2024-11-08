@@ -2,39 +2,13 @@ import std/[asyncdispatch, os, strformat, json]
 
 from strutils import split, parseInt, isDigit, join, replace, repeat
 from algorithm import sorted
-# from json import parseFile
 from logging import info, error, warn, fatal
 from osproc import execProcess, execCmd
 from net import parseIpAddress, IpAddressFamily
+from types import SetType, IPProtocol, NftSet, NftAttrs
 
 import consts
 
-
-type
-  SetType = enum
-    IPv4 = "ipv4_addr"
-    IPv6 = "ipv6_addr"
-
-  IPProtocol = enum
-    IPv4 = "ip"
-    IPv6 = "ip6"
-
-
-type
-  NftSet* = object
-    ipv4*: JsonNode
-    ipv6*: JsonNode
-
-
-type
-  NftAttrs = object
-    withCloudflareV4Set: bool
-    withCloudflareV6Set: bool
-    withNginwhoChain: bool
-    withNginwhoIPv4Policy: bool
-    withNginwhoIPv6Policy: bool
-    withInputChain: bool
-    withInputPolicy: bool
 
 
 proc applyRules(fileName: string = NFT_CIDR_RULES_FILE) =
