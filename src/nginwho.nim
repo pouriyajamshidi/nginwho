@@ -232,6 +232,7 @@ proc main() =
     asyncCheck processAndRecordLogs(args)
 
   if args.showRealIPs:
+    warn("Do not forget to add `include /etc/nginx/nginwho;` in your nginx config file")
     asyncCheck fetchAndProcessIPCidrs(args.blockUntrustedCidrs)
 
   if args.blockUntrustedCidrs and not args.showRealIPs:
