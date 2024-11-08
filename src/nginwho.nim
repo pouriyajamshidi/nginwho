@@ -12,7 +12,7 @@ from nginx import ensureNginxExists, ensureNginxLogExists
 from cloudflare import fetchAndProcessIPCidrs
 from nftables import acceptOnly, ensureNftExists
 from database import getDbConnection, closeDbConnection,
-    createTables, insertLogs, migrateV1ToV2
+    createTables, insertLogs, migrateV1ToV2, getLastRow
 from utils import convertDateFormat
 
 var logger: ConsoleLogger = newConsoleLogger(
@@ -121,7 +121,7 @@ proc parseLogEntry(logLine: string, omit: string): Log =
       log.date = convertDateFormat(matches[3].replace("\"", "").replace("[",
           "").replace("/", "-"))
     except Exception as e:
-      error(fmt"Failed parsing date: {e.msg}")
+      error(fmt"Failed parsing log date: {e.msg}")
       log.nonDefault = logLine
       return log
 
@@ -168,17 +168,36 @@ proc processAndRecordLogs(args: Args) {.async.} =
       let log = parseLogEntry(line, args.omitReferrer)
 
       # TODO: Decide whether to exclude these or not
-      # not storing them saves up a lot of space
-      # but also lessens the view
       if log.requestURI.endsWith(".woff2") or
       log.requestURI.endsWith(".js") or
-      log.requestURI.endsWith(".xml") or
+      # log.requestURI.endsWith(".xml") or
       log.requestURI.endsWith(".css"):
         continue
 
       logs.add(log)
 
-    insertLogs(db, logs)
+    let logsLen = len(logs)
+    info(fmt"Got {logsLen} logs to process")
+
+    let lastLog = getLastRow(db)
+    var lastLogIndex = LOG_NOT_FOUND
+
+    for log in logs:
+      if log.date == lastLog.date and
+      log.remoteIP == lastLog.remoteIP and
+      log.httpMethod == lastLog.httpMethod and
+      log.requestURI == lastLog.requestURI:
+        lastLogIndex = find(logs, log)
+        break
+
+    if lastLogIndex == LOG_NOT_FOUND:
+      insertLogs(db, logs)
+    else:
+      if logsLen != lastLogIndex + 1:
+        logs = logs[lastLogIndex+1..^1]
+        insertLogs(db, logs)
+      else:
+        info("Database is up to date with the latest logs")
 
     var currentModificationTime = getLastModificationTime(args.logPath)
 
@@ -195,7 +214,8 @@ proc runPreChecks(args: Args) =
 
   if args.processNginxLogs:
     ensureNginxLogExists(args.logPath)
-    ensureNginxExists()
+    # TODO: Enable me
+    # ensureNginxExists()
 
   if args.blockUntrustedCidrs:
     ensureNftExists()
