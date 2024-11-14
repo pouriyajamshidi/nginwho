@@ -13,6 +13,7 @@ from cloudflare import fetchAndProcessIPCidrs
 from nftables import acceptOnly, ensureNftExists
 from database import getDbConnection, closeDbConnection,
     createTables, insertLogs, migrateV1ToV2, getLastRow
+from report import report
 from utils import convertDateFormat
 
 var logger: ConsoleLogger = newConsoleLogger(
@@ -34,6 +35,7 @@ proc usage(errorCode: int = 0) =
                             Self-updates every six hours (default: false)
   --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows Cloudflare CIDRs (default: false)
   --processNginxLogs      : Process nginx logs (default: true)
+  --report                : Enter report mode and query the database for statistics
 
   --migrateV1ToV2Db       : Migrate V1 database to V2 and exit (default: false).
                             Use with '--v1DbPath' and '--v2DbPath' flags
@@ -64,6 +66,7 @@ proc getArgs(): Args =
       showRealIPs: false,
       blockUntrustedCidrs: false,
       processNginxLogs: true,
+      report: false,
       migrateV1ToV2Db: false,
       v1DbPath: "",
       v2DbPath: "",
@@ -81,6 +84,7 @@ proc getArgs(): Args =
     of cmdEnd: break
     of cmdShortOption, cmdLongOption:
       case p.key
+      of "report": args.report = true
       of "help", "h": usage()
       of "version", "v":
         echo VERSION
@@ -102,6 +106,9 @@ proc getArgs(): Args =
       of "blockUntrustedCidrs": args.blockUntrustedCidrs = parseBool(p.val)
       of "processNginxLogs": args.processNginxLogs = parseBool(p.val)
     of cmdArgument: discard
+
+  if args.report:
+    report(args.dbPath)
 
   validateArgs(args)
 
@@ -190,7 +197,7 @@ proc processAndRecordLogs(args: Args) {.async.} =
         lastLogIndex = find(logs, log)
         break
 
-    if lastLogIndex == LOG_NOT_FOUND:
+    if lastLogIndex == LOG_NOT_FOUND and len(logs) > 0:
       insertLogs(db, logs)
     else:
       if logsLen != lastLogIndex + 1:
