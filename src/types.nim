@@ -25,6 +25,7 @@ type
     showRealIPs: bool,
     blockUntrustedCidrs: bool,
     processNginxLogs: bool,
+    report: bool,
     migrateV1ToV2Db: bool,
     v1DbPath: string,
     v2DbPath: string,
