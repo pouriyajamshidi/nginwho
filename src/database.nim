@@ -32,36 +32,124 @@ proc closeDbConnection*(db: DbConn) =
     quit(1)
 
 
-proc showData*() =
-  discard """
+proc getTopIPs*(db: DbConn, num: uint = 3): seq[Row] =
+  info(fmt"Getting top {num} visitor IPs")
+
+  let statement = fmt"""
   SELECT
-    nginwho.id,
-    date.date,
-    remote_ips.remote_ip,
-    http_methods.http_method,
-    request_uris.request_uri,
-    status_codes.status_code,
-    response_sizes.response_size,
-    referrers.referrer,
-    user_agents.user_agent,
-    non_defaults.non_default,
-    remote_users.remote_user,
-    authenticated_users.authenticated_user
-  FROM nginwho
-  JOIN date ON nginwho.date_id = date.id
-  JOIN remote_ip ON nginwho.remote_ip_id = remote_ip.id
-  JOIN http_method ON nginwho.httpMethod_id = http_method.id
-  JOIN request_uri ON nginwho.requestURI_id = request_uri.id
-  JOIN status_code ON nginwho.statusCode_id = status_code.id
-  JOIN response_size ON nginwho.responseSize_id = response_size.id
-  JOIN referrer ON nginwho.referrer_id = referrer.id
-  JOIN user_agent ON nginwho.userAgent_id = user_agent.id
-  JOIN nondefault ON nginwho.nondefault_id = nondefault.id
-  JOIN remote_user ON nginwho.remoteUser_id = remote_user.id
-  JOIN authenticated_user ON nginwho.authenticated_user_id = authenticated_user.id
-  ORDER BY nginwho.id ASC
-  LIMIT 10
+    remote_ip, count
+  FROM remote_ips
+  ORDER BY count DESC
+  LIMIT {num}
   """
+
+  let rows = db.getAllRows(sql(statement))
+
+  if len(rows) < 1:
+    warn("No records found")
+    return
+
+  return rows
+
+
+proc getTopURIs*(db: DbConn, num: uint = 3): seq[Row] =
+  info(fmt"Getting top {num} URIs")
+
+  let statement = fmt"""
+  SELECT
+    request_uri, count
+  FROM request_uris
+  ORDER BY count DESC
+  LIMIT {num}
+  """
+
+  let rows = db.getAllRows(sql(statement))
+
+  if len(rows) < 1:
+    warn("No records found")
+    return
+
+  return rows
+
+
+proc getTopReferres*(db: DbConn, num: uint = 3): seq[Row] =
+  info(fmt"Getting top {num} referrers")
+
+  let statement = fmt"""
+  SELECT
+    referrer, count
+  FROM referrers
+  ORDER BY count DESC
+  LIMIT {num}
+  """
+
+  let rows = db.getAllRows(sql(statement))
+
+  if len(rows) < 1:
+    warn("No records found")
+    return
+
+  return rows
+
+
+proc getTopUnsuccessfulRequests*(db: DbConn, num: uint = 3): seq[Row] =
+  info(fmt"Getting top {num} unsuccessful requests")
+
+  let statement = fmt"""
+  SELECT
+    d.date,
+    sc.status_code,
+    ru.request_uri,
+    hm.http_method,
+    ua.user_agent,
+    COUNT(*) as occurrence_count
+  FROM nginwho n
+  JOIN dates d ON n.date_id = d.id
+  JOIN status_codes sc ON n.status_code_id = sc.id
+  JOIN request_uris ru ON n.request_uri_id = ru.id
+  JOIN http_methods hm ON n.http_method_id = hm.id
+  JOIN user_agents ua ON n.user_agent_id = ua.id
+  WHERE
+      d.date >= date('now', '-30 days')
+      AND CAST(sc.status_code AS INTEGER) NOT BETWEEN 200 AND 399
+      AND hm.http_method = 'GET'
+  GROUP BY d.date, sc.status_code, ru.request_uri
+  ORDER BY occurrence_count DESC
+  LIMIT {num}
+  """
+
+  let rows = db.getAllRows(sql(statement))
+
+  if len(rows) < 1:
+    warn("No records found")
+    return
+
+  var count = 1
+  for row in rows:
+    echo(fmt"{count}) {row[0]} - {row[1]} - {row[3]} - {row[2]} - seen {row[5]} -- user agent: {row[4]}")
+    count += 1
+
+  return rows
+
+
+proc getNonDefaults*(db: DbConn, num: uint = 3): seq[Row] =
+  info(fmt"Getting top {num} non-default logs")
+
+  let statement = fmt"""
+  SELECT
+    non_default, count
+  FROM non_defaults
+  ORDER BY count DESC
+  LIMIT {num}
+  """
+
+  let rows = db.getAllRows(sql(statement))
+
+  if len(rows) < 1:
+    warn("No records found")
+    return
+
+  return rows
 
 
 proc createTables*(db: DbConn) =
