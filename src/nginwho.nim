@@ -221,8 +221,7 @@ proc runPreChecks(args: Args) =
 
   if args.processNginxLogs:
     ensureNginxLogExists(args.logPath)
-    # TODO: Enable me
-    # ensureNginxExists()
+    ensureNginxExists()
 
   if args.blockUntrustedCidrs:
     ensureNftExists()
