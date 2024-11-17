@@ -1,47 +1,25 @@
-import std/[strutils, os, strformat, re, asyncdispatch]
-import db_connector/db_sqlite
+import std/[strutils, strformat, re, asyncdispatch]
+from db_connector/db_sqlite import DbConn
+from std/os import getLastModificationTime
 
 from parseopt import CmdLineKind, initOptParser, next
 from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
     warn, fatal
 
 import consts
-from nginx import ensureNginxExists
+from types import Args, Log, Logs
+from nginx import ensureNginxExists, ensureNginxLogExists
 from cloudflare import fetchAndProcessIPCidrs
 from nftables import acceptOnly, ensureNftExists
-
+from database import getDbConnection, closeDbConnection,
+    createTables, insertLogs, migrateV1ToV2, getLastRow
+from report import report
+from utils import convertDateFormat
 
 var logger: ConsoleLogger = newConsoleLogger(
     fmtStr = "[$date -- $time] - $levelname: ")
 addHandler(logger)
 
-
-type Log = object
-  remoteIP: string
-  remoteUser: string
-  authenticatedUser: string
-  date: string
-  httpMethod: string
-  requestURI: string
-  statusCode: string
-  responseSize: string
-  referrer: string
-  userAgent: string
-  nonStandard: string
-
-
-type
-  Logs = seq[Log]
-
-  Args = tuple[
-    logPath: string,
-    dbPath: string,
-    interval: int,
-    omitReferrer: string,
-    showRealIPs: bool,
-    blockUntrustedCidrs: bool,
-    analyzeNginxLogs: bool
-  ]
 
 
 proc usage(errorCode: int = 0) =
@@ -52,22 +30,30 @@ proc usage(errorCode: int = 0) =
   --dbPath,               : Path to SQLite database to log reports (default: /var/log/nginwho.db)
   --logPath,              : Path to nginx access logs (default: /var/log/nginx/access.log)
   --interval              : Refresh interval in seconds (default: 10)
-  --omit-referrer         : Omit a specific referrer from being logged (default: none)
-  --show-real-ips         : Show real IP of visitors by getting Cloudflare CIDRs to include in nginx config.
+  --omitReferrer          : Omit a specific referrer from being logged (default: none)
+  --showRealIps           : Show real IP of visitors by getting Cloudflare CIDRs to include in nginx config.
                             Self-updates every six hours (default: false)
-  --block-untrusted-cidrs : Block untrusted IP addresses using nftables. Only allows Cloudflare CIDRs (default: false)
-  --analyze-nginx-logs    : Whether to analyze nginx logs or not. (default: true)
+  --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows Cloudflare CIDRs (default: false)
+  --processNginxLogs      : Process nginx logs (default: true)
+  --report                : Enter report mode and query the database for statistics
+
+  --migrateV1ToV2Db       : Migrate V1 database to V2 and exit (default: false).
+                            Use with '--v1DbPath' and '--v2DbPath' flags
+  --v1DbPath              : Path and name of the V1 database (e.g: /var/log/nginwho_v1.db)
+  --v2DbPath              : Path and name of the V2 database (e.g: /var/log/nginwho.db)
 
   """
   quit(errorCode)
 
 
 proc validateArgs(args: Args) =
-  if not args.analyzeNginxLogs and
+  if not args.processNginxLogs and
   not args.showRealIPs and
-  not args.blockUntrustedCidrs:
-    error("Provided flags mean do nothing... Exiting")
+  not args.blockUntrustedCidrs and
+  not args.migrateV1ToV2Db:
+    error("Provided flags say do nothing... Exiting")
     usage(1)
+
 
 proc getArgs(): Args =
   info("Getting user provided arguments")
@@ -79,8 +65,16 @@ proc getArgs(): Args =
       omitReferrer: "",
       showRealIPs: false,
       blockUntrustedCidrs: false,
-      analyzeNginxLogs: true
+      processNginxLogs: true,
+      report: false,
+      migrateV1ToV2Db: false,
+      v1DbPath: "",
+      v2DbPath: "",
     )
+
+  var
+    v1DbPath: string
+    v2DbPath: string
 
   var p = initOptParser()
 
@@ -90,88 +84,35 @@ proc getArgs(): Args =
     of cmdEnd: break
     of cmdShortOption, cmdLongOption:
       case p.key
+      of "report": args.report = true
       of "help", "h": usage()
       of "version", "v":
         echo VERSION
         quit(0)
+
+      of "v1DbPath": v1DbPath = p.val
+      of "v2DbPath": v2DbPath = p.val
+      of "migrateV1ToV2":
+        if v1DbPath == "" or v2DbPath == "":
+          error("Migration needs '--v1DbPath' and '--v2DbPath' flags")
+          usage(1)
+        migrateV1ToV2(v1DbPath, v2DbPath)
+
       of "logPath": args.logPath = p.val
       of "dbPath": args.dbPath = p.val
       of "interval": args.interval = parseInt(p.val) * 1000 # convert to seconds
-      of "omit-referrer": args.omitReferrer = p.val
-      of "show-real-ips": args.showRealIPs = parseBool(p.val)
-      of "block-untrusted-cidrs": args.blockUntrustedCidrs = parseBool(p.val)
-      of "analyze-nginx-logs": args.analyzeNginxLogs = parseBool(p.val)
+      of "omitReferrer": args.omitReferrer = p.val
+      of "showRealIps": args.showRealIPs = parseBool(p.val)
+      of "blockUntrustedCidrs": args.blockUntrustedCidrs = parseBool(p.val)
+      of "processNginxLogs": args.processNginxLogs = parseBool(p.val)
     of cmdArgument: discard
+
+  if args.report:
+    report(args.dbPath)
 
   validateArgs(args)
 
   return args
-
-
-proc writeToDatabase(logs: var seq[Log], db: DbConn) =
-  info("Writing data to database")
-
-  db.exec(sql"""CREATE TABLE IF NOT EXISTS nginwho
-          (
-            id                  INTEGER PRIMARY KEY,
-            date                TEXT NOT NULL,
-            remoteIP            TEXT NOT NULL,
-            httpMethod          TEXT NOT NULL,
-            requestURI          TEXT NOT NULL,
-            statusCode          TEXT NOT NULL,
-            responseSize        TEXT NOT NULL,
-            referrer            TEXT NOT NULL,
-            userAgent           TEXT NOT NULL,
-            nonStandard         TEXT,
-            remoteUser          TEXT NOT NULL,
-            authenticatedUser   TEXT NOT NULL
-          )"""
-  )
-
-  let lastEntryDate: Row = db.getRow(sql"SELECT date FROM nginwho WHERE TRIM(date) <> '' ORDER BY rowid DESC LIMIT 1;")
-  var lastEntryDateValue: string
-
-  if lastEntryDate[0] == "":
-    info("First time fetcing date from DB")
-  else:
-    lastEntryDateValue = lastEntryDate[0]
-
-  #TODO: Expand the conditional check (perhaps on user-agent and URL) to
-  # avoid missing entries on busy servers
-  if logs[^1].date == lastEntryDateValue:
-    info("Rows are already written to DB")
-    return
-
-  db.exec(sql"BEGIN")
-
-  for log in logs:
-    db.exec(sql"""INSERT INTO nginwho
-            (
-              date,
-              remoteIP,
-              httpMethod,
-              requestURI,
-              statusCode,
-              responseSize,
-              referrer,
-              userAgent,
-              nonStandard,
-              remoteUser,
-              authenticatedUser) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-              log.date,
-              log.remoteIP,
-              log.httpMethod,
-              log.requestURI,
-              log.statusCode,
-              log.responseSize,
-              log.referrer,
-              log.userAgent,
-              log.nonStandard,
-              log.remoteUser,
-              log.authenticatedUser
-    )
-
-  db.exec(sql"COMMIT")
 
 
 proc parseLogEntry(logLine: string, omit: string): Log =
@@ -180,59 +121,113 @@ proc parseLogEntry(logLine: string, omit: string): Log =
   let matches: seq[string] = logLine.split(re"[ ]+")
 
   if matches.len >= 12:
-    log.remoteIP = matches[0].replace("\"", "")
-    log.date = matches[3].replace("\"", "").replace("[", "").replace("/", "-")
-    log.httpMethod = matches[5].replace("\"", "")
-    log.requestURI = matches[6].replace("\"", "")
-    log.statusCode = matches[8].replace("\"", "")
-    log.responseSize = matches[9].replace("\"", "")
+    log.remoteIP = matches[0]
 
-    let referrer = matches[10].replace("\"", "")
+    # Nginx 1.24.0 has decided to write weird and incorrect dates
+    try:
+      log.date = convertDateFormat(matches[3].replace("\"", "").replace("[",
+          "").replace("/", "-"))
+    except Exception as e:
+      error(fmt"Failed parsing log date: {e.msg}")
+      log.nonDefault = logLine
+      return log
+
+    log.httpMethod = matches[5].replace("\"", "")
+
+    var requestURI = matches[6].replace("\"", "")
+    if requestURI.endsWith("/") and len(requestURI) > 1:
+      requestURI = requestURI.strip(chars = {'/'}, trailing = true)
+    log.requestURI = requestURI
+
+    log.statusCode = matches[8]
+    log.responseSize = matches[9]
+
+    var referrer = matches[10].replace("\"", "")
     if omit != "" and referrer.contains(omit):
       log.referrer = ""
     elif referrer == "-":
       log.referrer = ""
     else:
+      if referrer.endsWith("/"):
+        referrer = referrer.strip(chars = {'/'}, trailing = true)
       log.referrer = referrer
 
     log.userAgent = matches[11..^1].join(" ").replace("\"", "")
-    log.nonStandard = ""
+    log.nonDefault = ""
   else:
     error(fmt"Could not parse: {logLine}")
-    log.nonStandard = logLine
+    log.nonDefault = logLine
 
   return log
 
 
-proc processLogs(args: Args) {.async.} =
+proc processAndRecordLogs(args: Args) {.async.} =
   info("Processing log entries")
 
-  if not fileExists(args.logPath):
-    error(fmt"nginx log file not found: {args.logPath}")
-    quit(1)
+  let db: DbConn = getDbConnection(args.dbPath)
+  defer: closeDbConnection(db)
 
-  let db: DbConn = open(args.dbPath, "", "", "")
-  defer: db.close()
+  createTables(db)
+
+  var lastModificationTime = getLastModificationTime(args.logPath)
 
   while true:
     var logs: Logs
 
     for line in lines(args.logPath):
       if line.len() == 0:
-        await sleepAsync(FIVE_SECONDS)
+        await sleepAsync(args.interval)
         continue
+
       let log = parseLogEntry(line, args.omitReferrer)
+
+      # TODO: Decide whether to exclude these or not
+      if log.requestURI.endsWith(".woff2") or
+      log.requestURI.endsWith(".js") or
+      # log.requestURI.endsWith(".xml") or
+      log.requestURI.endsWith(".css"):
+        continue
+
       logs.add(log)
 
-    writeToDatabase(logs, db)
+    let logsLen = len(logs)
+    info(fmt"Got {logsLen} logs to process")
 
-    await sleepAsync args.interval
+    let lastLog = getLastRow(db)
+    var lastLogIndex = LOG_NOT_FOUND
+
+    for log in logs:
+      if log.date == lastLog.date and
+      log.remoteIP == lastLog.remoteIP and
+      log.httpMethod == lastLog.httpMethod and
+      log.requestURI == lastLog.requestURI:
+        lastLogIndex = find(logs, log)
+        break
+
+    if lastLogIndex == LOG_NOT_FOUND and len(logs) > 0:
+      insertLogs(db, logs)
+    else:
+      if logsLen != lastLogIndex + 1:
+        logs = logs[lastLogIndex+1..^1]
+        insertLogs(db, logs)
+      else:
+        info("Database is up to date with the latest logs")
+
+    var currentModificationTime = getLastModificationTime(args.logPath)
+
+    while currentModificationTime == lastModificationTime:
+      info(fmt"{args.logPath} has not been modified... sleeping")
+      await sleepAsync(args.interval)
+      currentModificationTime = getLastModificationTime(args.logPath)
+
+    lastModificationTime = currentModificationTime
 
 
 proc runPreChecks(args: Args) =
   info("Running pre-checks based on provided user arguments")
 
-  if args.analyzeNginxLogs:
+  if args.processNginxLogs:
+    ensureNginxLogExists(args.logPath)
     ensureNginxExists()
 
   if args.blockUntrustedCidrs:
@@ -246,10 +241,11 @@ proc main() =
 
   runPreChecks(args)
 
-  if args.analyzeNginxLogs:
-    asyncCheck processLogs(args)
+  if args.processNginxLogs:
+    asyncCheck processAndRecordLogs(args)
 
   if args.showRealIPs:
+    warn("Do not forget to add `include /etc/nginx/nginwho;` in your nginx config file")
     asyncCheck fetchAndProcessIPCidrs(args.blockUntrustedCidrs)
 
   if args.blockUntrustedCidrs and not args.showRealIPs:

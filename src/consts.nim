@@ -1,7 +1,7 @@
 import times
 
 const
-  VERSION*: string = "1.0.0"
+  VERSION*: string = "2.1.0"
 
   DATE_FORMAT*: string = "yyyy-MM-dd HH:mm:ss"
 
@@ -27,6 +27,8 @@ const
   NGINX_SET_REAL_IP_FROM*: string = "set_real_ip_from"
   NGINX_REAL_IP_HEADER*: string = "real_ip_header"
   NGINX_CF_REAL_IP_HEADER*: string = "CF-Connecting-IP;"
+
+  LOG_NOT_FOUND* = -1
 
   TEMP_NFT_FILE_PATH*: string = "temp/nft_working_output.json"
 
