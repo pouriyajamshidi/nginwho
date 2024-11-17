@@ -142,12 +142,14 @@ proc parseLogEntry(logLine: string, omit: string): Log =
     log.statusCode = matches[8]
     log.responseSize = matches[9]
 
-    let referrer = matches[10].replace("\"", "")
+    var referrer = matches[10].replace("\"", "")
     if omit != "" and referrer.contains(omit):
       log.referrer = ""
     elif referrer == "-":
       log.referrer = ""
     else:
+      if referrer.endsWith("/"):
+        referrer = referrer.strip(chars = {'/'}, trailing = true)
       log.referrer = referrer
 
     log.userAgent = matches[11..^1].join(" ").replace("\"", "")
@@ -226,7 +228,7 @@ proc runPreChecks(args: Args) =
 
   if args.processNginxLogs:
     ensureNginxLogExists(args.logPath)
-    ensureNginxExists()
+    # ensureNginxExists()
 
   if args.blockUntrustedCidrs:
     ensureNftExists()
