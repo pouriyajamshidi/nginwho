@@ -250,9 +250,9 @@ proc normalizeNginwhoTable(db: DbConn, logs: seq[Log]) =
   """
 
   for log in logs:
+    # TODO: handle non-defaults
     if log.nonDefault != "":
       continue
-
     db.exec(defaultQuery,
       log.date,
       log.remoteIP,
