@@ -135,7 +135,7 @@ proc parseLogEntry(logLine: string, omit: string): Log =
     log.httpMethod = matches[5].replace("\"", "")
 
     var requestURI = matches[6].replace("\"", "")
-    if requestURI.endsWith("/"):
+    if requestURI.endsWith("/") and len(requestURI) > 1:
       requestURI = requestURI.strip(chars = {'/'}, trailing = true)
     log.requestURI = requestURI
 
