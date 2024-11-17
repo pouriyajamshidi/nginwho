@@ -1,6 +1,6 @@
 # Package
 
-version       = "2.1."
+version       = "2.1.0"
 author        = "pouriya jamshidi"
 description   = "nginwho is a lightweight and extremely fast nginx log parser, Cloudflare origin IP resolver and non-Cloudflare CIDRs blocker"
 license       = "MIT"
