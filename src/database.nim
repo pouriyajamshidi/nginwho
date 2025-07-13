@@ -93,14 +93,34 @@ proc getTopReferres*(db: DbConn, num: uint = 3): seq[Row] =
 
 
 proc getTopUnsuccessfulRequests*(db: DbConn, num: uint = 3): seq[Row] =
-  info(fmt"Getting top {num} unsuccessful requests")
+  info(fmt"Getting top {num} unsuccessful requests in the past 30 days")
+
+  # let statement = fmt"""
+  # SELECT
+  #   d.date,
+  #   sc.status_code,
+  #   ru.request_uri,
+  #   hm.http_method,
+  #   ua.user_agent,
+  #   COUNT(*) as occurrence_count
+  # FROM nginwho n
+  # JOIN dates d ON n.date_id = d.id
+  # JOIN status_codes sc ON n.status_code_id = sc.id
+  # JOIN request_uris ru ON n.request_uri_id = ru.id
+  # JOIN http_methods hm ON n.http_method_id = hm.id
+  # JOIN user_agents ua ON n.user_agent_id = ua.id
+  # WHERE
+  #     d.date >= date('now', '-30 days')
+  #     AND CAST(sc.status_code AS INTEGER) NOT BETWEEN 200 AND 399
+  #     AND hm.http_method = 'GET'
+  # GROUP BY d.date, sc.status_code, ru.request_uri
+  # ORDER BY occurrence_count DESC
+  # LIMIT {num}
+  # """
 
   let statement = fmt"""
   SELECT
-    d.date,
-    sc.status_code,
     ru.request_uri,
-    hm.http_method,
     ua.user_agent,
     COUNT(*) as occurrence_count
   FROM nginwho n
@@ -113,7 +133,7 @@ proc getTopUnsuccessfulRequests*(db: DbConn, num: uint = 3): seq[Row] =
       d.date >= date('now', '-30 days')
       AND CAST(sc.status_code AS INTEGER) NOT BETWEEN 200 AND 399
       AND hm.http_method = 'GET'
-  GROUP BY d.date, sc.status_code, ru.request_uri
+  GROUP BY sc.status_code, ru.request_uri
   ORDER BY occurrence_count DESC
   LIMIT {num}
   """
@@ -124,12 +144,12 @@ proc getTopUnsuccessfulRequests*(db: DbConn, num: uint = 3): seq[Row] =
     warn("No records found")
     return
 
-  var count = 1
-  for row in rows:
-    echo(fmt"{count}) {row[0]} - {row[1]} - {row[3]} - {row[2]} - seen {row[5]} -- user agent: {row[4]}")
-    count += 1
+  var mergedRows: seq[Row] = @[]
 
-  return rows
+  for row in rows:
+    mergedRows.add(@[fmt"{row[0]} with user agent {row[1]}", row[2]])
+
+  return mergedRows
 
 
 proc getNonDefaults*(db: DbConn, num: uint = 3): seq[Row] =
