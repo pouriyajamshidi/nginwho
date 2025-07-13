@@ -59,8 +59,11 @@ proc getUserChoice(): (uint, uint) =
   echoNewlines()
 
   let option = readLineFromStdin("Select an option number (q to quit): ")
+  if option == "q":
+    return (0, 0)
+
   let num = readLineFromStdin("Select the number of records to query (q to quit): ")
-  if option == "q" or num == "q":
+  if num == "q":
     return (0, 0)
 
   echoNewlines(1)
@@ -83,7 +86,7 @@ proc getUserChoice(): (uint, uint) =
     return getUserChoice()
 
 
-proc mapNumToKey(num: uint): OptionProc =
+proc mapNumToOptionProc(num: uint): OptionProc =
   var counter = 0
   for k, v in optionMapping:
     if num - 1 == uint(counter):
@@ -91,10 +94,10 @@ proc mapNumToKey(num: uint): OptionProc =
     counter += 1
 
 
-proc runQueryFunction(option: OptionProc, db: DbConn, num: uint) =
+proc runQueryFunction(db: DbConn, optionProc: OptionProc, num: uint) =
   stdout.resetAttributes()
 
-  let rows = option(db, num)
+  let rows = optionProc(db, num)
 
   setForegroundColor(fgGreen, true)
 
@@ -130,12 +133,14 @@ proc report*(dbPath: string) =
       stdout.resetAttributes()
       break
 
-    let option = mapNumToKey(optionNumber)
+    let option = mapNumToOptionProc(optionNumber)
     stdout.resetAttributes()
 
-    runQueryFunction(option, db, num)
+    runQueryFunction(db, option, num)
 
   stdout.resetAttributes()
-  info("Exiting")
+
   closeDbConnection(db)
+  info("Exiting")
+
   quit(0)

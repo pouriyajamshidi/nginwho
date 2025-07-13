@@ -107,9 +107,6 @@ proc getArgs(): Args =
       of "processNginxLogs": args.processNginxLogs = parseBool(p.val)
     of cmdArgument: discard
 
-  if args.report:
-    report(args.dbPath)
-
   validateArgs(args)
 
   return args
@@ -238,6 +235,9 @@ proc main() =
   info("Starting nginwho")
 
   let args: Args = getArgs()
+
+  if args.report:
+    report(args.dbPath)
 
   runPreChecks(args)
 

@@ -228,7 +228,8 @@ proc inputChainHasPolicy(nftOutput: JsonNode): bool =
       continue
 
     try:
-      if expression[0]["match"]["right"].contains("set"):
+      let rightNode = expression[0]["match"]["right"]
+      if rightNode.kind == JObject and rightNode.contains("set"):
         let service = expression[0]["match"]["right"]["set"].getElems()
         if service.len() == 2 and
           service[0].getInt() == 80 and
