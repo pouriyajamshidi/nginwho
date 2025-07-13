@@ -1,7 +1,7 @@
 import times
 
 const
-  VERSION*: string = "2.2.0"
+  VERSION*: string = "2.3.0"
 
   DATE_FORMAT*: string = "yyyy-MM-dd HH:mm:ss"
 
@@ -43,7 +43,8 @@ const
   NFT_CHAIN_INPUT_NAME*: string = "input"
   NFT_CIDR_RULES_FILE* = "/tmp/nginwho.nft"
   # NFT_CIDR_RULES_FILE*: string = "temp/nginwho.nft"
-  NFT_LOG_PREFIX*: string = "NGINWHO_DROPPED "
+  NFT_LOG_PREFIXV4*: string = "NGINWHO_DROPPED_v4 "
+  NFT_LOG_PREFIXV6*: string = "NGINWHO_DROPPED_v6 "
 
   NFT_SAMPLE_POLICY*: string = """
 ##########################################

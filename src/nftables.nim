@@ -61,13 +61,13 @@ proc createNginwhoLogPolicy(): JsonNode =
         "table": "filter",
         "chain": "nginwho",
         "handle": 1,
-        "expr": [{"log": {"prefix": NFT_LOG_PREFIX}}]
+        "expr": [{"log": {"prefix": NFT_LOG_PREFIXV4}}]
     }
   }
   }
 
 
-proc createNginwhoIPPolicy(protocol: IPProtocol, setName: string): JsonNode =
+proc createNginwhoIPPolicy(protocol: IPProtocol, setName: string, logPrefix: string): JsonNode =
   info(fmt"Creating nginwho {protocol} policy for Set {setName}")
 
   return %* {
@@ -93,6 +93,7 @@ proc createNginwhoIPPolicy(protocol: IPProtocol, setName: string): JsonNode =
             }
           },
           {"counter": {"packets": 0, "bytes": 0}},
+          {"log": {"prefix": logPrefix}},
           {"drop": newJNull()}
         ]
       }
@@ -193,13 +194,12 @@ proc createRules(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
     rules[NFT_KEY_NAME].add(createNginwhoChain())
 
   if nftAttrs.withNginwhoIPv4Policy:
-    rules[NFT_KEY_NAME].add(createNginwhoLogPolicy())
     rules[NFT_KEY_NAME].add(createNginwhoIPPolicy(IPProtocol.IPv4,
-        NFT_SET_NAME_CF_IPv4))
+        NFT_SET_NAME_CF_IPv4, NFT_LOG_PREFIXV4))
 
   if nftAttrs.withNginwhoIPv6Policy:
     rules[NFT_KEY_NAME].add(createNginwhoIPPolicy(IPProtocol.IPv6,
-        NFT_SET_NAME_CF_IPv6))
+        NFT_SET_NAME_CF_IPv6, NFT_LOG_PREFIXV6))
 
   if nftAttrs.withInputChain:
     rules[NFT_KEY_NAME].add(createInputChain())
