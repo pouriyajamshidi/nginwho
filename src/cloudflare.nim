@@ -10,22 +10,28 @@ from types import Cidrs, NftSet
 
 
 
-proc getCloudflareCIDRs(): Option[Cidrs] =
+proc getCloudflareCIDRs(): Future[Option[Cidrs]] {.async.} =
   info("Getting Cloudflare CIDRs")
 
-  let client: HttpClient = newHttpClient(timeout = TEN_SECONDS)
+  let client: AsyncHttpClient = newAsyncHttpClient()
   defer: client.close()
 
   var jsonResponse: JsonNode
 
   try:
-    let response: Response = client.get(CLOUDFLARE_CIDR_API_URL)
+    let request: Future[AsyncResponse] = client.get(CLOUDFLARE_CIDR_API_URL)
+
+    if not await request.withTimeout(TEN_SECONDS):
+      error(fmt"Call to {CLOUDFLARE_CIDR_API_URL} timed out")
+      return none(Cidrs)
+
+    let response: AsyncResponse = request.read()
 
     if response.code != Http200:
       error(fmt"Call to {CLOUDFLARE_CIDR_API_URL} failed")
       return none(Cidrs)
 
-    jsonResponse = parseJson(response.body)
+    jsonResponse = parseJson(await response.body)
   except CatchableError as e:
     error(fmt"Call to {CLOUDFLARE_CIDR_API_URL} failed: {e.msg}")
     return none(Cidrs)
@@ -66,7 +72,7 @@ proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool = false) {.async.} =
 
   while true:
     let currentEtag: string = getCurrentEtag()
-    let cfCIDRs: Option[Cidrs] = getCloudflareCIDRs()
+    let cfCIDRs: Option[Cidrs] = await getCloudflareCIDRs()
 
     case cfCIDRs.isSome:
     of true:
