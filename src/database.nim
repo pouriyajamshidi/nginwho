@@ -1,23 +1,39 @@
 import db_connector/db_sqlite
+from db_connector/sqlite3 import PStmt, bind_text, step, reset, finalize,
+    SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT
 from std/tables import initTable, mgetOrPut, pairs
 from std/strformat import fmt
-from std/os import fileExists
-from std/strutils import parseInt, contains, split, endsWith, formatFloat, ffDecimal
+from std/os import fileExists, setFilePermissions, FilePermission
+from std/strutils import parseInt, contains, split, formatFloat, ffDecimal
 from std/sequtils import any
 from std/times import format, epochTime
 from logging import info, warn, error
 
 from types import Log, Logs
-from utils import convertDateFormat
+from utils import convertDateFormat, isStaticAsset
 
 
 proc getDbConnection*(dbPath: string): DbConn =
   info(fmt"Opening Database connection to {dbPath}")
 
+  let isNewFile = dbPath != ":memory:" and not fileExists(dbPath)
+
   try:
     let connection: DbConn = open(dbPath, "", "", "")
+    # WAL lets --report read while the service writes
+    connection.exec(sql"PRAGMA journal_mode = WAL")
+    # safe with WAL and much faster than the default FULL
+    connection.exec(sql"PRAGMA synchronous = NORMAL")
+    # wait for a lock instead of failing right away
+    connection.exec(sql"PRAGMA busy_timeout = 5000")
+    connection.exec(sql"PRAGMA foreign_keys = ON")
+
+    # visitor IPs and URIs are private. SQLite gives the WAL files the same permissions
+    if isNewFile:
+      setFilePermissions(dbPath, {fpUserRead, fpUserWrite})
+
     return connection
-  except db_sqlite.DbError as e:
+  except CatchableError as e:
     error(fmt"Could not open or connect to database: {e.msg}")
     quit(1)
 
@@ -32,144 +48,108 @@ proc closeDbConnection*(db: DbConn) =
     quit(1)
 
 
-proc getTopIPs*(db: DbConn, num: uint = 3): seq[Row] =
+proc topValues(db: DbConn, column: string, num: uint, since: string): seq[Row] =
+  ## Returns the most seen values of a column with their count, from `since` on.
+  ## An empty `since` means all time
+  if since == "":
+    # the count column is updated on every insert, much faster than counting the nginwho table
+    return db.getAllRows(sql(fmt"""
+      SELECT {column}, count
+      FROM {column}s
+      ORDER BY count DESC, {column}
+      LIMIT ?"""), num)
+
+  # CROSS JOIN makes SQLite find the dates first and then use the date index,
+  # without it SQLite scans every row of the nginwho table
+  return db.getAllRows(sql(fmt"""
+    SELECT t.{column}, COUNT(*) AS occurrences
+    FROM dates d
+    CROSS JOIN nginwho n ON n.date_id = d.id
+    JOIN {column}s t ON n.{column}_id = t.id
+    WHERE d.date >= ?
+    GROUP BY n.{column}_id
+    ORDER BY occurrences DESC, t.{column}
+    LIMIT ?"""), since, num)
+
+
+proc getTopIPs*(db: DbConn, num: uint, since = ""): seq[Row] =
   info(fmt"Getting top {num} visitor IPs")
-
-  let statement = fmt"""
-  SELECT
-    remote_ip, count
-  FROM remote_ips
-  ORDER BY count DESC
-  LIMIT {num}
-  """
-
-  let rows = db.getAllRows(sql(statement))
-
-  if len(rows) < 1:
-    warn("No records found")
-    return
-
-  return rows
+  return topValues(db, "remote_ip", num, since)
 
 
-proc getTopURIs*(db: DbConn, num: uint = 3): seq[Row] =
+proc getTopURIs*(db: DbConn, num: uint, since = ""): seq[Row] =
   info(fmt"Getting top {num} URIs")
-
-  let statement = fmt"""
-  SELECT
-    request_uri, count
-  FROM request_uris
-  ORDER BY count DESC
-  LIMIT {num}
-  """
-
-  let rows = db.getAllRows(sql(statement))
-
-  if len(rows) < 1:
-    warn("No records found")
-    return
-
-  return rows
+  return topValues(db, "request_uri", num, since)
 
 
-proc getTopReferres*(db: DbConn, num: uint = 3): seq[Row] =
+proc getTopReferres*(db: DbConn, num: uint, since = ""): seq[Row] =
   info(fmt"Getting top {num} referrers")
+  return topValues(db, "referrer", num, since)
 
-  let statement = fmt"""
+
+proc getTopUnsuccessfulRequests*(db: DbConn, num: uint, since = ""): seq[Row] =
+  info(fmt"Getting top {num} unsuccessful requests")
+
+  let statement = sql"""
   SELECT
-    referrer, count
-  FROM referrers
-  ORDER BY count DESC
-  LIMIT {num}
-  """
-
-  let rows = db.getAllRows(sql(statement))
-
-  if len(rows) < 1:
-    warn("No records found")
-    return
-
-  return rows
-
-
-proc getTopUnsuccessfulRequests*(db: DbConn, num: uint = 3): seq[Row] =
-  info(fmt"Getting top {num} unsuccessful requests in the past 30 days")
-
-  # let statement = fmt"""
-  # SELECT
-  #   d.date,
-  #   sc.status_code,
-  #   ru.request_uri,
-  #   hm.http_method,
-  #   ua.user_agent,
-  #   COUNT(*) as occurrence_count
-  # FROM nginwho n
-  # JOIN dates d ON n.date_id = d.id
-  # JOIN status_codes sc ON n.status_code_id = sc.id
-  # JOIN request_uris ru ON n.request_uri_id = ru.id
-  # JOIN http_methods hm ON n.http_method_id = hm.id
-  # JOIN user_agents ua ON n.user_agent_id = ua.id
-  # WHERE
-  #     d.date >= date('now', '-30 days')
-  #     AND CAST(sc.status_code AS INTEGER) NOT BETWEEN 200 AND 399
-  #     AND hm.http_method = 'GET'
-  # GROUP BY d.date, sc.status_code, ru.request_uri
-  # ORDER BY occurrence_count DESC
-  # LIMIT {num}
-  # """
-
-  let statement = fmt"""
-  SELECT
+    sc.status_code,
     ru.request_uri,
     ua.user_agent,
-    COUNT(*) as occurrence_count
-  FROM nginwho n
-  JOIN dates d ON n.date_id = d.id
+    COUNT(*) as occurrences
+  FROM dates d
+  CROSS JOIN nginwho n ON n.date_id = d.id
   JOIN status_codes sc ON n.status_code_id = sc.id
   JOIN request_uris ru ON n.request_uri_id = ru.id
   JOIN http_methods hm ON n.http_method_id = hm.id
   JOIN user_agents ua ON n.user_agent_id = ua.id
   WHERE
-      d.date >= date('now', '-30 days')
+      d.date >= ?
       AND CAST(sc.status_code AS INTEGER) NOT BETWEEN 200 AND 399
       AND hm.http_method = 'GET'
-  GROUP BY sc.status_code, ru.request_uri
-  ORDER BY occurrence_count DESC
-  LIMIT {num}
+  GROUP BY sc.status_code, ru.request_uri, ua.user_agent
+  ORDER BY occurrences DESC, sc.status_code, ru.request_uri, ua.user_agent
+  LIMIT ?
   """
 
-  let rows = db.getAllRows(sql(statement))
-
-  if len(rows) < 1:
-    warn("No records found")
-    return
-
-  var mergedRows: seq[Row] = @[]
-
-  for row in rows:
-    mergedRows.add(@[fmt"{row[0]} with user agent {row[1]}", row[2]])
-
-  return mergedRows
+  return db.getAllRows(statement, since, num)
 
 
-proc getNonDefaults*(db: DbConn, num: uint = 3): seq[Row] =
+proc getNonDefaults*(db: DbConn, num: uint, since = ""): seq[Row] =
+  ## Non-default logs have no date, so `since` is ignored
   info(fmt"Getting top {num} non-default logs")
+  return topValues(db, "non_default", num, "")
 
-  let statement = fmt"""
-  SELECT
-    non_default, count
-  FROM non_defaults
-  ORDER BY count DESC
-  LIMIT {num}
-  """
 
-  let rows = db.getAllRows(sql(statement))
+proc getTotalRequests*(db: DbConn, since = ""): int =
+  ## Returns how many requests are saved from `since` on. An empty `since` means all time
+  if since == "":
+    return parseInt(db.getValue(sql"SELECT COUNT(*) FROM nginwho"))
 
-  if len(rows) < 1:
-    warn("No records found")
-    return
+  return parseInt(db.getValue(sql"""
+    SELECT COUNT(*)
+    FROM dates d
+    CROSS JOIN nginwho n ON n.date_id = d.id
+    WHERE d.date >= ?""", since))
 
-  return rows
+
+proc getTotalNonDefaults*(db: DbConn): int =
+  return parseInt(db.getValue(sql"SELECT IFNULL(SUM(count), 0) FROM non_defaults"))
+
+
+proc hasDateIndex*(db: DbConn): bool =
+  return db.getValue(sql"SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_nginwho_date'") == "1"
+
+
+proc execPrepared(db: DbConn, statement: SqlPrepared, values: varargs[string]) =
+  ## Runs a statement that was prepared once, so SQLite does not parse it again for every row.
+  ## db_sqlite's own exec for prepared statements finalizes them on errors, which breaks a later finalize
+  let stmt = PStmt(statement)
+  discard reset(stmt)
+  for i, value in values:
+    if bind_text(stmt, int32(i + 1), value.cstring, int32(value.len), SQLITE_TRANSIENT) != SQLITE_OK:
+      dbError(db)
+  if step(stmt) != SQLITE_DONE:
+    dbError(db)
 
 
 proc createTables*(db: DbConn) =
@@ -227,15 +207,8 @@ proc createTables*(db: DbConn) =
     )"""
   )
 
-  # TODO: Check how these can be utilized
-  # db.exec(sql"""
-  #   CREATE INDEX IF NOT EXISTS idx_nginwho_date ON nginwho(date_id);
-  #   CREATE INDEX IF NOT EXISTS idx_nginwho_remote_ip ON nginwho(remote_ip_id);
-  #   CREATE INDEX IF NOT EXISTS idx_nginwho_http_method ON nginwho(http_method_id);
-  #   CREATE INDEX IF NOT EXISTS idx_nginwho_request_uri ON nginwho(request_uri_id);
-  #   CREATE INDEX IF NOT EXISTS idx_nginwho_referrer ON nginwho(referrer_id);
-  #   CREATE INDEX IF NOT EXISTS idx_nginwho_user_agent ON nginwho(user_agent_id);
-  # """)
+  # time window reports look up logs by date
+  db.exec(sql"CREATE INDEX IF NOT EXISTS idx_nginwho_date ON nginwho(date_id)")
 
   db.exec(sql"COMMIT")
 
@@ -243,7 +216,7 @@ proc createTables*(db: DbConn) =
 proc normalizeNginwhoTable(db: DbConn, logs: seq[Log]) =
   info("Populating the nginwho table")
 
-  let defaultQuery = sql"""
+  let defaultQuery = db.prepare("""
     INSERT INTO nginwho (
       date_id,
       remote_ip_id,
@@ -267,13 +240,14 @@ proc normalizeNginwhoTable(db: DbConn, logs: seq[Log]) =
       (SELECT id FROM user_agents WHERE user_agent = ?),
       (SELECT id FROM remote_users WHERE remote_user = ?),
       (SELECT id FROM authenticated_users WHERE authenticated_user = ?)
-  """
+  """)
+  defer: discard finalize(PStmt(defaultQuery))
 
   for log in logs:
     # TODO: handle non-defaults
     if log.nonDefault != "":
       continue
-    db.exec(defaultQuery,
+    execPrepared(db, defaultQuery,
       log.date,
       log.remoteIP,
       log.httpMethod,
@@ -327,38 +301,29 @@ proc upsert(db: DbConn, table, column: string, values: seq[string]) =
     info(fmt"No values to insert in {table} table")
     return
 
-  let insertQuery = fmt"""
+  let insertQuery = db.prepare(fmt"""
     INSERT INTO {table} ({column}, count)
     VALUES (?, ?)
     ON CONFLICT ({column})
     DO UPDATE SET
       count = count + excluded.count
-  """
+  """)
+  defer: discard finalize(PStmt(insertQuery))
 
   var valueCounts = initTable[string, int]()
   for value in values:
     valueCounts.mgetOrPut(value, 0).inc
 
   for value, count in valueCounts.pairs:
-    db.exec(sql(insertQuery), value, count)
-
-  # NOTE: Left for potential future rewrite
-  # let preparedStmt = db.prepare(insertQuery)
-  # defer: preparedStmt.finalize()
-
-  # for value, count in valueCounts.pairs:
-  #   echo(fmt"Binding {value} to {count}")
-  #   preparedStmt.bindParam(1, value)
-  #   preparedStmt.bindParam(2, count)
-
-  # db.exec(preparedStmt)
+    execPrepared(db, insertQuery, value, $count)
 
 
-proc insertLogs*(db: DbConn, logs: seq[Log]) =
+proc insertLogs*(db: DbConn, logs: seq[Log]): bool {.discardable.} =
+  ## Returns false when the insert failed and nothing was saved
   let logsLen = len(logs)
   if logsLen < 1:
     warn("No logs received")
-    return
+    return true
 
   info(fmt"Inserting {logsLen} logs into database")
 
@@ -389,88 +354,30 @@ proc insertLogs*(db: DbConn, logs: seq[Log]) =
     if len(log.authenticatedUser) > 0: authenticatedUsers.add(
         log.authenticatedUser)
 
-  db.exec(sql"BEGIN TRANSACTION")
+  try:
+    # IMMEDIATE takes the write lock up front, so busy_timeout applies to the whole insert
+    db.exec(sql"BEGIN IMMEDIATE")
+    upsert(db, "dates", "date", dates)
+    upsert(db, "remote_ips", "remote_ip", remoteIPs)
+    upsert(db, "http_methods", "http_method", httpMethods)
+    upsert(db, "request_uris", "request_uri", requestURIs)
+    upsert(db, "status_codes", "status_code", statusCodes)
+    upsert(db, "response_sizes", "response_size", responseSizes)
+    upsert(db, "referrers", "referrer", referrers)
+    upsert(db, "user_agents", "user_agent", userAgents)
+    upsert(db, "non_defaults", "non_default", nonDefaults)
+    upsert(db, "remote_users", "remote_user", remoteUsers)
+    upsert(db, "authenticated_users", "authenticated_user", authenticatedUsers)
 
-  upsert(db, "dates", "date", dates)
-  upsert(db, "remote_ips", "remote_ip", remoteIPs)
-  upsert(db, "http_methods", "http_method", httpMethods)
-  upsert(db, "request_uris", "request_uri", requestURIs)
-  upsert(db, "status_codes", "status_code", statusCodes)
-  upsert(db, "response_sizes", "response_size", responseSizes)
-  upsert(db, "referrers", "referrer", referrers)
-  upsert(db, "user_agents", "user_agent", userAgents)
-  upsert(db, "non_defaults", "non_default", nonDefaults)
-  upsert(db, "remote_users", "remote_user", remoteUsers)
-  upsert(db, "authenticated_users", "authenticated_user", authenticatedUsers)
+    normalizeNginwhoTable(db, logs)
 
-  normalizeNginwhoTable(db, logs)
-
-  db.exec(sql"COMMIT")
-
-
-proc insertLogV1*(db: DbConn, logs: var seq[
-    Log]) {.deprecated: "use insertLogs instead".} =
-  info("Writing data to database")
-
-  db.exec(sql"""CREATE TABLE IF NOT EXISTS nginwho
-          (
-            id                  INTEGER PRIMARY KEY,
-            date                TEXT NOT NULL,
-            remoteIP            TEXT NOT NULL,
-            httpMethod          TEXT NOT NULL,
-            requesnonDefault   TEXT NOT NULL,
-            statusCode          TEXT NOT NULL,
-            responseSize        TEXT NOT NULL,
-            referrer            TEXT NOT NULL,
-            userAgent           TEXT NOT NULL,
-            nonStandard         TEXT,
-            remoteUser          TEXT NOT NULL,
-            authenticatedUser   TEXT NOT NULL
-          )"""
-  )
-
-  let lastEntryDate: Row = db.getRow(sql"SELECT date FROM nginwho WHERE TRIM(date) <> '' ORDER BY rowid DESC LIMIT 1;")
-  var lastEntryDateValue: string
-
-  if lastEntryDate[0] == "":
-    info("First time fetching date from DB")
-  else:
-    lastEntryDateValue = lastEntryDate[0]
-
-  if logs[^1].date == lastEntryDateValue:
-    info("Rows are already written to DB")
-    return
-
-  db.exec(sql"BEGIN TRANSACTION")
-
-  for log in logs:
-    db.exec(sql"""INSERT INTO nginwho
-            (
-              date,
-              remoteIP,
-              httpMethod,
-              requestURI,
-              statusCode,
-              responseSize,
-              referrer,
-              userAgent,
-              nonDefault,
-              remoteUser,
-              authenticatedUser) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-              log.date,
-              log.remoteIP,
-              log.httpMethod,
-              log.requestURI,
-              log.statusCode,
-              log.responseSize,
-              log.referrer,
-              log.userAgent,
-              log.nonDefault,
-              log.remoteUser,
-              log.authenticatedUser
-    )
-
-  db.exec(sql"COMMIT")
+    db.exec(sql"COMMIT")
+    return true
+  except DbError as e:
+    # without a rollback the transaction stays open and every next insert fails
+    # tryExec because there is no transaction to roll back when BEGIN itself failed
+    discard db.tryExec(sql"ROLLBACK")
+    error(fmt"Failed inserting {logsLen} logs, rolled back: {e.msg}")
 
 
 proc migrateV1ToV2*(v1DbName, v2DbName: string) =
@@ -503,32 +410,34 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
 
   let selectStatement = sql"""
     SELECT date, remoteIP, httpMethod, requestURI, statusCode, responseSize,
-           referrer, userAgent, remoteUser, authenticatedUser
+           referrer, userAgent, remoteUser, authenticatedUser, rowid
     FROM nginwho
-    WHERE date IS NOT NULL AND date != ''
-    LIMIT ? OFFSET ?
+    WHERE rowid > ? AND date IS NOT NULL AND date != ''
+    ORDER BY rowid
+    LIMIT ?
   """
 
   const migrationBatchSize = 100_000
 
   var
     logs: Logs
-    batchCount = 0
-    offset = 0
-    totalRecordsToProcess = parseInt(totalRecords)
+    lastRowId = 0
 
-  while totalRecordsToProcess > 0:
-    info(fmt"🔥 Processing records from offset {offset} in batches of {migrationBatchSize}")
+  # page with rowid instead of OFFSET so each batch does not scan all the previous rows
+  while true:
+    info(fmt"🔥 Processing records after rowid {lastRowId} in batches of {migrationBatchSize}")
 
     var rows: seq[Row]
 
     try:
-      rows = v1Db.getAllRows(selectStatement, migrationBatchSize, offset)
+      rows = v1Db.getAllRows(selectStatement, lastRowId, migrationBatchSize)
       if len(rows) == 0:
         break
     except DbError as e:
-      error(fmt"Could not get rows with limit of {migrationBatchSize} from offset {offset}: {e.msg}")
+      error(fmt"Could not get rows with limit of {migrationBatchSize} after rowid {lastRowId}: {e.msg}")
       break
+
+    lastRowId = parseInt(rows[^1][10])
 
     for row in rows:
       var httpMethod = row[2]
@@ -541,10 +450,7 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
         httpMethod = "Invalid"
 
       let requestURI = row[3]
-      if requestURI.endsWith(".woff2") or
-      requestURI.endsWith(".js") or
-      requestURI.endsWith(".xml") or
-      requestURI.endsWith(".css"):
+      if isStaticAsset(requestURI):
         continue
 
       logs.add(
@@ -562,23 +468,18 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
         )
       )
 
-      batchCount += 1
-      if batchCount >= migrationBatchSize:
+      if len(logs) >= migrationBatchSize:
         let start = epochTime()
         insertLogs(v2Db, logs)
         let elapsed = epochTime() - start
         let elapsedStr = elapsed.formatFloat(format = ffDecimal, precision = 3)
         info(fmt"Row insertion took {elapsedStr} seconds")
 
-        batchCount = 0
         logs = @[]
 
-    offset += migrationBatchSize
-    totalRecordsToProcess = abs(totalRecordsToProcess - offset)
-
   # if there are leftovers, add them
-  if batchCount > 0:
-    info(fmt"Adding {batchCount} leftovers")
+  if len(logs) > 0:
+    info(fmt"Adding {len(logs)} leftovers")
     insertLogs(v2Db, logs)
 
   info(fmt"Processed {totalRecords} records")

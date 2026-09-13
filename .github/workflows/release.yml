@@ -1,0 +1,45 @@
+name: release
+
+# push a tag like v2.3.0 to build and publish a release
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # older ubuntu so the binary works on older glibc too
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # installs the latest nimble, which downloads the latest stable nim matching nginwho.nimble
+      - uses: nim-lang/setup-nimble-action@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check tag matches the app version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          grep -q "^version *= \"$version\"" nginwho.nimble || { echo "nginwho.nimble version is not $version"; exit 1; }
+
+      - name: Build
+        # orc is the default memory manager since nim 2.0, no need for --mm:orc
+        run: |
+          nimble install -y --depsOnly
+          nimble c -d:release --opt:speed -d:ssl -o:nginwho src/nginwho.nim
+
+      - name: Get release notes from changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="## [$version]" 'index($0, v) == 1 { found = 1; next } /^## \[/ { found = 0 } found' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then echo "No $version section in CHANGELOG.md"; exit 1; fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: release_notes.md
+          files: nginwho

@@ -1,20 +1,21 @@
-import std/[strutils, strformat, re, asyncdispatch]
+import std/[strutils, strformat, asyncdispatch]
 from db_connector/db_sqlite import DbConn
-from std/os import getLastModificationTime
+from std/os import getFileInfo, FileInfo, FileId
 
 from parseopt import CmdLineKind, initOptParser, next
 from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
-    warn, fatal
+    warn, fatal, setLogFilter, lvlError
 
 import consts
 from types import Args, Log, Logs
-from nginx import ensureNginxExists, ensureNginxLogExists
+from utils import isStaticAsset
+from nginx import ensureNginxExists, ensureNginxLogExists, parseLogEntry,
+    readNewLines, offsetAfterLastInserted
 from cloudflare import fetchAndProcessIPCidrs
 from nftables import acceptOnly, ensureNftExists
 from database import getDbConnection, closeDbConnection,
     createTables, insertLogs, migrateV1ToV2, getLastRow
 from report import report
-from utils import convertDateFormat
 
 var logger: ConsoleLogger = newConsoleLogger(
     fmtStr = "[$date -- $time] - $levelname: ")
@@ -56,8 +57,6 @@ proc validateArgs(args: Args) =
 
 
 proc getArgs(): Args =
-  info("Getting user provided arguments")
-
   var args: Args = (
       logPath: NGINX_DEFAULT_LOG_PATH,
       dbPath: NGINWHO_DB_FILE,
@@ -72,10 +71,6 @@ proc getArgs(): Args =
       v2DbPath: "",
     )
 
-  var
-    v1DbPath: string
-    v2DbPath: string
-
   var p = initOptParser()
 
   while true:
@@ -83,79 +78,43 @@ proc getArgs(): Args =
     case p.kind
     of cmdEnd: break
     of cmdShortOption, cmdLongOption:
-      case p.key
-      of "report": args.report = true
-      of "help", "h": usage()
-      of "version", "v":
-        echo VERSION
-        quit(0)
+      try:
+        case p.key
+        of "report": args.report = true
+        of "help", "h": usage()
+        of "version", "v":
+          echo VERSION
+          quit(0)
 
-      of "v1DbPath": v1DbPath = p.val
-      of "v2DbPath": v2DbPath = p.val
-      of "migrateV1ToV2":
-        if v1DbPath == "" or v2DbPath == "":
-          error("Migration needs '--v1DbPath' and '--v2DbPath' flags")
-          usage(1)
-        migrateV1ToV2(v1DbPath, v2DbPath)
+        of "v1DbPath": args.v1DbPath = p.val
+        of "v2DbPath": args.v2DbPath = p.val
+        of "migrateV1ToV2Db": args.migrateV1ToV2Db = true
 
-      of "logPath": args.logPath = p.val
-      of "dbPath": args.dbPath = p.val
-      of "interval": args.interval = parseInt(p.val) * 1000 # convert to seconds
-      of "omitReferrer": args.omitReferrer = p.val
-      of "showRealIps": args.showRealIPs = parseBool(p.val)
-      of "blockUntrustedCidrs": args.blockUntrustedCidrs = parseBool(p.val)
-      of "processNginxLogs": args.processNginxLogs = parseBool(p.val)
+        of "logPath": args.logPath = p.val
+        of "dbPath": args.dbPath = p.val
+        of "interval":
+          let seconds = parseInt(p.val)
+          if seconds < 1:
+            raise newException(ValueError, "must be at least 1")
+          args.interval = seconds * 1000 # convert seconds to milliseconds
+        of "omitReferrer": args.omitReferrer = p.val
+        of "showRealIps": args.showRealIPs = p.val == "" or parseBool(p.val)
+        of "blockUntrustedCidrs": args.blockUntrustedCidrs = p.val == "" or parseBool(p.val)
+        of "processNginxLogs": args.processNginxLogs = p.val == "" or parseBool(p.val)
+      except ValueError as e:
+        error(fmt"Bad value '{p.val}' for --{p.key}: {e.msg}")
+        usage(1)
     of cmdArgument: discard
+
+  if args.migrateV1ToV2Db:
+    if args.v1DbPath == "" or args.v2DbPath == "":
+      error("Migration needs '--v1DbPath' and '--v2DbPath' flags")
+      usage(1)
+    migrateV1ToV2(args.v1DbPath, args.v2DbPath)
 
   validateArgs(args)
 
   return args
-
-
-proc parseLogEntry(logLine: string, omit: string): Log =
-  var log: Log
-
-  let matches: seq[string] = logLine.split(re"[ ]+")
-
-  if matches.len >= 12:
-    log.remoteIP = matches[0]
-
-    # Nginx 1.24.0 has decided to write weird and incorrect dates
-    try:
-      log.date = convertDateFormat(matches[3].replace("\"", "").replace("[",
-          "").replace("/", "-"))
-    except Exception as e:
-      error(fmt"Failed parsing log date: {e.msg}")
-      log.nonDefault = logLine
-      return log
-
-    log.httpMethod = matches[5].replace("\"", "")
-
-    var requestURI = matches[6].replace("\"", "")
-    if requestURI.endsWith("/") and len(requestURI) > 1:
-      requestURI = requestURI.strip(chars = {'/'}, trailing = true)
-    log.requestURI = requestURI
-
-    log.statusCode = matches[8]
-    log.responseSize = matches[9]
-
-    var referrer = matches[10].replace("\"", "")
-    if omit != "" and referrer.contains(omit):
-      log.referrer = ""
-    elif referrer == "-":
-      log.referrer = ""
-    else:
-      if referrer.endsWith("/"):
-        referrer = referrer.strip(chars = {'/'}, trailing = true)
-      log.referrer = referrer
-
-    log.userAgent = matches[11..^1].join(" ").replace("\"", "")
-    log.nonDefault = ""
-  else:
-    error(fmt"Could not parse: {logLine}")
-    log.nonDefault = logLine
-
-  return log
 
 
 proc processAndRecordLogs(args: Args) {.async.} =
@@ -166,58 +125,74 @@ proc processAndRecordLogs(args: Args) {.async.} =
 
   createTables(db)
 
-  var lastModificationTime = getLastModificationTime(args.logPath)
+  var
+    offset: int64 = 0
+    fileId: FileId
+    failedInserts = 0
 
   while true:
-    var logs: Logs
+    var fileInfo: FileInfo
+    try:
+      fileInfo = getFileInfo(args.logPath)
+    except OSError as e:
+      warn(fmt"Could not read {args.logPath}: {e.msg}")
+      await sleepAsync(args.interval)
+      continue
 
-    for line in lines(args.logPath):
-      if line.len() == 0:
+    var
+      logs: Logs
+      lines: seq[string]
+      previousOffset: int64
+
+    try:
+      # first run, rotated or truncated log. skip the lines saved before a restart,
+      # a new log has none of them so this starts from the beginning
+      if fileInfo.id.file != fileId or fileInfo.size < offset:
+        fileId = fileInfo.id.file
+        offset = offsetAfterLastInserted(args.logPath, getLastRow(db))
+
+      if fileInfo.size == offset:
+        info(fmt"{args.logPath} has no new logs... sleeping")
         await sleepAsync(args.interval)
+        continue
+
+      previousOffset = offset
+      lines = readNewLines(args.logPath, offset)
+    except IOError as e:
+      warn(fmt"Could not read {args.logPath}: {e.msg}")
+      await sleepAsync(args.interval)
+      continue
+
+    for line in lines:
+      if line.len() == 0:
         continue
 
       let log = parseLogEntry(line, args.omitReferrer)
 
-      # TODO: Decide whether to exclude these or not
-      if log.requestURI.endsWith(".woff2") or
-      log.requestURI.endsWith(".js") or
-      # log.requestURI.endsWith(".xml") or
-      log.requestURI.endsWith(".css"):
+      if isStaticAsset(log.requestURI):
         continue
 
       logs.add(log)
 
-    let logsLen = len(logs)
-    info(fmt"Got {logsLen} logs to process")
+    info(fmt"Got {len(logs)} logs to process")
 
-    let lastLog = getLastRow(db)
-    var lastLogIndex = LOG_NOT_FOUND
-
-    for log in logs:
-      if log.date == lastLog.date and
-      log.remoteIP == lastLog.remoteIP and
-      log.httpMethod == lastLog.httpMethod and
-      log.requestURI == lastLog.requestURI:
-        lastLogIndex = find(logs, log)
-        break
-
-    if lastLogIndex == LOG_NOT_FOUND and len(logs) > 0:
-      insertLogs(db, logs)
+    if len(logs) == 0:
+      info("Database is up to date with the latest logs")
+    elif insertLogs(db, logs):
+      failedInserts = 0
     else:
-      if logsLen != lastLogIndex + 1:
-        logs = logs[lastLogIndex+1..^1]
-        insertLogs(db, logs)
+      failedInserts += 1
+      # read the same lines again next time, but don't get stuck on logs that can never be saved
+      if failedInserts < MAX_INSERT_ATTEMPTS:
+        warn(fmt"Will retry these logs in {args.interval div 1000} seconds")
+        offset = previousOffset
       else:
-        info("Database is up to date with the latest logs")
+        error(fmt"Dropping {len(logs)} logs after {MAX_INSERT_ATTEMPTS} failed inserts")
+        failedInserts = 0
 
-    var currentModificationTime = getLastModificationTime(args.logPath)
-
-    while currentModificationTime == lastModificationTime:
-      info(fmt"{args.logPath} has not been modified... sleeping")
-      await sleepAsync(args.interval)
-      currentModificationTime = getLastModificationTime(args.logPath)
-
-    lastModificationTime = currentModificationTime
+    # a big log is read in chunks, keep going without waiting until it is caught up
+    let moreToRead = failedInserts == 0 and fileInfo.size - previousOffset > READ_CHUNK_BYTES
+    await sleepAsync(if moreToRead: 0 else: args.interval)
 
 
 proc runPreChecks(args: Args) =
@@ -232,12 +207,15 @@ proc runPreChecks(args: Args) =
 
 
 proc main() =
-  info("Starting nginwho")
-
+  # parse args first so --help and --version print nothing else
   let args: Args = getArgs()
 
   if args.report:
+    # info logs would get mixed with the report output
+    setLogFilter(lvlError)
     report(args.dbPath)
+
+  info("Starting nginwho")
 
   runPreChecks(args)
 
@@ -249,9 +227,11 @@ proc main() =
     asyncCheck fetchAndProcessIPCidrs(args.blockUntrustedCidrs)
 
   if args.blockUntrustedCidrs and not args.showRealIPs:
-    asyncCheck acceptOnly(NGINX_CIDR_FILE)
+    acceptOnly(NGINX_CIDR_FILE)
 
-  runForever()
+  # blocking CIDRs from the nginx file alone runs once and has nothing to wait for
+  if hasPendingOperations():
+    runForever()
 
 when is_main_module:
   main()

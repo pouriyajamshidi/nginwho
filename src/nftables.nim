@@ -1,14 +1,51 @@
-import std/[asyncdispatch, os, strformat, json]
+import std/[os, strformat, json]
 
-from strutils import split, parseInt, isDigit, join, replace, repeat
+from strutils import split, splitWhitespace, parseInt, join, replace, repeat
 from algorithm import sorted
 from logging import info, error, warn, fatal
 from osproc import execProcess, execCmd
-from net import parseIpAddress, IpAddressFamily
+from net import parseIpAddress, IpAddress, IpAddressFamily
 from types import SetType, IPProtocol, NftSet, NftAttrs
 
 import consts
 
+
+
+proc withMask(cidr: string): string =
+  ## Returns the CIDR with a prefix length, "1.2.3.4" becomes "1.2.3.4/32".
+  ## Returns "" when it is not a valid IP or prefix length
+  let parts = cidr.split("/")
+  if parts.len > 2:
+    return ""
+
+  var ipAddr: IpAddress
+  try:
+    ipAddr = parseIpAddress(parts[0])
+  except ValueError:
+    return ""
+
+  let maxLen = if ipAddr.family == IpAddressFamily.IPv4: 32 else: 128
+  if parts.len == 1:
+    return fmt"{parts[0]}/{maxLen}"
+
+  try:
+    let prefixLen = parseInt(parts[1])
+    if prefixLen < 0 or prefixLen > maxLen:
+      return ""
+  except ValueError:
+    return ""
+
+  return cidr
+
+
+proc validCidrs(cidrs: JsonNode): seq[string] =
+  ## Returns the CIDRs with a prefix length and skips the invalid ones
+  for cidr in cidrs:
+    let withPrefix = withMask(cidr.getStr())
+    if withPrefix == "":
+      warn(fmt"Skipping invalid CIDR: {cidr}")
+      continue
+    result.add(withPrefix)
 
 
 proc applyRules(fileName: string = NFT_CIDR_RULES_FILE) =
@@ -22,14 +59,16 @@ proc applyRules(fileName: string = NFT_CIDR_RULES_FILE) =
     info("Successfully applied nftables rules")
 
 
-proc writeRules(fileName: string = NFT_CIDR_RULES_FILE, rules: JsonNode) =
+proc writeRules(fileName: string = NFT_CIDR_RULES_FILE, rules: JsonNode): bool =
   info(fmt"Writing nginwho rules to {fileName}")
 
   try:
     writeFile(fileName, rules.pretty())
     info(fmt"Successfully wrote nginwho rules to {fileName}")
+    return true
   except Exception as e:
     error(fmt"Failed writing nginwho rules to {fileName}: {e.msg}")
+    return false
 
 
 proc createNginwhoChain(name: string = "nginwho"): JsonNode =
@@ -46,22 +85,6 @@ proc createNginwhoChain(name: string = "nginwho"): JsonNode =
         "hook": "prerouting",
         "prio": -10,
         "policy": "accept"
-    }
-  }
-  }
-
-
-proc createNginwhoLogPolicy(): JsonNode =
-  info("Creating nginwho log policy")
-
-  return %* {
-    "add": {
-      "rule": {
-        "family": "inet",
-        "table": "filter",
-        "chain": "nginwho",
-        "handle": 1,
-        "expr": [{"log": {"prefix": NFT_LOG_PREFIXV4}}]
     }
   }
   }
@@ -146,8 +169,12 @@ proc createInputChainPolicy(): JsonNode =
   }
 
 
-proc createSet(cidrs: JsonNode, setName: string, setType: SetType): JsonNode =
+proc createSet(cidrs: JsonNode, setName: string, setType: SetType): seq[JsonNode] =
+  ## Returns the commands that create the Set or replace the elements of an existing one.
+  ## Adding to an existing Set keeps its old elements, so it is flushed first
   info(fmt"Creating {setType} Set")
+
+  let setId = %* {"family": "inet", "table": "filter", "name": setName}
 
   var ipSet: JsonNode = %* {
     "add": {
@@ -165,8 +192,8 @@ proc createSet(cidrs: JsonNode, setName: string, setType: SetType): JsonNode =
     }
   }
 
-  for cidr in cidrs:
-    let ipAndPrefixLen: seq[string] = cidr.getStr().split("/")
+  for cidr in validCidrs(cidrs):
+    let ipAndPrefixLen: seq[string] = cidr.split("/")
 
     ipSet["add"]["set"]["elem"].add(%*{
       "prefix": {
@@ -176,19 +203,26 @@ proc createSet(cidrs: JsonNode, setName: string, setType: SetType): JsonNode =
     }
     )
 
-  return ipSet
+  # adding a Set that exists does nothing, so this makes sure there is one to flush.
+  # nft applies the file at once, so the Set is never empty in between
+  var emptySet = ipSet.copy()
+  emptySet["add"]["set"].delete("elem")
+
+  return @[emptySet, %*{"flush": {"set": setId}}, ipSet]
 
 
-proc createRules(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
+proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
   info(fmt"Creating nftables rules")
 
   var rules: JsonNode = %* {"nftables": []}
 
   if nftAttrs.withCloudflareV4Set:
-    rules[NFT_KEY_NAME].add(createSet(nftSet.ipv4, NFT_SET_NAME_CF_IPv4, SetType.IPv4))
+    for command in createSet(nftSet.ipv4, NFT_SET_NAME_CF_IPv4, SetType.IPv4):
+      rules[NFT_KEY_NAME].add(command)
 
   if nftAttrs.withCloudflareV6Set:
-    rules[NFT_KEY_NAME].add(createSet(nftSet.ipv6, NFT_SET_NAME_CF_IPv6, SetType.IPv6))
+    for command in createSet(nftSet.ipv6, NFT_SET_NAME_CF_IPv6, SetType.IPv6):
+      rules[NFT_KEY_NAME].add(command)
 
   if nftAttrs.withNginwhoChain:
     rules[NFT_KEY_NAME].add(createNginwhoChain())
@@ -269,15 +303,18 @@ proc nginwhoChainHasPolicy(nftOutput: JsonNode, setName: string): bool =
     if expression.len() < 4:
       continue
 
-    let destination = expression[0]["match"]["right"].getStr()
-    let service = expression[1]["match"]["right"]["set"].getElems()
+    try:
+      let destination = expression[0]["match"]["right"].getStr()
+      let service = expression[1]["match"]["right"]["set"].getElems()
 
-    if destination == fmt"@{setName}" and
-      service.len() == 2 and
-      service[0].getInt() == 80 and
-      service[1].getInt() == 443:
-      info(fmt"nginwho chain already has the required policy for Set {setName}")
-      return true
+      if destination == fmt"@{setName}" and
+        service.len() == 2 and
+        service[0].getInt() == 80 and
+        service[1].getInt() == 443:
+        info(fmt"nginwho chain already has the required policy for Set {setName}")
+        return true
+    except:
+      continue
 
   warn(fmt"{NFT_CHAIN_NGINWHO_NAME} chain does not have the required policy for Set {setName}")
 
@@ -305,12 +342,18 @@ proc setChanged(nftOutput: JsonNode, newCidrs: JsonNode,
       continue
     if nftOutput[element]["set"]["name"].getStr() == setName:
       for elem in nftOutput[element]["set"]["elem"]:
+        # nft lists single addresses like 1.2.3.4/32 as a plain string
+        if elem.kind == JString:
+          currentSets.add(withMask(elem.getStr()))
+          continue
         let address = elem["prefix"]["addr"].getStr()
         let length = elem["prefix"]["len"].getInt()
         let addressAndLen = fmt"{address}/{length}"
         currentSets.add(addressAndLen)
 
-  if sorted(currentSets) == sorted(newCidrs.to(seq[string])):
+  let wantedSets = validCidrs(newCidrs)
+
+  if sorted(currentSets) == sorted(wantedSets):
     info(fmt"Set {setName} Set has not changed")
     return false
 
@@ -331,7 +374,7 @@ proc setExists(nftOutput: JsonNode, setName: string): bool =
   warn(fmt"Set {setName} does not exist")
 
 
-proc createNftSetsFrom(fileName: string = NGINX_CIDR_FILE): NftSet =
+proc createNftSetsFrom*(fileName: string = NGINX_CIDR_FILE): NftSet =
   info(fmt"Fetching NFT Sets from {fileName}")
 
   if not fileExists(fileName):
@@ -345,24 +388,24 @@ proc createNftSetsFrom(fileName: string = NGINX_CIDR_FILE): NftSet =
     if line.len() == 0:
       continue
 
-    let splitLine = line.split(" ")
-    if splitLine.len() < 2 or splitLine.len() > 2:
+    let splitLine = line.splitWhitespace()
+    if splitLine.len() != 2 or splitLine[0] != NGINX_SET_REAL_IP_FROM:
       continue
 
-    if splitLine[1][0].isDigit():
-      let ipAndMask = splitLine[1].replace(";", "")
-      let ipAddr = parseIpAddress(ipAndMask.split("/")[0])
+    let cidr = withMask(splitLine[1].replace(";", ""))
+    if cidr == "":
+      warn(fmt"Skipping invalid CIDR in {fileName}: {splitLine[1]}")
+      continue
 
-      if ipAddr.family == IpAddressFamily.IPv4:
-        ipv4Cidrs.add($ipAndMask)
-
-      if ipAddr.family == IpAddressFamily.IPv6:
-        ipv6Cidrs.add($ipAndMask)
+    if parseIpAddress(cidr.split("/")[0]).family == IpAddressFamily.IPv4:
+      ipv4Cidrs.add(cidr)
+    else:
+      ipv6Cidrs.add(cidr)
 
   return NftSet(ipv4: %*ipv4Cidrs, ipv6: %*ipv6Cidrs)
 
 
-proc inetFilterExists(nftOutput: JsonNode): bool =
+proc inetFilterExists*(nftOutput: JsonNode): bool =
   info("Checking nftables `inet filter` table existence")
 
   try:
@@ -382,14 +425,20 @@ proc getCurrentRules(): JsonNode =
   info(fmt"Getting current nftables rules using `{NFT_GET_RULESET_CMD}`")
 
   try:
-    return parseJson(execProcess(NFT_GET_RULESET_CMD))
+    result = parseJson(execProcess(NFT_GET_RULESET_CMD)){NFT_KEY_NAME}
   except Exception as e:
     error(fmt"Failed parsing JSON: {e.msg}")
 
+  # we can't decide which rules to add without the current ones
+  if result.isNil:
+    error("Could not get current nftables rules - Are you root?")
+    quit(1)
+
 
 proc writeRulesAndApply(rules: JsonNode) =
-  writeRules(rules = rules)
-  applyRules()
+  # don't apply an old or unknown rules file if writing failed
+  if writeRules(rules = rules):
+    applyRules()
 
 
 proc ensureNftExists*() =
@@ -415,17 +464,8 @@ proc changesRequired(nftAttrs: NftAttrs): bool =
   return false
 
 
-proc runPrechecks(nftSet: NftSet): NftAttrs =
-  info("Running nftables pre-checks")
-
-  let nftOutput: JsonNode = getCurrentRules()[NFT_KEY_NAME]
-
-  if not inetFilterExists(nftOutput):
-    error("nftables `inet` filter not found")
-    info("Please create one manually using this sample:\n\n",
-        fmt"{NFT_SAMPLE_POLICY}")
-    quit(1)
-
+proc requiredChanges*(nftOutput: JsonNode, nftSet: NftSet): NftAttrs =
+  ## Compares the current ruleset with what nginwho needs and returns the missing parts
   var nftAttrs: NftAttrs
 
   if setExists(nftOutput, NFT_SET_NAME_CF_IPv4):
@@ -452,6 +492,20 @@ proc runPrechecks(nftSet: NftSet): NftAttrs =
   return nftAttrs
 
 
+proc runPrechecks(nftSet: NftSet): NftAttrs =
+  info("Running nftables pre-checks")
+
+  let nftOutput: JsonNode = getCurrentRules()
+
+  if not inetFilterExists(nftOutput):
+    error("nftables `inet` filter not found")
+    info("Please create one manually using this sample:\n\n",
+        fmt"{NFT_SAMPLE_POLICY}")
+    quit(1)
+
+  return requiredChanges(nftOutput, nftSet)
+
+
 proc acceptOnly*(nftSet: NftSet) =
   info(fmt"Using `{NFT_GET_RULESET_CMD}` to construct nftables rules ")
 
@@ -466,19 +520,7 @@ proc acceptOnly*(nftSet: NftSet) =
     writeRulesAndApply(rules)
 
 
-proc acceptOnly*(path: string) {.async.} =
+proc acceptOnly*(path: string) =
   info(fmt"Using {path} to construct nftables rules ")
 
-  let nftSet: NftSet = createNftSetsFrom(path)
-
-  if nftSet.ipv4.len() == 0:
-    warn("Received empty CIDRs")
-    return
-
-  let nftAttrs: NftAttrs = runPrechecks(nftSet)
-
-  if changesRequired(nftAttrs):
-    let rules: JsonNode = createRules(nftSet, nftAttrs)
-    writeRulesAndApply(rules)
-
-  await sleepAsync(SIX_HOURS)
+  acceptOnly(createNftSetsFrom(path))

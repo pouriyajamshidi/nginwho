@@ -1,13 +1,15 @@
-import std/[asyncdispatch, times]
+from std/times import getTime, format
+from std/strutils import splitWhitespace, replace, endsWith, startsWith, strip, contains, join, rfind, splitLines
 from json import JsonNode, getStr, items
 from os import findExe, fileExists
 from osproc import execCmd
 from strformat import fmt
 from logging import info, error, warn, fatal
 
-from types import Cidrs
-from consts import NGINX_CMD, NGINX_TEST_CMD, NGINX_RELOAD_CMD, ONE_MINUTE,
-    DATE_FORMAT, NGINX_SET_REAL_IP_FROM, NGINX_REAL_IP_HEADER, NGINX_CF_REAL_IP_HEADER
+from types import Cidrs, Log, Logs
+from utils import convertDateFormat
+from consts import NGINX_CMD, NGINX_TEST_CMD, NGINX_RELOAD_CMD,
+    DATE_FORMAT, READ_CHUNK_BYTES, NGINX_SET_REAL_IP_FROM, NGINX_REAL_IP_HEADER, NGINX_CF_REAL_IP_HEADER
 
 
 proc populateReverseProxyFile*(filePath: string, cidrs: Cidrs): bool =
@@ -15,32 +17,28 @@ proc populateReverseProxyFile*(filePath: string, cidrs: Cidrs): bool =
 
   let now: string = getTime().format(DATE_FORMAT)
 
-  if cidrs.etagChanged:
-    try:
-      let file: File = open(filePath, fmWrite)
-      defer: file.close()
+  try:
+    let file: File = open(filePath, fmWrite)
+    defer: file.close()
 
-      file.write("# Cloudflare ranges\n")
-      file.write("# Last update: ", now, "\n")
-      file.write("# Last etag: ", cidrs.etag, "\n\n")
-      file.write("# IPv4 CIDRs\n")
+    file.write("# Cloudflare ranges\n")
+    file.write("# Last update: ", now, "\n")
+    file.write("# Last etag: ", cidrs.etag, "\n\n")
+    file.write("# IPv4 CIDRs\n")
 
-      for cidr in cidrs.ipv4:
-        file.write(NGINX_SET_REAL_IP_FROM, " ", cidr.getStr(), ";", "\n")
+    for cidr in cidrs.ipv4:
+      file.write(NGINX_SET_REAL_IP_FROM, " ", cidr.getStr(), ";", "\n")
 
-      file.write("\n# IPv6 CIDRs\n")
+    file.write("\n# IPv6 CIDRs\n")
 
-      for cidr in cidrs.ipv6:
-        file.write(NGINX_SET_REAL_IP_FROM, " ", cidr.getStr(), ";", "\n")
+    for cidr in cidrs.ipv6:
+      file.write(NGINX_SET_REAL_IP_FROM, " ", cidr.getStr(), ";", "\n")
 
-      file.write("\n\n", NGINX_REAL_IP_HEADER, " ", NGINX_CF_REAL_IP_HEADER, "\n")
-      return true
-    except:
-      error(fmt"Could not open {filePath}")
-      return false
-
-  info("CIDR tag has not changed")
-  return false
+    file.write("\n\n", NGINX_REAL_IP_HEADER, " ", NGINX_CF_REAL_IP_HEADER, "\n")
+    return true
+  except:
+    error(fmt"Could not open {filePath}")
+    return false
 
 
 proc ensureNginxLogExists*(logPath: string) =
@@ -65,7 +63,7 @@ proc testNginxConfig(): int =
   return execCmd(command = NGINX_TEST_CMD)
 
 
-proc reloadNginx() =
+proc reloadNginx*() =
   info("Attempting to soft-reload nginx")
 
   let testResult: int = testNginxConfig()
@@ -81,13 +79,95 @@ proc reloadNginx() =
     info("nginx process reloaded successfully")
 
 
-proc reloadNginxAt*(hour: int = 3, minute: int = 0) {.async.} =
-  info(fmt"Preparing to soft-reload nginx at {hour}:{minute}")
+proc parseLogEntry*(logLine: string, omit: string): Log =
+  var log: Log
 
-  while true:
-    let now: DateTime = getTime().local()
-    if now.hour == hour and now.minute == minute:
-      reloadNginx()
+  let matches: seq[string] = logLine.splitWhitespace()
 
-    await sleepAsync(ONE_MINUTE)
+  if matches.len >= 12:
+    log.remoteIP = matches[0]
 
+    # Nginx 1.24.0 has decided to write weird and incorrect dates
+    try:
+      log.date = convertDateFormat(matches[3].replace("\"", "").replace("[",
+          "").replace("/", "-"))
+    except Exception as e:
+      error(fmt"Failed parsing log date: {e.msg}")
+      log.nonDefault = logLine
+      return log
+
+    log.httpMethod = matches[5].replace("\"", "")
+
+    var requestURI = matches[6].replace("\"", "")
+    if requestURI.endsWith("/") and len(requestURI) > 1:
+      requestURI = requestURI.strip(leading = false, chars = {'/'})
+    log.requestURI = requestURI
+
+    log.statusCode = matches[8]
+    log.responseSize = matches[9]
+
+    var referrer = matches[10].replace("\"", "")
+    if omit != "" and referrer.contains(omit):
+      log.referrer = ""
+    elif referrer == "-":
+      log.referrer = ""
+    else:
+      if referrer.endsWith("/"):
+        referrer = referrer.strip(leading = false, chars = {'/'})
+      log.referrer = referrer
+
+    log.userAgent = matches[11..^1].join(" ").replace("\"", "")
+    # nginx writes "" for an empty User-Agent header. store it like a missing one,
+    # an empty value breaks the insert of the whole batch
+    if log.userAgent == "":
+      log.userAgent = "-"
+    log.nonDefault = ""
+  else:
+    error(fmt"Could not parse: {logLine}")
+    log.nonDefault = logLine
+
+  return log
+
+
+proc readNewLines*(path: string, offset: var int64, maxBytes = READ_CHUNK_BYTES): seq[string] =
+  ## Reads the complete lines added to the file since `offset`, up to `maxBytes`, and moves `offset` forward
+  let file = open(path)
+  defer: file.close()
+
+  file.setFilePos(offset)
+  var data = newString(maxBytes)
+  data.setLen(file.readChars(data))
+
+  # leave a half written last line for the next read
+  let lastNewline = data.rfind('\n')
+  if lastNewline == -1:
+    # a line longer than maxBytes never fits in one read, skip it instead of getting stuck
+    if data.len == maxBytes:
+      offset += maxBytes
+    return
+
+  offset += lastNewline + 1
+  return data[0 ..< lastNewline].splitLines()
+
+
+proc offsetAfterLastInserted*(path: string, lastLog: Log): int64 =
+  ## Returns the file offset right after the last line that matches `lastLog`,
+  ## the last log saved in the database. Returns 0 when no line matches
+  if lastLog.date == "":
+    return 0
+
+  let file = open(path)
+  defer: file.close()
+
+  var line: string
+  while file.readLine(line):
+    # parsing every line is slow, most lines are from another IP
+    if not line.startsWith(lastLog.remoteIP & " "):
+      continue
+
+    let log = parseLogEntry(line, "")
+    # keep going to the last match, the same request can repeat in the same second
+    if log.date == lastLog.date and
+    log.httpMethod == lastLog.httpMethod and
+    log.requestURI == lastLog.requestURI:
+      result = file.getFilePos()

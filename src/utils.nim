@@ -1,17 +1,12 @@
-from std/times import parse, Datetime, format, epochTime
-from std/strutils import formatFloat
-from std/strformat import fmt
+from std/times import parse, DateTime, format
+from std/strutils import endsWith
 
 proc convertDateFormat*(nginxDate: string): string =
   let parsedDate: DateTime = parse(nginxDate, "d-MMM-yyyy:HH:mm:ss")
   return parsedDate.format("yyyy-MM-dd HH:mm:ss")
 
 
-template benchmark*(benchmarkName: string, code: untyped) =
-  block:
-    let start = epochTime()
-    code
-    let elapsed = epochTime() - start
-    let elapsedStr = elapsed.formatFloat(format = ffDecimal, precision = 3)
-    echo(fmt"Elapsed time: [ {benchmarkName} ] {elapsedStr}s")
-
+proc isStaticAsset*(requestURI: string): bool =
+  ## Fonts, scripts and styles are not stored, they only add noise
+  # TODO: Decide whether to exclude these or not
+  requestURI.endsWith(".woff2") or requestURI.endsWith(".js") or requestURI.endsWith(".css")

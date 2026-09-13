@@ -37,7 +37,6 @@ type
     ipv4*: JsonNode
     ipv6*: JsonNode
     etag*: string
-    etagChanged*: bool
 
 
 type

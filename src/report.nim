@@ -1,146 +1,209 @@
-import std/tables
-
 from std/terminal import setForegroundColor, resetAttributes, styledWriteLine,
-    styleUnderscore, fgYellow, fgRed, fgGreen, fgBlue
-from logging import info, warn, error
+    styleBright, styleUnderscore, fgYellow
 from std/strformat import fmt
-from std/strutils import parseUInt, repeat
+from std/strutils import parseInt, repeat, strip, insertSep, align, formatFloat, ffDecimal
+from std/unicode import runeLen, runeSubStr
 from std/rdstdin import readLineFromStdin
+from std/os import fileExists
+from std/times import Duration, initDuration, now, format, `-`, DurationZero, `==`
 from db_connector/db_sqlite import DbConn, Row
 
-from database import getDbConnection, closeDbConnection, getTopIPs,
-    getTopURIs, getTopUnsuccessfulRequests, getTopReferres, getNonDefaults
+from consts import DATE_FORMAT
+from database import getDbConnection, closeDbConnection, createTables, hasDateIndex,
+    getTopIPs, getTopURIs, getTopUnsuccessfulRequests, getTopReferres, getNonDefaults,
+    getTotalRequests, getTotalNonDefaults
 
 
-const parenRepeatCount = 80
+const
+  # long URIs and user agents would break the table
+  maxColumnWidth = 50
+  barWidth = 20
 
-type OptionProc = proc (db: DbConn, num: uint): seq[Row]
+type
+  Report = object
+    name: string
+    columns: seq[string]
+    query: proc (db: DbConn, num: uint, since: string): seq[Row] {.nimcall.}
+    allTimeOnly: bool
 
-var optionMapping = newTable[string, OptionProc]()
+  TimeWindow = tuple[name: string, duration: Duration]
 
-optionMapping["Show top IP addresses"] = getTopIPs
-optionMapping["Show top URIs"] = getTopURIs
-optionMapping["Show top unsuccessful requests"] = getTopUnsuccessfulRequests
-optionMapping["Show top referrers"] = getTopReferres
-optionMapping["Show top non-defaults"] = getNonDefaults
+let reports = [
+  Report(name: "Top IP addresses", columns: @["IP address"], query: getTopIPs),
+  Report(name: "Top URIs", columns: @["URI"], query: getTopURIs),
+  Report(name: "Top unsuccessful requests", columns: @["Status", "URI", "User agent"],
+      query: getTopUnsuccessfulRequests),
+  Report(name: "Top referrers", columns: @["Referrer"], query: getTopReferres),
+  # non-default logs are saved without a date
+  Report(name: "Top non-defaults", columns: @["Log line"], query: getNonDefaults, allTimeOnly: true),
+]
+
+# a zero duration means all time
+let timeWindows: array[4, TimeWindow] = [
+  ("last 24 hours", initDuration(days = 1)),
+  ("last 7 days", initDuration(days = 7)),
+  ("last 30 days", initDuration(days = 30)),
+  ("all time", DurationZero),
+]
 
 
-
-proc echoSigns(letter: string = "=", count: int = parenRepeatCount) =
-  echo(letter.repeat(count))
-
-
-proc echoNewlines(count: int = 2) =
-  echo("\n".repeat(count))
+proc since(window: TimeWindow): string =
+  ## Returns the date the time window starts at, in the same format and local time as the saved logs
+  if window.duration == DurationZero:
+    return ""
+  return (now() - window.duration).format(DATE_FORMAT)
 
 
-proc showAvailableOptions() =
-  stdout.resetAttributes()
+proc fit(text: string, width: int): string =
+  ## Cuts `text` to `width` characters and pads it to exactly that width
+  if runeLen(text) > width:
+    return runeSubStr(text, 0, width - 1) & "…"
+  return text & " ".repeat(width - runeLen(text))
+
+
+proc formatTable*(columns: seq[string], rows: seq[Row], total: int): seq[string] =
+  ## Returns the rows as table lines, starting with the header.
+  ## Every row has one value per column and then its count
+  var widths: seq[int]
+  for i, column in columns:
+    var width = runeLen(column)
+    for row in rows:
+      width = max(width, runeLen(row[i]))
+    widths.add(min(width, maxColumnWidth))
+
+  var counts: seq[int]
+  for row in rows:
+    counts.add(parseInt(row[^1]))
+
+  let topCount = max(counts & @[1])
+  let countWidth = max(len("Requests"), len(insertSep($topCount, ',')))
+  let numberWidth = len($len(rows))
+
+  var header = align("#", numberWidth)
+  for i, column in columns:
+    header &= "  " & fit(column, widths[i])
+  result.add(header & "  " & align("Requests", countWidth) & "  " & align("%", 6))
+
+  for n, row in rows:
+    var line = align($(n + 1), numberWidth)
+    for i in 0 ..< len(columns):
+      line &= "  " & fit(row[i], widths[i])
+
+    let percent = if total > 0: counts[n] / total * 100 else: 0.0
+    let bar = "█".repeat(max(1, counts[n] * barWidth div topCount))
+    result.add(line & "  " & align(insertSep($counts[n], ','), countWidth) & "  " &
+        align(percent.formatFloat(ffDecimal, 1) & "%", 6) & "  " & bar)
+
+
+proc ask(question: string): string =
+  # treat Ctrl+D the same as quitting
+  try:
+    return readLineFromStdin(question).strip()
+  except IOError:
+    return "q"
+
+
+proc askNumber(question: string, max: int): int =
+  ## Returns a number from 1 to `max`, or 0 to go back
+  while true:
+    let answer = ask(question)
+    if answer == "q":
+      return 0
+
+    try:
+      let num = parseInt(answer)
+      if num >= 1 and num <= max:
+        return num
+    except ValueError:
+      discard
+
+    echo(fmt"Pick a number from 1 to {max}, or q to go back")
+
+
+proc showMenu(window: TimeWindow) =
   setForegroundColor(fgYellow, true)
 
-  echoNewlines()
-  echoSigns()
+  echo()
+  for i, report in reports:
+    let note = if report.allTimeOnly: " (all time)" else: ""
+    echo(fmt"  {i + 1}) {report.name}{note}")
 
-  var counter = 1
-  for option, _ in optionMapping:
-    stdout.write(counter, ")", " ", option, "\n")
-    counter += 1
-
-  echoSigns()
-  echoNewlines()
+  echo(fmt"  w) Change time window (now: {window.name})")
+  echo("  q) Quit")
+  echo()
 
   stdout.resetAttributes()
 
 
-proc getUserChoice(): (uint, uint) =
-  stdout.resetAttributes()
-  setForegroundColor(fgBlue, true)
+proc chooseTimeWindow(current: int): int =
+  echo()
+  for i, window in timeWindows:
+    echo(fmt"  {i + 1}) {window.name}")
 
-  echoNewlines()
-
-  let option = readLineFromStdin("Select an option number (q to quit): ")
-  if option == "q":
-    return (0, 0)
-
-  let num = readLineFromStdin("Select the number of records to query (q to quit): ")
-  if num == "q":
-    return (0, 0)
-
-  echoNewlines(1)
-
-  try:
-    let parsedOption = parseUInt(option)
-    let parsedNum = parseUInt(num)
-
-    if parsedOption < 1 or parsedNum < 1:
-      error("Option and number should be greater than 0")
-      return getUserChoice()
-
-    if parsedOption > uint(len(optionMapping)):
-      error("Option number is too large... Try again")
-      return getUserChoice()
-
-    return (parsedOption, parsedNum)
-  except ValueError:
-    error("Bad number... Try again")
-    return getUserChoice()
+  let choice = askNumber("Select a time window (q to keep the current one): ", len(timeWindows))
+  if choice == 0:
+    return current
+  return choice - 1
 
 
-proc mapNumToOptionProc(num: uint): OptionProc =
-  var counter = 0
-  for k, v in optionMapping:
-    if num - 1 == uint(counter):
-      return optionMapping[k]
-    counter += 1
+proc showResults(db: DbConn, report: Report, num: uint, window: TimeWindow) =
+  let rows = report.query(db, num, since(window))
 
+  let windowName = if report.allTimeOnly: "all time" else: window.name
+  let total = if report.allTimeOnly: getTotalNonDefaults(db) else: getTotalRequests(db, since(window))
 
-proc runQueryFunction(db: DbConn, optionProc: OptionProc, num: uint) =
-  stdout.resetAttributes()
+  echo()
+  stdout.styledWriteLine(styleBright, fmt"{report.name}, {windowName} ({insertSep($total, ',')} requests)")
+  echo()
 
-  let rows = optionProc(db, num)
+  if len(rows) == 0:
+    echo("  No records found")
+    return
 
-  setForegroundColor(fgGreen, true)
-
-  echoNewlines()
-  echoSigns()
-
-  var count = 1
-  for row in rows:
-    stdout.styledWriteLine(fgGreen, fmt"{count}) {row[0]} is seen ",
-        styleUnderscore, row[1], " times")
-    count += 1
-
-  setForegroundColor(fgGreen, true)
-
-  echoSigns()
-  echoNewlines()
-
-  setForegroundColor(fgRed, true)
-  echoSigns("-")
+  let lines = formatTable(report.columns, rows, total)
+  stdout.styledWriteLine(styleUnderscore, "  ", lines[0])
+  for line in lines[1..^1]:
+    echo("  ", line)
 
 
 proc report*(dbPath: string) =
-  info("Entering report mode")
+  # opening a missing database creates an empty one and every query fails
+  if not fileExists(dbPath):
+    echo(fmt"Database not found at {dbPath}")
+    quit(1)
 
   let db = getDbConnection(dbPath)
 
+  # databases from older versions don't have the index yet
+  if not hasDateIndex(db):
+    echo("Creating the date index for time window reports, this can take a while on big databases...")
+    createTables(db)
+
+  var window = 2 # last 30 days
+
   while true:
-    showAvailableOptions()
+    showMenu(timeWindows[window])
 
-    let (optionNumber, num) = getUserChoice()
+    let choice = ask("Select an option: ")
 
-    if optionNumber == 0 and num == 0:
-      stdout.resetAttributes()
+    if choice == "q":
       break
 
-    let option = mapNumToOptionProc(optionNumber)
-    stdout.resetAttributes()
+    if choice == "w":
+      window = chooseTimeWindow(window)
+      continue
 
-    runQueryFunction(db, option, num)
+    let option = try: parseInt(choice) except ValueError: 0
+    if option < 1 or option > len(reports):
+      echo("Pick an option from the menu")
+      continue
+
+    let num = askNumber("Number of records to show: ", high(int32))
+    if num == 0:
+      continue
+
+    showResults(db, reports[option - 1], uint(num), timeWindows[window])
 
   stdout.resetAttributes()
-
   closeDbConnection(db)
-  info("Exiting")
-
   quit(0)

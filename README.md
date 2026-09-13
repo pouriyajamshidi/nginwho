@@ -16,6 +16,11 @@
 Table of contents:
 
 - [nginwho](#nginwho)
+  - [Installation](#installation)
+    - [Binary release (Linux x86_64)](#binary-release-linux-x86_64)
+    - [Nimble](#nimble)
+    - [Build from source](#build-from-source)
+    - [Run as a service](#run-as-a-service)
   - [Usage](#usage)
   - [Flags](#flags)
   - [How it works](#how-it-works)
@@ -25,55 +30,66 @@ Table of contents:
     - [Reporting](#reporting)
     - [Migrating v1 database to v2](#migrating-v1-database-to-v2)
 
+## Installation
+
+### Binary release (Linux x86_64)
+
+```bash
+curl -Lo nginwho https://github.com/pouriyajamshidi/nginwho/releases/latest/download/nginwho
+sudo install nginwho -D -t /usr/local/bin/
+```
+
+### Nimble
+
+```bash
+nimble install nginwho
+```
+
+### Build from source
+
+Requires [Nimble](https://github.com/nim-lang/nimble). It downloads the latest stable Nim if needed:
+
+```bash
+git clone https://github.com/pouriyajamshidi/nginwho.git
+cd nginwho
+nimble install -y --depsOnly
+nimble c -d:release --opt:speed -d:ssl -o:nginwho src/nginwho.nim
+sudo install nginwho -D -t /usr/local/bin/
+```
+
+To run the tests, use `nimble test`. The nftables tests run the real `nft` in a throwaway network namespace, so they don't need root or touch your firewall. They are skipped if that is not possible.
+
+### Run as a service
+
+Use the [accompanying systemd service](https://github.com/pouriyajamshidi/nginwho/blob/master/nginwho.service) to run **nginwho** in the background and survive reboots. Check the flags in `ExecStart` before enabling it, since it turns on `--showRealIps` and `--blockUntrustedCidrs`:
+
+```bash
+curl -Lo nginwho.service https://raw.githubusercontent.com/pouriyajamshidi/nginwho/master/nginwho.service
+sudo install -m 644 nginwho.service -D -t /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now nginwho.service
+```
+
 ## Usage
 
 > [!IMPORTANT]
 > If you have been a user since version 1, please check out [this section](#migrating-v1-database-to-v2) to migrate your database scheme to version 2.
 
-1. Download **nginwho** from this URL:
+```bash
+nginwho --logPath:/var/log/nginx/access.log --dbPath:/var/log/nginwho.db
 
-   ```bash
-   wget https://github.com/pouriyajamshidi/nginwho/releases/latest/download/nginwho
-   ```
+# If you want to omit a certain referrer from being logged (replace thegraynode.io with your domain):
+nginwho --logPath:/var/log/nginx/access.log \
+        --dbPath:/var/log/nginwho.db \
+        --omitReferrer:thegraynode.io
 
-   Optionally, **nginwho** can also be installed using nimble:
-
-   ```bash
-   nimble install nginwho
-   ```
-
-2. Make it executable and move it to your `$PATH`:
-
-   ```bash
-   chmod +x nginwho
-   sudo cp nginwho /usr/local/bin
-   ```
-
-3. Run it:
-
-   ```bash
-    nginwho --logPath:/var/log/nginx/access.log --dbPath:/var/log/nginwho.db
-
-    # If you want to omit a certain referrer from being logged (replace thegraynode.io with your domain):
-    nginwho --logPath:/var/log/nginx/access.log \
-            --dbPath:/var/log/nginwho.db \
-            --omitReferrer:thegraynode.io
-
-    # If you want to get real IP addresses of the visitors coming from Cloudflare:
-    nginwho --logPath:/var/log/nginx/access.log \
-            --dbPath:/var/log/nginwho.db \
-            --showRealIps:true
-   ```
+# If you want to get real IP addresses of the visitors coming from Cloudflare:
+nginwho --logPath:/var/log/nginx/access.log \
+        --dbPath:/var/log/nginwho.db \
+        --showRealIps:true
+```
 
 > Please note that you can mix these flags. They operate independently.
-
-1. Optionally, use the [accompanying systemd](https://github.com/pouriyajamshidi/nginwho/blob/master/nginwho.service) to run **nginwho** as a service in the background and for the it to survive system reboots:
-
-   ```bash
-   sudo cp nginwho.service /etc/systemd/system/nginwho.service
-   sudo systemctl enable nginwho.service
-   sudo systemctl start nginwho.service
-   ```
 
 ## Flags
 
@@ -116,7 +132,7 @@ The second feature, `--showRealIps` flag fetches **Cloudflare CIDRs** (`IPv4` an
 
 It is worthwhile to mention that **nginwho** leverages the `etag` field in Cloudflare's API response, so, if the newly fetched `etag` is the same as the current one, the `/etc/nginx/nginwho` file will not be overwritten.
 
-If the `/etc/nginx/nginwho` file has changed or this is a fresh run, **nginwho** schedules the **nginx** service to be soft reloaded (`nginx -s reload`) at 3 AM.
+If the `/etc/nginx/nginwho` file has changed or this is a fresh run, **nginwho** tests the **nginx** config (`nginx -t`) and if it passes, soft reloads **nginx** (`nginx -s reload`) right away. A soft reload does not drop open connections.
 
 > [!IMPORTANT]
 > The `--showRealIps` flag requires **root privileges**.
@@ -154,7 +170,7 @@ There will be a bunch of tests and pre-checks done before applying any policies.
 
 ### Reporting
 
-Running **nginwho** with the `--report` flag will launch a TUI, providing some options (top visited URLs, top visiting IP addresses, etc.) that you can select and specify how many records to be queried.
+Running **nginwho** with the `--report` flag will launch a TUI, providing some options (top visited URLs, top visiting IP addresses, etc.) that you can select and specify how many records to be queried. Reports cover the last 30 days by default. Press `w` to switch to the last 24 hours, 7 days or all time.
 
 ```bash
 nginwho --report --dbPath:/var/log/nginwho.db

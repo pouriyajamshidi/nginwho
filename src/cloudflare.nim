@@ -4,42 +4,61 @@ from os import fileExists
 from logging import info, error, warn, fatal
 
 import consts
-from nginx import reloadNginxAt, populateReverseProxyFile
+from nginx import reloadNginx, populateReverseProxyFile
 from nftables import acceptOnly
 from types import Cidrs, NftSet
 
 
 
-proc getCloudflareCIDRs(): Option[Cidrs] =
-  info("Getting Cloudflare CIDRs")
+proc parseCidrsResponse*(jsonResponse: JsonNode): Option[Cidrs] =
+  let etag: string = jsonResponse{"result", "etag"}.getStr()
 
-  let client: HttpClient = newHttpClient()
-  let response: Response = client.get(CLOUDFLARE_CIDR_API_URL)
-
-  if response.code != Http200:
-    error(fmt"Call to {CLOUDFLARE_CIDR_API_URL} failed")
-    return none(Cidrs)
-
-  let jsonResponse: JsonNode = parseJson(response.body)
-
-  let etag: string = jsonResponse["result"]["etag"].getStr()
-
-  let apiSuccess: bool = jsonResponse["success"].getBool()
+  let apiSuccess: bool = jsonResponse{"success"}.getBool()
   if apiSuccess != true:
     warn(fmt"API `success` is not true: {apiSuccess}")
     return none(Cidrs)
 
-  let ipv4Cidrs: JsonNode = jsonResponse["result"]["ipv4_cidrs"]
-  let ipv6Cidrs: JsonNode = jsonResponse["result"]["ipv6_cidrs"]
+  let ipv4Cidrs: JsonNode = jsonResponse{"result", "ipv4_cidrs"}
+  let ipv6Cidrs: JsonNode = jsonResponse{"result", "ipv6_cidrs"}
 
-  if ipv4Cidrs.isNil or ipv6Cidrs.isNil:
+  # an empty list would flush its nftables Set and block all Cloudflare traffic of that IP version
+  if ipv4Cidrs.isNil or ipv6Cidrs.isNil or ipv4Cidrs.len == 0 or ipv6Cidrs.len == 0:
+    warn("API response is missing IPv4 or IPv6 CIDRs")
     return none(Cidrs)
   else:
-    return some(Cidrs(ipv4: ipv4Cidrs, ipv6: ipv6Cidrs, etag: etag,
-        etagChanged: true))
+    return some(Cidrs(ipv4: ipv4Cidrs, ipv6: ipv6Cidrs, etag: etag))
 
 
-proc getCurrentEtag(configFile: string = NGINX_CIDR_FILE): string =
+proc getCloudflareCIDRs(): Future[Option[Cidrs]] {.async.} =
+  info("Getting Cloudflare CIDRs")
+
+  let client: AsyncHttpClient = newAsyncHttpClient()
+  defer: client.close()
+
+  var jsonResponse: JsonNode
+
+  try:
+    let request: Future[AsyncResponse] = client.get(CLOUDFLARE_CIDR_API_URL)
+
+    if not await request.withTimeout(TEN_SECONDS):
+      error(fmt"Call to {CLOUDFLARE_CIDR_API_URL} timed out")
+      return none(Cidrs)
+
+    let response: AsyncResponse = request.read()
+
+    if response.code != Http200:
+      error(fmt"Call to {CLOUDFLARE_CIDR_API_URL} failed")
+      return none(Cidrs)
+
+    jsonResponse = parseJson(await response.body)
+  except CatchableError as e:
+    error(fmt"Call to {CLOUDFLARE_CIDR_API_URL} failed: {e.msg}")
+    return none(Cidrs)
+
+  return parseCidrsResponse(jsonResponse)
+
+
+proc getCurrentEtag*(configFile: string = NGINX_CIDR_FILE): string =
   info("Getting current Cloudflare CIDRs ETAG")
 
   if not fileExists(configFile):
@@ -58,7 +77,7 @@ proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool = false) {.async.} =
 
   while true:
     let currentEtag: string = getCurrentEtag()
-    let cfCIDRs: Option[Cidrs] = getCloudflareCIDRs()
+    let cfCIDRs: Option[Cidrs] = await getCloudflareCIDRs()
 
     case cfCIDRs.isSome:
     of true:
@@ -69,8 +88,9 @@ proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool = false) {.async.} =
         acceptOnly(NftSet(ipv4: cidrs.ipv4, ipv6: cidrs.ipv6))
 
       if currentEtag != cidrs.etag:
+        # nginx reload is graceful and does not drop open connections
         if populateReverseProxyFile(NGINX_CIDR_FILE, cidrs):
-          waitFor reloadNginxAt(3, 0)
+          reloadNginx()
       else:
         info(fmt"etag has not changed {currentEtag}")
     of false:

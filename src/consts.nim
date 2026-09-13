@@ -1,48 +1,41 @@
-import times
+import times, strutils
+
+proc nimbleVersion(): string =
+  ## Reads the version from nginwho.nimble at compile time
+  for line in staticRead("../nginwho.nimble").splitLines:
+    if line.startsWith("version"):
+      return line.split('=')[1].strip.strip(chars = {'"'})
 
 const
-  VERSION*: string = "2.3.0"
+  VERSION*: string = nimbleVersion()
 
   DATE_FORMAT*: string = "yyyy-MM-dd HH:mm:ss"
 
   NGINWHO_DB_FILE*: string = "/var/log/nginwho.db"
+  MAX_INSERT_ATTEMPTS*: int = 3
+  READ_CHUNK_BYTES*: int = 16 * 1024 * 1024
 
-  FIVE_SECONDS*: int = int(initDuration(seconds = 5).inMilliseconds)
   TEN_SECONDS*: int = int(initDuration(seconds = 10).inMilliseconds)
-  ONE_MINUTE*: int = int(initDuration(minutes = 1).inMilliseconds)
-  THREE_HOURS*: int = int(initDuration(hours = 3).inMilliseconds)
   SIX_HOURS*: int = int(initDuration(hours = 6).inMilliseconds)
-  TWELVE_HOURS*: int = int(initDuration(hours = 12).inMilliseconds)
 
   CLOUDFLARE_CIDR_API_URL*: string = "https://api.cloudflare.com/client/v4/ips"
-
-  # FASTLY_CIDR_API_URL:string = "https://api.fastly.com/public-ip-list"
 
   NGINX_CMD*: string = "nginx"
   NGINX_TEST_CMD*: string = "nginx -t"
   NGINX_RELOAD_CMD*: string = "nginx -s reload"
   NGINX_DEFAULT_LOG_PATH*: string = "/var/log/nginx/access.log"
   NGINX_CIDR_FILE*: string = "/etc/nginx/nginwho"
-  # NGINX_CIDR_FILE*: string = "temp/reverse_proxies.txt"
   NGINX_SET_REAL_IP_FROM*: string = "set_real_ip_from"
   NGINX_REAL_IP_HEADER*: string = "real_ip_header"
   NGINX_CF_REAL_IP_HEADER*: string = "CF-Connecting-IP;"
 
-  LOG_NOT_FOUND* = -1
-
-  TEMP_NFT_FILE_PATH*: string = "temp/nft_working_output.json"
-
-  NFT_CMD*: string = "nftables"
   NFT_GET_RULESET_CMD*: string = "nft -j list ruleset"
-  NFT_CONFIG_FILE_PATH*: string = "/etc/nftables.conf"
-  NFT_MIN_RULE_LEN*: int = 2
   NFT_SET_NAME_CF_IPv4*: string = "Cloudflare_IPv4"
   NFT_SET_NAME_CF_IPv6*: string = "Cloudflare_IPv6"
   NFT_KEY_NAME*: string = "nftables"
   NFT_CHAIN_NGINWHO_NAME*: string = "nginwho"
   NFT_CHAIN_INPUT_NAME*: string = "input"
-  NFT_CIDR_RULES_FILE* = "/tmp/nginwho.nft"
-  # NFT_CIDR_RULES_FILE*: string = "temp/nginwho.nft"
+  NFT_CIDR_RULES_FILE* = "/run/nginwho.nft"
   NFT_LOG_PREFIXV4*: string = "NGINWHO_DROPPED_v4 "
   NFT_LOG_PREFIXV6*: string = "NGINWHO_DROPPED_v6 "
 
@@ -52,7 +45,7 @@ const
 ##########################################
 
 
-1) Using /etc/nftables.conft:
+1) Using /etc/nftables.conf:
 
 #!/usr/sbin/nft -f
 
@@ -85,12 +78,15 @@ table inet filter {
 2) Using the `nft` command (might require `sudo`):
 
 nft add table inet filter
+nft 'add chain inet filter input { type filter hook input priority filter; policy accept; }'
 nft add rule inet filter input ct state established,related accept
 nft add rule inet filter input ip saddr 127.0.0.1 accept
 nft add rule inet filter input tcp dport 22 accept
 nft 'add rule inet filter input tcp dport { 80, 443 } counter accept'
 nft 'add chain inet filter forward { type filter hook forward priority filter; policy drop; }'
 nft 'add chain inet filter output { type filter hook output priority filter; policy accept; }'
+# switch the input policy to drop only after the accept rules are in place
+nft 'add chain inet filter input { type filter hook input priority filter; policy drop; }'
 
 
 """
