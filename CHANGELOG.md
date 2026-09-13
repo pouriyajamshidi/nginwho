@@ -24,6 +24,7 @@ All notable changes to **nginwho** are listed here.
 - `--migrateV1ToV2Db` flag was not recognized and depended on flag order.
 - The leading `/` was removed from URIs ending with `/` (for example `/blog/` was stored as `blog`).
 - Boolean flags passed without a value (for example `--showRealIps`) crashed.
+- Bad flag values (for example `--interval:abc`) crashed with a stack trace instead of showing the usage.
 - Empty log lines made log processing sleep.
 - Logs with the same date, IP, method and URI could be inserted twice.
 - Cloudflare CIDR updates stopped forever after the first change.

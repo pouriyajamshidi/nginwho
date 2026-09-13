@@ -34,6 +34,12 @@ suite "cli":
     check run("--report --dbPath=" & quoteShell(missing)).exitCode == 1
     check not fileExists(missing)
 
+  test "bad flag values exit with an error instead of crashing":
+    for args in ["--interval=abc", "--interval=0", "--showRealIps=maybe"]:
+      let (output, exitCode) = run(args)
+      check exitCode == 1
+      check "Bad value" in output
+
   test "migration needs both database paths":
     check run("--migrateV1ToV2Db --v1DbPath=x.db").exitCode == 1
 

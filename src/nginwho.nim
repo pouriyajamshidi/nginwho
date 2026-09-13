@@ -77,24 +77,32 @@ proc getArgs(): Args =
     case p.kind
     of cmdEnd: break
     of cmdShortOption, cmdLongOption:
-      case p.key
-      of "report": args.report = true
-      of "help", "h": usage()
-      of "version", "v":
-        echo VERSION
-        quit(0)
+      try:
+        case p.key
+        of "report": args.report = true
+        of "help", "h": usage()
+        of "version", "v":
+          echo VERSION
+          quit(0)
 
-      of "v1DbPath": args.v1DbPath = p.val
-      of "v2DbPath": args.v2DbPath = p.val
-      of "migrateV1ToV2Db": args.migrateV1ToV2Db = true
+        of "v1DbPath": args.v1DbPath = p.val
+        of "v2DbPath": args.v2DbPath = p.val
+        of "migrateV1ToV2Db": args.migrateV1ToV2Db = true
 
-      of "logPath": args.logPath = p.val
-      of "dbPath": args.dbPath = p.val
-      of "interval": args.interval = parseInt(p.val) * 1000 # convert seconds to milliseconds
-      of "omitReferrer": args.omitReferrer = p.val
-      of "showRealIps": args.showRealIPs = p.val == "" or parseBool(p.val)
-      of "blockUntrustedCidrs": args.blockUntrustedCidrs = p.val == "" or parseBool(p.val)
-      of "processNginxLogs": args.processNginxLogs = p.val == "" or parseBool(p.val)
+        of "logPath": args.logPath = p.val
+        of "dbPath": args.dbPath = p.val
+        of "interval":
+          let seconds = parseInt(p.val)
+          if seconds < 1:
+            raise newException(ValueError, "must be at least 1")
+          args.interval = seconds * 1000 # convert seconds to milliseconds
+        of "omitReferrer": args.omitReferrer = p.val
+        of "showRealIps": args.showRealIPs = p.val == "" or parseBool(p.val)
+        of "blockUntrustedCidrs": args.blockUntrustedCidrs = p.val == "" or parseBool(p.val)
+        of "processNginxLogs": args.processNginxLogs = p.val == "" or parseBool(p.val)
+      except ValueError as e:
+        error(fmt"Bad value '{p.val}' for --{p.key}: {e.msg}")
+        usage(1)
     of cmdArgument: discard
 
   if args.migrateV1ToV2Db:
