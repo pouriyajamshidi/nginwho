@@ -72,10 +72,6 @@ proc getArgs(): Args =
       v2DbPath: "",
     )
 
-  var
-    v1DbPath: string
-    v2DbPath: string
-
   var p = initOptParser()
 
   while true:
@@ -90,13 +86,9 @@ proc getArgs(): Args =
         echo VERSION
         quit(0)
 
-      of "v1DbPath": v1DbPath = p.val
-      of "v2DbPath": v2DbPath = p.val
-      of "migrateV1ToV2":
-        if v1DbPath == "" or v2DbPath == "":
-          error("Migration needs '--v1DbPath' and '--v2DbPath' flags")
-          usage(1)
-        migrateV1ToV2(v1DbPath, v2DbPath)
+      of "v1DbPath": args.v1DbPath = p.val
+      of "v2DbPath": args.v2DbPath = p.val
+      of "migrateV1ToV2Db": args.migrateV1ToV2Db = true
 
       of "logPath": args.logPath = p.val
       of "dbPath": args.dbPath = p.val
@@ -106,6 +98,12 @@ proc getArgs(): Args =
       of "blockUntrustedCidrs": args.blockUntrustedCidrs = parseBool(p.val)
       of "processNginxLogs": args.processNginxLogs = parseBool(p.val)
     of cmdArgument: discard
+
+  if args.migrateV1ToV2Db:
+    if args.v1DbPath == "" or args.v2DbPath == "":
+      error("Migration needs '--v1DbPath' and '--v2DbPath' flags")
+      usage(1)
+    migrateV1ToV2(args.v1DbPath, args.v2DbPath)
 
   validateArgs(args)
 
