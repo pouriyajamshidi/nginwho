@@ -121,6 +121,10 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
       log.referrer = referrer
 
     log.userAgent = matches[11..^1].join(" ").replace("\"", "")
+    # nginx writes "" for an empty User-Agent header. store it like a missing one,
+    # an empty value breaks the insert of the whole batch
+    if log.userAgent == "":
+      log.userAgent = "-"
     log.nonDefault = ""
   else:
     error(fmt"Could not parse: {logLine}")
