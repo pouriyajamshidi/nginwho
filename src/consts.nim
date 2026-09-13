@@ -96,6 +96,7 @@ nft add rule inet filter input tcp dport 22 accept
 nft 'add rule inet filter input tcp dport { 80, 443 } counter accept'
 nft 'add chain inet filter forward { type filter hook forward priority filter; policy drop; }'
 nft 'add chain inet filter output { type filter hook output priority filter; policy accept; }'
+# switch the input policy to drop only after the accept rules are in place
 nft 'add chain inet filter input { type filter hook input priority filter; policy drop; }'
 
 
