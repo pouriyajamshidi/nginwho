@@ -22,14 +22,16 @@ proc applyRules(fileName: string = NFT_CIDR_RULES_FILE) =
     info("Successfully applied nftables rules")
 
 
-proc writeRules(fileName: string = NFT_CIDR_RULES_FILE, rules: JsonNode) =
+proc writeRules(fileName: string = NFT_CIDR_RULES_FILE, rules: JsonNode): bool =
   info(fmt"Writing nginwho rules to {fileName}")
 
   try:
     writeFile(fileName, rules.pretty())
     info(fmt"Successfully wrote nginwho rules to {fileName}")
+    return true
   except Exception as e:
     error(fmt"Failed writing nginwho rules to {fileName}: {e.msg}")
+    return false
 
 
 proc createNginwhoChain(name: string = "nginwho"): JsonNode =
@@ -391,8 +393,9 @@ proc getCurrentRules(): JsonNode =
 
 
 proc writeRulesAndApply(rules: JsonNode) =
-  writeRules(rules = rules)
-  applyRules()
+  # don't apply an old or unknown rules file if writing failed
+  if writeRules(rules = rules):
+    applyRules()
 
 
 proc ensureNftExists*() =

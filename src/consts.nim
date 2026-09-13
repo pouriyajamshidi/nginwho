@@ -41,7 +41,7 @@ const
   NFT_KEY_NAME*: string = "nftables"
   NFT_CHAIN_NGINWHO_NAME*: string = "nginwho"
   NFT_CHAIN_INPUT_NAME*: string = "input"
-  NFT_CIDR_RULES_FILE* = "/tmp/nginwho.nft"
+  NFT_CIDR_RULES_FILE* = "/run/nginwho.nft"
   # NFT_CIDR_RULES_FILE*: string = "temp/nginwho.nft"
   NFT_LOG_PREFIXV4*: string = "NGINWHO_DROPPED_v4 "
   NFT_LOG_PREFIXV6*: string = "NGINWHO_DROPPED_v6 "
