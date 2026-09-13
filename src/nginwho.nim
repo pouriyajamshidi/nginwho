@@ -171,7 +171,6 @@ proc processAndRecordLogs(args: Args) {.async.} =
 
     for line in lines(args.logPath):
       if line.len() == 0:
-        await sleepAsync(args.interval)
         continue
 
       let log = parseLogEntry(line, args.omitReferrer)
