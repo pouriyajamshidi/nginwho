@@ -28,8 +28,8 @@ proc usage(errorCode: int = 0) =
 
   --help, -h              : Show help
   --version, -v           : Display version and quit
-  --dbPath,               : Path to SQLite database to log reports (default: /var/log/nginwho.db)
-  --logPath,              : Path to nginx access logs (default: /var/log/nginx/access.log)
+  --dbPath                : Path to SQLite database to log reports (default: /var/log/nginwho.db)
+  --logPath               : Path to nginx access logs (default: /var/log/nginx/access.log)
   --interval              : Refresh interval in seconds (default: 10)
   --omitReferrer          : Omit a specific referrer from being logged (default: none)
   --showRealIps           : Show real IP of visitors by getting Cloudflare CIDRs to include in nginx config.

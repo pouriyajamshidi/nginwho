@@ -11,7 +11,7 @@
 1. [nginx log parser](#nginx-log-parser): Stores nginx logs into a **sqlite3** database for further analysis and actions
 2. [Restore Cloudflare](#restore-cloudflare-original-visitor-ip) original visitor IP: Continuously parses **Cloudflare CIDRs** (`IPv4` and `IPv6`) through their **API**s so that nginx can leverage it to restore the original IP address of visitors
 3. [Block untrusted](#block-untrusted-requests) requests using **nftables** to prevent HTTP and HTTPS requests coming from unknown IP addresses
-4. [Reporting](#reporting) on gathered data such as top visited URLs through a TUI
+4. [Reporting](#reporting) on gathered data such as top visited URLs through an interactive menu
 
 Table of contents:
 
@@ -98,8 +98,8 @@ Here are the available flags:
 ```text
   --help, -h              : Show help
   --version, -v           : Display version and quit
-  --dbPath,               : Path to SQLite database to log reports (default: /var/log/nginwho.db)
-  --logPath,              : Path to nginx access logs (default: /var/log/nginx/access.log)
+  --dbPath                : Path to SQLite database to log reports (default: /var/log/nginwho.db)
+  --logPath               : Path to nginx access logs (default: /var/log/nginx/access.log)
   --interval              : Refresh interval in seconds (default: 10)
   --omitReferrer          : Omit a specific referrer from being logged (default: none)
   --showRealIps           : Show real IP of visitors by getting Cloudflare CIDRs to include in nginx config.
@@ -123,6 +123,8 @@ Let's see how nginwho works in a somewhat detailed yet short fashion.
 
 **nginwho** by default reads `nginx` logs from `/var/log/nginx/access.log` and stores the parsed results in a **sqlite3** database located in `/var/log/nginwho.db` unless overridden by the [available flags](#flags).
 
+It only reads the lines added since the last read, picks up where it left off after a restart and handles log rotation. Requests for static files (`.js`, `.css` and `.woff2`) are not stored, so reports show fewer requests than the raw log.
+
 > [!WARNING]
 > nginwho only supports the default nginx log format or any application that logs in the same format for now
 
@@ -137,7 +139,7 @@ If the `/etc/nginx/nginwho` file has changed or this is a fresh run, **nginwho**
 > [!IMPORTANT]
 > The `--showRealIps` flag requires **root privileges**.
 
-For `--showRealIps` flag to work, you need to alter your **nginx** configuration add this line to include the generated configuration inside the `/etc/nginx/nginwho` file:
+For the `--showRealIps` flag to work, add this line to your **nginx** configuration to include the generated `/etc/nginx/nginwho` file:
 
 ```text
 include /etc/nginx/nginwho;
@@ -147,10 +149,10 @@ So that nginx knows how to restore original visitor IP addresses.
 
 ### Block Untrusted Requests
 
-The third feature, `--block-untrusted-cidrs` flag periodically gets Cloudflare CIDRs, either through:
+The third feature, `--blockUntrustedCidrs` flag gets Cloudflare CIDRs, either through:
 
-1. Cloudflare APIs when used in conjunction with `--showRealIps` flag
-2. or the `/etc/nginx/nginwho` file when the `--showRealIps` flag is not specified
+1. Cloudflare APIs every _six hours_ when used together with the `--showRealIps` flag
+2. or the `/etc/nginx/nginwho` file, read once at start, when the `--showRealIps` flag is not specified
 
 The fetched CIDRs will be checked against your existing **nftables** rules and if necessary, the required rules will be created and added through _nftable's JSON API_.
 
@@ -166,24 +168,29 @@ There will be a bunch of tests and pre-checks done before applying any policies.
 **nginwho** only creates the necessary changes. Otherwise, no actions will be taken. For instance, if a CIDR gets added or removed, only that part of **nftables** configuration will be changed and the rest remain unchanged.
 
 > [!IMPORTANT]
+> The `--blockUntrustedCidrs` flag requires **root privileges**.
+
+> [!IMPORTANT]
 > Since playing with **nftables** could result in blocking yourself out, **nginwho** requires you to have some basic policies in place, in specific, having an `inet filter` table. If you do not have it, **nginwho** will detect that and shows you how to create one.
 
 ### Reporting
 
-Running **nginwho** with the `--report` flag will launch a TUI, providing some options (top visited URLs, top visiting IP addresses, etc.) that you can select and specify how many records to be queried. Reports cover the last 30 days by default. Press `w` to switch to the last 24 hours, 7 days or all time.
+Running **nginwho** with the `--report` flag will launch an interactive menu, providing some options (top visited URLs, top visiting IP addresses, etc.) that you can select and specify how many records to be queried. Reports cover the last 30 days by default. Press `w` to switch to the last 24 hours, 7 days or all time.
+
+The database file is only readable by the user that created it, so if nginwho runs as a service (root), use `sudo`:
 
 ```bash
-nginwho --report --dbPath:/var/log/nginwho.db
+sudo nginwho --report --dbPath:/var/log/nginwho.db
 ```
 
 ### Migrating v1 database to v2
 
 Running the command below will first check your database for any errors and, if it detects any, will output what recovery command should be run. If everything is fine, it will read out the data from your source database, convert and write the data to version 2 so that nginwho can continue working as intended.
 
-> Also, please be noted to change the database file names according to your setup.
+> Change the database file names according to your setup.
 
 ```bash
-nginwho --migrateV1ToV2:true \
+nginwho --migrateV1ToV2Db \
         --v1DbPath:nginwho_v1.db \
-        --v2DbPath:nginwho.db \
+        --v2DbPath:nginwho.db
 ```
