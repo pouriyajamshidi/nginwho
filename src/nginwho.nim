@@ -1,6 +1,6 @@
 import std/[strutils, strformat, asyncdispatch]
 from db_connector/db_sqlite import DbConn
-from std/os import getLastModificationTime
+from std/os import getFileInfo, FileInfo, FileId
 
 from parseopt import CmdLineKind, initOptParser, next
 from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
@@ -156,6 +156,23 @@ proc parseLogEntry(logLine: string, omit: string): Log =
   return log
 
 
+proc readNewLines(path: string, offset: var int64): seq[string] =
+  ## Reads the complete lines added to the file since `offset` and moves `offset` forward
+  let file = open(path)
+  defer: file.close()
+
+  file.setFilePos(offset)
+  let data = file.readAll()
+
+  # leave a half written last line for the next read
+  let lastNewline = data.rfind('\n')
+  if lastNewline == -1:
+    return
+
+  offset += lastNewline + 1
+  return data[0 ..< lastNewline].splitLines()
+
+
 proc processAndRecordLogs(args: Args) {.async.} =
   info("Processing log entries")
 
@@ -164,12 +181,33 @@ proc processAndRecordLogs(args: Args) {.async.} =
 
   createTables(db)
 
-  var lastModificationTime = getLastModificationTime(args.logPath)
+  var
+    offset: int64 = 0
+    fileId: FileId
 
   while true:
+    var fileInfo: FileInfo
+    try:
+      fileInfo = getFileInfo(args.logPath)
+    except OSError as e:
+      warn(fmt"Could not read {args.logPath}: {e.msg}")
+      await sleepAsync(args.interval)
+      continue
+
+    # the log was rotated or truncated, start from the beginning
+    if fileInfo.id.file != fileId or fileInfo.size < offset:
+      fileId = fileInfo.id.file
+      offset = 0
+
+    if fileInfo.size == offset:
+      info(fmt"{args.logPath} has no new logs... sleeping")
+      await sleepAsync(args.interval)
+      continue
+
+    let fromStart = offset == 0
     var logs: Logs
 
-    for line in lines(args.logPath):
+    for line in readNewLines(args.logPath, offset):
       if line.len() == 0:
         continue
 
@@ -184,38 +222,28 @@ proc processAndRecordLogs(args: Args) {.async.} =
 
       logs.add(log)
 
-    let logsLen = len(logs)
-    info(fmt"Got {logsLen} logs to process")
+    info(fmt"Got {len(logs)} logs to process")
 
-    let lastLog = getLastRow(db)
-    var lastLogIndex = LOG_NOT_FOUND
+    # only a read from the start of the file can have logs that are already in the database
+    if fromStart:
+      let lastLog = getLastRow(db)
 
-    # search from the end so repeated requests in the same second are not inserted again
-    for i in countdown(logs.high, 0):
-      if logs[i].date == lastLog.date and
-      logs[i].remoteIP == lastLog.remoteIP and
-      logs[i].httpMethod == lastLog.httpMethod and
-      logs[i].requestURI == lastLog.requestURI:
-        lastLogIndex = i
-        break
+      # search from the end so repeated requests in the same second are not inserted again
+      if lastLog.date != "":
+        for i in countdown(logs.high, 0):
+          if logs[i].date == lastLog.date and
+          logs[i].remoteIP == lastLog.remoteIP and
+          logs[i].httpMethod == lastLog.httpMethod and
+          logs[i].requestURI == lastLog.requestURI:
+            logs = logs[i+1..^1]
+            break
 
-    if lastLogIndex == LOG_NOT_FOUND and len(logs) > 0:
+    if len(logs) > 0:
       insertLogs(db, logs)
     else:
-      if logsLen != lastLogIndex + 1:
-        logs = logs[lastLogIndex+1..^1]
-        insertLogs(db, logs)
-      else:
-        info("Database is up to date with the latest logs")
+      info("Database is up to date with the latest logs")
 
-    var currentModificationTime = getLastModificationTime(args.logPath)
-
-    while currentModificationTime == lastModificationTime:
-      info(fmt"{args.logPath} has not been modified... sleeping")
-      await sleepAsync(args.interval)
-      currentModificationTime = getLastModificationTime(args.logPath)
-
-    lastModificationTime = currentModificationTime
+    await sleepAsync(args.interval)
 
 
 proc runPreChecks(args: Args) =
