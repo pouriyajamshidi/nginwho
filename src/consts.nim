@@ -1,7 +1,13 @@
-import times
+import times, strutils
+
+proc nimbleVersion(): string =
+  ## Reads the version from nginwho.nimble at compile time
+  for line in staticRead("../nginwho.nimble").splitLines:
+    if line.startsWith("version"):
+      return line.split('=')[1].strip.strip(chars = {'"'})
 
 const
-  VERSION*: string = "2.3.0"
+  VERSION*: string = nimbleVersion()
 
   DATE_FORMAT*: string = "yyyy-MM-dd HH:mm:ss"
 

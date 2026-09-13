@@ -4,3 +4,6 @@ tmp
 tests/*
 !tests/*.nim
 !tests/config.nims
+nimble.develop
+nimble.paths
+nimbledeps
