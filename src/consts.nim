@@ -13,7 +13,7 @@ const
 
   NGINWHO_DB_FILE*: string = "/var/log/nginwho.db"
   MAX_INSERT_ATTEMPTS*: int = 3
-  READ_CHUNK_BYTES*: int = 16 * 1024 * 1024
+  READ_CHUNK_BYTES*: int = 1024 * 1024
 
   TEN_SECONDS*: int = int(initDuration(seconds = 10).inMilliseconds)
   SIX_HOURS*: int = int(initDuration(hours = 6).inMilliseconds)
