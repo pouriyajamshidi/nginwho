@@ -4,13 +4,13 @@ from db_connector/sqlite3 import PStmt, bind_text, step, reset, finalize,
 from std/tables import initTable, mgetOrPut, pairs
 from std/strformat import fmt
 from std/os import fileExists, setFilePermissions, FilePermission
-from std/strutils import parseInt, contains, split, endsWith, formatFloat, ffDecimal
+from std/strutils import parseInt, contains, split, formatFloat, ffDecimal
 from std/sequtils import any
 from std/times import format, epochTime
 from logging import info, warn, error
 
 from types import Log, Logs
-from utils import convertDateFormat
+from utils import convertDateFormat, isStaticAsset
 
 
 proc getDbConnection*(dbPath: string): DbConn =
@@ -472,10 +472,7 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
         httpMethod = "Invalid"
 
       let requestURI = row[3]
-      if requestURI.endsWith(".woff2") or
-      requestURI.endsWith(".js") or
-      # requestURI.endsWith(".xml") or
-      requestURI.endsWith(".css"):
+      if isStaticAsset(requestURI):
         continue
 
       logs.add(

@@ -8,6 +8,7 @@ from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
 
 import consts
 from types import Args, Log, Logs
+from utils import isStaticAsset
 from nginx import ensureNginxExists, ensureNginxLogExists, parseLogEntry,
     readNewLines, offsetAfterLastInserted
 from cloudflare import fetchAndProcessIPCidrs
@@ -168,11 +169,7 @@ proc processAndRecordLogs(args: Args) {.async.} =
 
       let log = parseLogEntry(line, args.omitReferrer)
 
-      # TODO: Decide whether to exclude these or not
-      if log.requestURI.endsWith(".woff2") or
-      log.requestURI.endsWith(".js") or
-      # log.requestURI.endsWith(".xml") or
-      log.requestURI.endsWith(".css"):
+      if isStaticAsset(log.requestURI):
         continue
 
       logs.add(log)
