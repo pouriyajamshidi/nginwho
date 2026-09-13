@@ -485,7 +485,7 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
       let requestURI = row[3]
       if requestURI.endsWith(".woff2") or
       requestURI.endsWith(".js") or
-      requestURI.endsWith(".xml") or
+      # requestURI.endsWith(".xml") or
       requestURI.endsWith(".css"):
         continue
 
