@@ -134,8 +134,13 @@ proc readNewLines*(path: string, offset: var int64, maxBytes = READ_CHUNK_BYTES)
   let file = open(path)
   defer: file.close()
 
+  # only allocate what was added, a full chunk for a few new lines wastes memory
+  let toRead = min(maxBytes, file.getFileSize() - offset)
+  if toRead <= 0:
+    return
+
   file.setFilePos(offset)
-  var data = newString(maxBytes)
+  var data = newString(toRead)
   data.setLen(file.readChars(data))
 
   # leave a half written last line for the next read
@@ -147,7 +152,9 @@ proc readNewLines*(path: string, offset: var int64, maxBytes = READ_CHUNK_BYTES)
     return
 
   offset += lastNewline + 1
-  return data[0 ..< lastNewline].splitLines()
+  # cut in place instead of copying the chunk
+  data.setLen(lastNewline)
+  return data.splitLines()
 
 
 proc offsetAfterLastInserted*(path: string, lastLog: Log): int64 =

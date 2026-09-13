@@ -2,6 +2,12 @@
 
 All notable changes to **nginwho** are listed here.
 
+## [2.3.1]
+
+### Fixed
+
+- Much lower memory use. Log lines are read in 1 MB chunks and only as much as was added is loaded, instead of a 16 MB buffer on every read.
+
 ## [2.3.0]
 
 ### Added
@@ -99,6 +105,7 @@ All notable changes to **nginwho** are listed here.
 
 For older versions, see the git history.
 
+[2.3.1]: https://github.com/pouriyajamshidi/nginwho/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/pouriyajamshidi/nginwho/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/pouriyajamshidi/nginwho/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/pouriyajamshidi/nginwho/compare/v2.0.0...v2.1.0
