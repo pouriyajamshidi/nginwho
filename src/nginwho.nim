@@ -1,4 +1,4 @@
-import std/[strutils, strformat, re, asyncdispatch]
+import std/[strutils, strformat, asyncdispatch]
 from db_connector/db_sqlite import DbConn
 from std/os import getLastModificationTime
 
@@ -113,7 +113,7 @@ proc getArgs(): Args =
 proc parseLogEntry(logLine: string, omit: string): Log =
   var log: Log
 
-  let matches: seq[string] = logLine.split(re"[ ]+")
+  let matches: seq[string] = logLine.splitWhitespace()
 
   if matches.len >= 12:
     log.remoteIP = matches[0]
