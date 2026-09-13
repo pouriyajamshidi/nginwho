@@ -52,17 +52,25 @@ proc showAvailableOptions() =
   stdout.resetAttributes()
 
 
+proc ask(question: string): string =
+  # treat Ctrl+D the same as quitting
+  try:
+    return readLineFromStdin(question)
+  except IOError:
+    return "q"
+
+
 proc getUserChoice(): (uint, uint) =
   stdout.resetAttributes()
   setForegroundColor(fgBlue, true)
 
   echoNewlines()
 
-  let option = readLineFromStdin("Select an option number (q to quit): ")
+  let option = ask("Select an option number (q to quit): ")
   if option == "q":
     return (0, 0)
 
-  let num = readLineFromStdin("Select the number of records to query (q to quit): ")
+  let num = ask("Select the number of records to query (q to quit): ")
   if num == "q":
     return (0, 0)
 
