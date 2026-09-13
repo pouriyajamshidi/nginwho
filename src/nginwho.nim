@@ -1,6 +1,6 @@
 import std/[strutils, strformat, asyncdispatch]
 from db_connector/db_sqlite import DbConn
-from std/os import getFileInfo, FileInfo, FileId
+from std/os import getFileInfo, FileInfo, FileId, dirExists, fileExists
 
 from parseopt import CmdLineKind, initOptParser, next
 from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
@@ -16,6 +16,8 @@ from nftables import acceptOnly, ensureNftExists
 from database import getDbConnection, closeDbConnection,
     createTables, insertLogs, migrateV1ToV2, getLastRow
 from report import report
+from server import serve
+from std/net import Port
 
 var logger: ConsoleLogger = newConsoleLogger(
     fmtStr = "[$date -- $time] - $levelname: ")
@@ -36,6 +38,9 @@ proc usage(errorCode: int = 0) =
                             Self-updates every six hours (default: false)
   --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows Cloudflare CIDRs (default: false)
   --processNginxLogs      : Process nginx logs (default: true)
+  --serve                 : Serve static files and write nginx style logs to '--logPath' (default: false)
+  --root                  : Directory to serve files from (default: /var/www/html)
+  --port                  : Port to serve on, IPv4 and IPv6 (default: 80)
   --report                : Enter report mode and query the database for statistics
 
   --migrateV1ToV2Db       : Migrate V1 database to V2 and exit (default: false).
@@ -51,6 +56,7 @@ proc validateArgs(args: Args) =
   if not args.processNginxLogs and
   not args.showRealIPs and
   not args.blockUntrustedCidrs and
+  not args.serve and
   not args.migrateV1ToV2Db:
     error("Provided flags say do nothing... Exiting")
     usage(1)
@@ -65,6 +71,9 @@ proc getArgs(): Args =
       showRealIPs: false,
       blockUntrustedCidrs: false,
       processNginxLogs: true,
+      serve: false,
+      root: SERVER_DEFAULT_ROOT,
+      port: SERVER_DEFAULT_PORT,
       report: false,
       migrateV1ToV2Db: false,
       v1DbPath: "",
@@ -101,6 +110,13 @@ proc getArgs(): Args =
         of "showRealIps": args.showRealIPs = p.val == "" or parseBool(p.val)
         of "blockUntrustedCidrs": args.blockUntrustedCidrs = p.val == "" or parseBool(p.val)
         of "processNginxLogs": args.processNginxLogs = p.val == "" or parseBool(p.val)
+        of "serve": args.serve = p.val == "" or parseBool(p.val)
+        of "root": args.root = p.val
+        of "port":
+          let port = parseInt(p.val)
+          if port < 1 or port > 65535:
+            raise newException(ValueError, "must be between 1 and 65535")
+          args.port = port
       except ValueError as e:
         error(fmt"Bad value '{p.val}' for --{p.key}: {e.msg}")
         usage(1)
@@ -198,7 +214,14 @@ proc processAndRecordLogs(args: Args) {.async.} =
 proc runPreChecks(args: Args) =
   info("Running pre-checks based on provided user arguments")
 
-  if args.processNginxLogs:
+  if args.serve:
+    if not dirExists(args.root):
+      error(fmt"Directory to serve not found at: {args.root}")
+      quit(1)
+    # the server creates the log, nginx is not needed
+    if not fileExists(args.logPath):
+      writeFile(args.logPath, "")
+  elif args.processNginxLogs:
     ensureNginxLogExists(args.logPath)
     ensureNginxExists()
 
@@ -218,6 +241,9 @@ proc main() =
   info("Starting nginwho")
 
   runPreChecks(args)
+
+  if args.serve:
+    asyncCheck serve(args.root, args.logPath, Port(args.port))
 
   if args.processNginxLogs:
     asyncCheck processAndRecordLogs(args)

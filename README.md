@@ -106,6 +106,9 @@ Here are the available flags:
                             Self-updates every six hours (default: false)
   --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows Cloudflare CIDRs (default: false)
   --processNginxLogs      : Process nginx logs (default: true)
+  --serve                 : Serve static files and write nginx style logs to '--logPath' (default: false)
+  --root                  : Directory to serve files from (default: /var/www/html)
+  --port                  : Port to serve on, IPv4 and IPv6 (default: 80)
   --report                : Enter report mode and query the database for statistics
 
   --migrateV1ToV2Db       : Migrate V1 database to V2 and exit (default: false).

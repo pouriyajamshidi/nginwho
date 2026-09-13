@@ -18,6 +18,13 @@ const
   TEN_SECONDS*: int = int(initDuration(seconds = 10).inMilliseconds)
   SIX_HOURS*: int = int(initDuration(hours = 6).inMilliseconds)
 
+  SERVER_DEFAULT_ROOT*: string = "/var/www/html"
+  SERVER_DEFAULT_PORT*: int = 80
+  SERVER_MAX_LINE*: int = 8192
+  SERVER_MAX_HEADERS*: int = 100
+  SERVER_HEAD_TIMEOUT*: int = 10_000 # milliseconds to send the headers, also the keep-alive timeout
+  SERVER_CHUNK_BYTES*: int = 64 * 1024
+
   CLOUDFLARE_CIDR_API_URL*: string = "https://api.cloudflare.com/client/v4/ips"
 
   NGINX_CMD*: string = "nginx"
