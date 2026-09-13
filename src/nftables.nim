@@ -38,6 +38,16 @@ proc withMask(cidr: string): string =
   return cidr
 
 
+proc validCidrs(cidrs: JsonNode): seq[string] =
+  ## Returns the CIDRs with a prefix length and skips the invalid ones
+  for cidr in cidrs:
+    let withPrefix = withMask(cidr.getStr())
+    if withPrefix == "":
+      warn(fmt"Skipping invalid CIDR: {cidr}")
+      continue
+    result.add(withPrefix)
+
+
 proc applyRules(fileName: string = NFT_CIDR_RULES_FILE) =
   info("Applying nftables rules")
 
@@ -198,8 +208,8 @@ proc createSet(cidrs: JsonNode, setName: string, setType: SetType): seq[JsonNode
     }
   }
 
-  for cidr in cidrs:
-    let ipAndPrefixLen: seq[string] = withMask(cidr.getStr()).split("/")
+  for cidr in validCidrs(cidrs):
+    let ipAndPrefixLen: seq[string] = cidr.split("/")
 
     ipSet["add"]["set"]["elem"].add(%*{
       "prefix": {
@@ -357,9 +367,7 @@ proc setChanged(nftOutput: JsonNode, newCidrs: JsonNode,
         let addressAndLen = fmt"{address}/{length}"
         currentSets.add(addressAndLen)
 
-  var wantedSets = newSeq[string]()
-  for cidr in newCidrs:
-    wantedSets.add(withMask(cidr.getStr()))
+  let wantedSets = validCidrs(newCidrs)
 
   if sorted(currentSets) == sorted(wantedSets):
     info(fmt"Set {setName} Set has not changed")

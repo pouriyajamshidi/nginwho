@@ -51,6 +51,11 @@ suite "nftables":
       check body.hasKey("set")
       check body["set"]["name"].getStr() == "Cloudflare_IPv6"
 
+  test "invalid CIDRs are skipped instead of crashing":
+    let withJunk = NftSet(ipv4: %*["173.245.48.0/20", "junk", 42], ipv6: %*["2400:cb00::/32"])
+    let elems = createRules(withJunk, NftAttrs(withCloudflareV4Set: true))["nftables"][^1]["add"]["set"]["elem"]
+    check elems == %*[{"prefix": {"addr": "173.245.48.0", "len": 20}}]
+
   test "real nft accepts the rules and the next run sees nothing to change":
     # without this nginwho adds the same rules again every six hours
     if not canRunNft():
