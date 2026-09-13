@@ -190,12 +190,13 @@ proc processAndRecordLogs(args: Args) {.async.} =
     let lastLog = getLastRow(db)
     var lastLogIndex = LOG_NOT_FOUND
 
-    for log in logs:
-      if log.date == lastLog.date and
-      log.remoteIP == lastLog.remoteIP and
-      log.httpMethod == lastLog.httpMethod and
-      log.requestURI == lastLog.requestURI:
-        lastLogIndex = find(logs, log)
+    # search from the end so repeated requests in the same second are not inserted again
+    for i in countdown(logs.high, 0):
+      if logs[i].date == lastLog.date and
+      logs[i].remoteIP == lastLog.remoteIP and
+      logs[i].httpMethod == lastLog.httpMethod and
+      logs[i].requestURI == lastLog.requestURI:
+        lastLogIndex = i
         break
 
     if lastLogIndex == LOG_NOT_FOUND and len(logs) > 0:
