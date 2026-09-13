@@ -56,8 +56,6 @@ proc validateArgs(args: Args) =
 
 
 proc getArgs(): Args =
-  info("Getting user provided arguments")
-
   var args: Args = (
       logPath: NGINX_DEFAULT_LOG_PATH,
       dbPath: NGINWHO_DB_FILE,
@@ -185,9 +183,10 @@ proc runPreChecks(args: Args) =
 
 
 proc main() =
-  info("Starting nginwho")
-
+  # parse args first so --help and --version print nothing else
   let args: Args = getArgs()
+
+  info("Starting nginwho")
 
   if args.report:
     report(args.dbPath)
