@@ -166,3 +166,4 @@ suite "database":
     check db.count("nginwho") == 1
     check db.getValue(sql"PRAGMA journal_mode") == "wal"
     check db.getValue(sql"PRAGMA foreign_keys") == "1"
+    check getFilePermissions(path) == {fpUserRead, fpUserWrite}

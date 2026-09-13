@@ -3,7 +3,7 @@ from db_connector/sqlite3 import PStmt, bind_text, step, reset, finalize,
     SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT
 from std/tables import initTable, mgetOrPut, pairs
 from std/strformat import fmt
-from std/os import fileExists
+from std/os import fileExists, setFilePermissions, FilePermission
 from std/strutils import parseInt, contains, split, endsWith, formatFloat, ffDecimal
 from std/sequtils import any
 from std/times import format, epochTime
@@ -16,6 +16,8 @@ from utils import convertDateFormat
 proc getDbConnection*(dbPath: string): DbConn =
   info(fmt"Opening Database connection to {dbPath}")
 
+  let isNewFile = dbPath != ":memory:" and not fileExists(dbPath)
+
   try:
     let connection: DbConn = open(dbPath, "", "", "")
     # WAL lets --report read while the service writes
@@ -25,8 +27,13 @@ proc getDbConnection*(dbPath: string): DbConn =
     # wait for a lock instead of failing right away
     connection.exec(sql"PRAGMA busy_timeout = 5000")
     connection.exec(sql"PRAGMA foreign_keys = ON")
+
+    # visitor IPs and URIs are private. SQLite gives the WAL files the same permissions
+    if isNewFile:
+      setFilePermissions(dbPath, {fpUserRead, fpUserWrite})
+
     return connection
-  except db_sqlite.DbError as e:
+  except CatchableError as e:
     error(fmt"Could not open or connect to database: {e.msg}")
     quit(1)
 
