@@ -11,6 +11,33 @@ import consts
 
 
 
+proc withMask(cidr: string): string =
+  ## Returns the CIDR with a prefix length, "1.2.3.4" becomes "1.2.3.4/32".
+  ## Returns "" when it is not a valid IP or prefix length
+  let parts = cidr.split("/")
+  if parts.len > 2:
+    return ""
+
+  var ipAddr: IpAddress
+  try:
+    ipAddr = parseIpAddress(parts[0])
+  except ValueError:
+    return ""
+
+  let maxLen = if ipAddr.family == IpAddressFamily.IPv4: 32 else: 128
+  if parts.len == 1:
+    return fmt"{parts[0]}/{maxLen}"
+
+  try:
+    let prefixLen = parseInt(parts[1])
+    if prefixLen < 0 or prefixLen > maxLen:
+      return ""
+  except ValueError:
+    return ""
+
+  return cidr
+
+
 proc applyRules(fileName: string = NFT_CIDR_RULES_FILE) =
   info("Applying nftables rules")
 
@@ -172,7 +199,7 @@ proc createSet(cidrs: JsonNode, setName: string, setType: SetType): seq[JsonNode
   }
 
   for cidr in cidrs:
-    let ipAndPrefixLen: seq[string] = cidr.getStr().split("/")
+    let ipAndPrefixLen: seq[string] = withMask(cidr.getStr()).split("/")
 
     ipSet["add"]["set"]["elem"].add(%*{
       "prefix": {
@@ -321,12 +348,20 @@ proc setChanged(nftOutput: JsonNode, newCidrs: JsonNode,
       continue
     if nftOutput[element]["set"]["name"].getStr() == setName:
       for elem in nftOutput[element]["set"]["elem"]:
+        # nft lists single addresses like 1.2.3.4/32 as a plain string
+        if elem.kind == JString:
+          currentSets.add(withMask(elem.getStr()))
+          continue
         let address = elem["prefix"]["addr"].getStr()
         let length = elem["prefix"]["len"].getInt()
         let addressAndLen = fmt"{address}/{length}"
         currentSets.add(addressAndLen)
 
-  if sorted(currentSets) == sorted(newCidrs.to(seq[string])):
+  var wantedSets = newSeq[string]()
+  for cidr in newCidrs:
+    wantedSets.add(withMask(cidr.getStr()))
+
+  if sorted(currentSets) == sorted(wantedSets):
     info(fmt"Set {setName} Set has not changed")
     return false
 
@@ -365,20 +400,15 @@ proc createNftSetsFrom*(fileName: string = NGINX_CIDR_FILE): NftSet =
     if splitLine.len() != 2 or splitLine[0] != NGINX_SET_REAL_IP_FROM:
       continue
 
-    let ipAndMask = splitLine[1].replace(";", "")
-
-    var ipAddr: IpAddress
-    try:
-      ipAddr = parseIpAddress(ipAndMask.split("/")[0])
-    except ValueError:
-      warn(fmt"Skipping invalid CIDR in {fileName}: {ipAndMask}")
+    let cidr = withMask(splitLine[1].replace(";", ""))
+    if cidr == "":
+      warn(fmt"Skipping invalid CIDR in {fileName}: {splitLine[1]}")
       continue
 
-    if ipAddr.family == IpAddressFamily.IPv4:
-      ipv4Cidrs.add(ipAndMask)
-
-    if ipAddr.family == IpAddressFamily.IPv6:
-      ipv6Cidrs.add(ipAndMask)
+    if parseIpAddress(cidr.split("/")[0]).family == IpAddressFamily.IPv4:
+      ipv4Cidrs.add(cidr)
+    else:
+      ipv6Cidrs.add(cidr)
 
   return NftSet(ipv4: %*ipv4Cidrs, ipv6: %*ipv6Cidrs)
 
