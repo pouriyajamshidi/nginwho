@@ -1,1 +1,6 @@
 tmp
+
+# compiled test binaries
+tests/*
+!tests/*.nim
+!tests/config.nims
