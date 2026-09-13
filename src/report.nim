@@ -1,7 +1,8 @@
 from std/terminal import setForegroundColor, resetAttributes, styledWriteLine,
-    styleUnderscore, fgYellow, fgRed, fgGreen, fgBlue
+    styleBright, styleUnderscore, fgYellow
 from std/strformat import fmt
-from std/strutils import parseInt, repeat, strip
+from std/strutils import parseInt, repeat, strip, insertSep, align, formatFloat, ffDecimal
+from std/unicode import runeLen, runeSubStr
 from std/rdstdin import readLineFromStdin
 from std/os import fileExists
 from std/times import Duration, initDuration, now, format, `-`, DurationZero, `==`
@@ -9,26 +10,32 @@ from db_connector/db_sqlite import DbConn, Row
 
 from consts import DATE_FORMAT
 from database import getDbConnection, closeDbConnection, createTables, hasDateIndex,
-    getTopIPs, getTopURIs, getTopUnsuccessfulRequests, getTopReferres, getNonDefaults
+    getTopIPs, getTopURIs, getTopUnsuccessfulRequests, getTopReferres, getNonDefaults,
+    getTotalRequests, getTotalNonDefaults
 
 
-const parenRepeatCount = 80
+const
+  # long URIs and user agents would break the table
+  maxColumnWidth = 50
+  barWidth = 20
 
 type
   Report = object
     name: string
+    columns: seq[string]
     query: proc (db: DbConn, num: uint, since: string): seq[Row] {.nimcall.}
     allTimeOnly: bool
 
   TimeWindow = tuple[name: string, duration: Duration]
 
 let reports = [
-  Report(name: "Top IP addresses", query: getTopIPs),
-  Report(name: "Top URIs", query: getTopURIs),
-  Report(name: "Top unsuccessful requests", query: getTopUnsuccessfulRequests),
-  Report(name: "Top referrers", query: getTopReferres),
+  Report(name: "Top IP addresses", columns: @["IP address"], query: getTopIPs),
+  Report(name: "Top URIs", columns: @["URI"], query: getTopURIs),
+  Report(name: "Top unsuccessful requests", columns: @["Status", "URI", "User agent"],
+      query: getTopUnsuccessfulRequests),
+  Report(name: "Top referrers", columns: @["Referrer"], query: getTopReferres),
   # non-default logs are saved without a date
-  Report(name: "Top non-defaults", query: getNonDefaults, allTimeOnly: true),
+  Report(name: "Top non-defaults", columns: @["Log line"], query: getNonDefaults, allTimeOnly: true),
 ]
 
 # a zero duration means all time
@@ -47,8 +54,45 @@ proc since(window: TimeWindow): string =
   return (now() - window.duration).format(DATE_FORMAT)
 
 
-proc echoSigns(letter: string = "=", count: int = parenRepeatCount) =
-  echo(letter.repeat(count))
+proc fit(text: string, width: int): string =
+  ## Cuts `text` to `width` characters and pads it to exactly that width
+  if runeLen(text) > width:
+    return runeSubStr(text, 0, width - 1) & "…"
+  return text & " ".repeat(width - runeLen(text))
+
+
+proc formatTable*(columns: seq[string], rows: seq[Row], total: int): seq[string] =
+  ## Returns the rows as table lines, starting with the header.
+  ## Every row has one value per column and then its count
+  var widths: seq[int]
+  for i, column in columns:
+    var width = runeLen(column)
+    for row in rows:
+      width = max(width, runeLen(row[i]))
+    widths.add(min(width, maxColumnWidth))
+
+  var counts: seq[int]
+  for row in rows:
+    counts.add(parseInt(row[^1]))
+
+  let topCount = max(counts & @[1])
+  let countWidth = max(len("Requests"), len(insertSep($topCount, ',')))
+  let numberWidth = len($len(rows))
+
+  var header = align("#", numberWidth)
+  for i, column in columns:
+    header &= "  " & fit(column, widths[i])
+  result.add(header & "  " & align("Requests", countWidth) & "  " & align("%", 6))
+
+  for n, row in rows:
+    var line = align($(n + 1), numberWidth)
+    for i in 0 ..< len(columns):
+      line &= "  " & fit(row[i], widths[i])
+
+    let percent = if total > 0: counts[n] / total * 100 else: 0.0
+    let bar = "█".repeat(max(1, counts[n] * barWidth div topCount))
+    result.add(line & "  " & align(insertSep($counts[n], ','), countWidth) & "  " &
+        align(percent.formatFloat(ffDecimal, 1) & "%", 6) & "  " & bar)
 
 
 proc ask(question: string): string =
@@ -77,27 +121,24 @@ proc askNumber(question: string, max: int): int =
 
 
 proc showMenu(window: TimeWindow) =
-  stdout.resetAttributes()
   setForegroundColor(fgYellow, true)
 
   echo()
-  echoSigns()
-
   for i, report in reports:
     let note = if report.allTimeOnly: " (all time)" else: ""
-    echo(fmt"{i + 1}) {report.name}{note}")
+    echo(fmt"  {i + 1}) {report.name}{note}")
 
-  echo(fmt"w) Change time window (now: {window.name})")
-  echo("q) Quit")
+  echo(fmt"  w) Change time window (now: {window.name})")
+  echo("  q) Quit")
+  echo()
 
-  echoSigns()
   stdout.resetAttributes()
 
 
 proc chooseTimeWindow(current: int): int =
   echo()
   for i, window in timeWindows:
-    echo(fmt"{i + 1}) {window.name}")
+    echo(fmt"  {i + 1}) {window.name}")
 
   let choice = askNumber("Select a time window (q to keep the current one): ", len(timeWindows))
   if choice == 0:
@@ -108,27 +149,21 @@ proc chooseTimeWindow(current: int): int =
 proc showResults(db: DbConn, report: Report, num: uint, window: TimeWindow) =
   let rows = report.query(db, num, since(window))
 
-  stdout.resetAttributes()
-  setForegroundColor(fgGreen, true)
+  let windowName = if report.allTimeOnly: "all time" else: window.name
+  let total = if report.allTimeOnly: getTotalNonDefaults(db) else: getTotalRequests(db, since(window))
 
   echo()
-  echoSigns()
+  stdout.styledWriteLine(styleBright, fmt"{report.name}, {windowName} ({insertSep($total, ',')} requests)")
+  echo()
 
   if len(rows) == 0:
-    echo("No records found")
+    echo("  No records found")
+    return
 
-  var count = 1
-  for row in rows:
-    stdout.styledWriteLine(fgGreen, fmt"{count}) {row[0]} is seen ",
-        styleUnderscore, row[1], " times")
-    count += 1
-
-  setForegroundColor(fgGreen, true)
-  echoSigns()
-
-  setForegroundColor(fgRed, true)
-  echoSigns("-")
-  stdout.resetAttributes()
+  let lines = formatTable(report.columns, rows, total)
+  stdout.styledWriteLine(styleUnderscore, "  ", lines[0])
+  for line in lines[1..^1]:
+    echo("  ", line)
 
 
 proc report*(dbPath: string) =
@@ -149,7 +184,6 @@ proc report*(dbPath: string) =
   while true:
     showMenu(timeWindows[window])
 
-    setForegroundColor(fgBlue, true)
     let choice = ask("Select an option: ")
 
     if choice == "q":

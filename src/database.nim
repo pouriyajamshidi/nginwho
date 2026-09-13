@@ -111,12 +111,7 @@ proc getTopUnsuccessfulRequests*(db: DbConn, num: uint, since = ""): seq[Row] =
   LIMIT ?
   """
 
-  var mergedRows: seq[Row] = @[]
-
-  for row in db.getAllRows(statement, since, num):
-    mergedRows.add(@[fmt"{row[0]} {row[1]} with user agent {row[2]}", row[3]])
-
-  return mergedRows
+  return db.getAllRows(statement, since, num)
 
 
 proc getNonDefaults*(db: DbConn, num: uint, since = ""): seq[Row] =

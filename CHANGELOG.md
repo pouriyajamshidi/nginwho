@@ -11,6 +11,8 @@ All notable changes to **nginwho** are listed here.
 ### Changed
 
 - Report mode no longer mixes log lines into the results.
+- Reports are shown as aligned tables with counts, percentages and bars. Long values are cut to keep the table readable.
+- Top unsuccessful requests show the status code, URI and user agent in their own columns.
 - Only read new lines from the nginx log instead of reading the whole file every time. Log rotation and truncation are handled.
 - Big nginx logs are read in 16 MB chunks instead of all at once. After a restart, nginwho finds where it left off without loading the whole file.
 - Reload nginx right away after the Cloudflare CIDRs change, as long as `nginx -t` passes. The reload is graceful and does not drop open connections.

@@ -156,9 +156,9 @@ suite "database":
     ])
     let lastMonth = (now().utc - 30.days).format("yyyy-MM-dd HH:mm:ss")
     check db.getTopUnsuccessfulRequests(10, lastMonth) == @[
-      @["404 /missing with user agent curl/8.0", "2"],
-      @["404 /missing with user agent bot/1.0", "1"],
-      @["500 /broken with user agent curl/8.0", "1"],
+      @["404", "/missing", "curl/8.0", "2"],
+      @["404", "/missing", "bot/1.0", "1"],
+      @["500", "/broken", "curl/8.0", "1"],
     ]
 
   test "empty tables give empty results":
