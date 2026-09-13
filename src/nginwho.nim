@@ -8,13 +8,13 @@ from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
 
 import consts
 from types import Args, Log, Logs
-from nginx import ensureNginxExists, ensureNginxLogExists
+from nginx import ensureNginxExists, ensureNginxLogExists, parseLogEntry,
+    readNewLines, dropAlreadyInserted
 from cloudflare import fetchAndProcessIPCidrs
 from nftables import acceptOnly, ensureNftExists
 from database import getDbConnection, closeDbConnection,
     createTables, insertLogs, migrateV1ToV2, getLastRow
 from report import report
-from utils import convertDateFormat
 
 var logger: ConsoleLogger = newConsoleLogger(
     fmtStr = "[$date -- $time] - $levelname: ")
@@ -110,69 +110,6 @@ proc getArgs(): Args =
   return args
 
 
-proc parseLogEntry(logLine: string, omit: string): Log =
-  var log: Log
-
-  let matches: seq[string] = logLine.splitWhitespace()
-
-  if matches.len >= 12:
-    log.remoteIP = matches[0]
-
-    # Nginx 1.24.0 has decided to write weird and incorrect dates
-    try:
-      log.date = convertDateFormat(matches[3].replace("\"", "").replace("[",
-          "").replace("/", "-"))
-    except Exception as e:
-      error(fmt"Failed parsing log date: {e.msg}")
-      log.nonDefault = logLine
-      return log
-
-    log.httpMethod = matches[5].replace("\"", "")
-
-    var requestURI = matches[6].replace("\"", "")
-    if requestURI.endsWith("/") and len(requestURI) > 1:
-      requestURI = requestURI.strip(leading = false, chars = {'/'})
-    log.requestURI = requestURI
-
-    log.statusCode = matches[8]
-    log.responseSize = matches[9]
-
-    var referrer = matches[10].replace("\"", "")
-    if omit != "" and referrer.contains(omit):
-      log.referrer = ""
-    elif referrer == "-":
-      log.referrer = ""
-    else:
-      if referrer.endsWith("/"):
-        referrer = referrer.strip(leading = false, chars = {'/'})
-      log.referrer = referrer
-
-    log.userAgent = matches[11..^1].join(" ").replace("\"", "")
-    log.nonDefault = ""
-  else:
-    error(fmt"Could not parse: {logLine}")
-    log.nonDefault = logLine
-
-  return log
-
-
-proc readNewLines(path: string, offset: var int64): seq[string] =
-  ## Reads the complete lines added to the file since `offset` and moves `offset` forward
-  let file = open(path)
-  defer: file.close()
-
-  file.setFilePos(offset)
-  let data = file.readAll()
-
-  # leave a half written last line for the next read
-  let lastNewline = data.rfind('\n')
-  if lastNewline == -1:
-    return
-
-  offset += lastNewline + 1
-  return data[0 ..< lastNewline].splitLines()
-
-
 proc processAndRecordLogs(args: Args) {.async.} =
   info("Processing log entries")
 
@@ -226,17 +163,7 @@ proc processAndRecordLogs(args: Args) {.async.} =
 
     # only a read from the start of the file can have logs that are already in the database
     if fromStart:
-      let lastLog = getLastRow(db)
-
-      # search from the end so repeated requests in the same second are not inserted again
-      if lastLog.date != "":
-        for i in countdown(logs.high, 0):
-          if logs[i].date == lastLog.date and
-          logs[i].remoteIP == lastLog.remoteIP and
-          logs[i].httpMethod == lastLog.httpMethod and
-          logs[i].requestURI == lastLog.requestURI:
-            logs = logs[i+1..^1]
-            break
+      logs = dropAlreadyInserted(logs, getLastRow(db))
 
     if len(logs) > 0:
       insertLogs(db, logs)

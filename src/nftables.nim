@@ -181,7 +181,7 @@ proc createSet(cidrs: JsonNode, setName: string, setType: SetType): JsonNode =
   return ipSet
 
 
-proc createRules(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
+proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
   info(fmt"Creating nftables rules")
 
   var rules: JsonNode = %* {"nftables": []}
@@ -336,7 +336,7 @@ proc setExists(nftOutput: JsonNode, setName: string): bool =
   warn(fmt"Set {setName} does not exist")
 
 
-proc createNftSetsFrom(fileName: string = NGINX_CIDR_FILE): NftSet =
+proc createNftSetsFrom*(fileName: string = NGINX_CIDR_FILE): NftSet =
   info(fmt"Fetching NFT Sets from {fileName}")
 
   if not fileExists(fileName):
@@ -372,7 +372,7 @@ proc createNftSetsFrom(fileName: string = NGINX_CIDR_FILE): NftSet =
   return NftSet(ipv4: %*ipv4Cidrs, ipv6: %*ipv6Cidrs)
 
 
-proc inetFilterExists(nftOutput: JsonNode): bool =
+proc inetFilterExists*(nftOutput: JsonNode): bool =
   info("Checking nftables `inet filter` table existence")
 
   try:
@@ -431,17 +431,8 @@ proc changesRequired(nftAttrs: NftAttrs): bool =
   return false
 
 
-proc runPrechecks(nftSet: NftSet): NftAttrs =
-  info("Running nftables pre-checks")
-
-  let nftOutput: JsonNode = getCurrentRules()
-
-  if not inetFilterExists(nftOutput):
-    error("nftables `inet` filter not found")
-    info("Please create one manually using this sample:\n\n",
-        fmt"{NFT_SAMPLE_POLICY}")
-    quit(1)
-
+proc requiredChanges*(nftOutput: JsonNode, nftSet: NftSet): NftAttrs =
+  ## Compares the current ruleset with what nginwho needs and returns the missing parts
   var nftAttrs: NftAttrs
 
   if setExists(nftOutput, NFT_SET_NAME_CF_IPv4):
@@ -466,6 +457,20 @@ proc runPrechecks(nftSet: NftSet): NftAttrs =
   nftAttrs.withInputPolicy = if inputChainHasPolicy(nftOutput): false else: true
 
   return nftAttrs
+
+
+proc runPrechecks(nftSet: NftSet): NftAttrs =
+  info("Running nftables pre-checks")
+
+  let nftOutput: JsonNode = getCurrentRules()
+
+  if not inetFilterExists(nftOutput):
+    error("nftables `inet` filter not found")
+    info("Please create one manually using this sample:\n\n",
+        fmt"{NFT_SAMPLE_POLICY}")
+    quit(1)
+
+  return requiredChanges(nftOutput, nftSet)
 
 
 proc acceptOnly*(nftSet: NftSet) =

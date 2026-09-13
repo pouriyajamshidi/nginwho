@@ -10,6 +10,24 @@ from types import Cidrs, NftSet
 
 
 
+proc parseCidrsResponse*(jsonResponse: JsonNode): Option[Cidrs] =
+  let etag: string = jsonResponse{"result", "etag"}.getStr()
+
+  let apiSuccess: bool = jsonResponse{"success"}.getBool()
+  if apiSuccess != true:
+    warn(fmt"API `success` is not true: {apiSuccess}")
+    return none(Cidrs)
+
+  let ipv4Cidrs: JsonNode = jsonResponse{"result", "ipv4_cidrs"}
+  let ipv6Cidrs: JsonNode = jsonResponse{"result", "ipv6_cidrs"}
+
+  if ipv4Cidrs.isNil or ipv6Cidrs.isNil:
+    return none(Cidrs)
+  else:
+    return some(Cidrs(ipv4: ipv4Cidrs, ipv6: ipv6Cidrs, etag: etag,
+        etagChanged: true))
+
+
 proc getCloudflareCIDRs(): Future[Option[Cidrs]] {.async.} =
   info("Getting Cloudflare CIDRs")
 
@@ -36,24 +54,10 @@ proc getCloudflareCIDRs(): Future[Option[Cidrs]] {.async.} =
     error(fmt"Call to {CLOUDFLARE_CIDR_API_URL} failed: {e.msg}")
     return none(Cidrs)
 
-  let etag: string = jsonResponse{"result", "etag"}.getStr()
-
-  let apiSuccess: bool = jsonResponse{"success"}.getBool()
-  if apiSuccess != true:
-    warn(fmt"API `success` is not true: {apiSuccess}")
-    return none(Cidrs)
-
-  let ipv4Cidrs: JsonNode = jsonResponse{"result", "ipv4_cidrs"}
-  let ipv6Cidrs: JsonNode = jsonResponse{"result", "ipv6_cidrs"}
-
-  if ipv4Cidrs.isNil or ipv6Cidrs.isNil:
-    return none(Cidrs)
-  else:
-    return some(Cidrs(ipv4: ipv4Cidrs, ipv6: ipv6Cidrs, etag: etag,
-        etagChanged: true))
+  return parseCidrsResponse(jsonResponse)
 
 
-proc getCurrentEtag(configFile: string = NGINX_CIDR_FILE): string =
+proc getCurrentEtag*(configFile: string = NGINX_CIDR_FILE): string =
   info("Getting current Cloudflare CIDRs ETAG")
 
   if not fileExists(configFile):
