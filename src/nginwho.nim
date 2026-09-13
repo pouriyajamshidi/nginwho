@@ -4,7 +4,7 @@ from std/os import getFileInfo, FileInfo, FileId
 
 from parseopt import CmdLineKind, initOptParser, next
 from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
-    warn, fatal
+    warn, fatal, setLogFilter, lvlError
 
 import consts
 from types import Args, Log, Logs
@@ -210,10 +210,12 @@ proc main() =
   # parse args first so --help and --version print nothing else
   let args: Args = getArgs()
 
-  info("Starting nginwho")
-
   if args.report:
+    # info logs would get mixed with the report output
+    setLogFilter(lvlError)
     report(args.dbPath)
+
+  info("Starting nginwho")
 
   runPreChecks(args)
 
