@@ -1,4 +1,6 @@
 import db_connector/db_sqlite
+from db_connector/sqlite3 import PStmt, bind_text, step, reset, finalize,
+    SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT
 from std/tables import initTable, mgetOrPut, pairs
 from std/strformat import fmt
 from std/os import fileExists
@@ -179,6 +181,18 @@ proc getNonDefaults*(db: DbConn, num: uint = 3): seq[Row] =
   return rows
 
 
+proc execPrepared(db: DbConn, statement: SqlPrepared, values: varargs[string]) =
+  ## Runs a statement that was prepared once, so SQLite does not parse it again for every row.
+  ## db_sqlite's own exec for prepared statements finalizes them on errors, which breaks a later finalize
+  let stmt = PStmt(statement)
+  discard reset(stmt)
+  for i, value in values:
+    if bind_text(stmt, int32(i + 1), value.cstring, int32(value.len), SQLITE_TRANSIENT) != SQLITE_OK:
+      dbError(db)
+  if step(stmt) != SQLITE_DONE:
+    dbError(db)
+
+
 proc createTables*(db: DbConn) =
   info("Creating database tables")
 
@@ -250,7 +264,7 @@ proc createTables*(db: DbConn) =
 proc normalizeNginwhoTable(db: DbConn, logs: seq[Log]) =
   info("Populating the nginwho table")
 
-  let defaultQuery = sql"""
+  let defaultQuery = db.prepare("""
     INSERT INTO nginwho (
       date_id,
       remote_ip_id,
@@ -274,13 +288,14 @@ proc normalizeNginwhoTable(db: DbConn, logs: seq[Log]) =
       (SELECT id FROM user_agents WHERE user_agent = ?),
       (SELECT id FROM remote_users WHERE remote_user = ?),
       (SELECT id FROM authenticated_users WHERE authenticated_user = ?)
-  """
+  """)
+  defer: discard finalize(PStmt(defaultQuery))
 
   for log in logs:
     # TODO: handle non-defaults
     if log.nonDefault != "":
       continue
-    db.exec(defaultQuery,
+    execPrepared(db, defaultQuery,
       log.date,
       log.remoteIP,
       log.httpMethod,
@@ -334,31 +349,21 @@ proc upsert(db: DbConn, table, column: string, values: seq[string]) =
     info(fmt"No values to insert in {table} table")
     return
 
-  let insertQuery = fmt"""
+  let insertQuery = db.prepare(fmt"""
     INSERT INTO {table} ({column}, count)
     VALUES (?, ?)
     ON CONFLICT ({column})
     DO UPDATE SET
       count = count + excluded.count
-  """
+  """)
+  defer: discard finalize(PStmt(insertQuery))
 
   var valueCounts = initTable[string, int]()
   for value in values:
     valueCounts.mgetOrPut(value, 0).inc
 
   for value, count in valueCounts.pairs:
-    db.exec(sql(insertQuery), value, count)
-
-  # NOTE: Left for potential future rewrite
-  # let preparedStmt = db.prepare(insertQuery)
-  # defer: preparedStmt.finalize()
-
-  # for value, count in valueCounts.pairs:
-  #   echo(fmt"Binding {value} to {count}")
-  #   preparedStmt.bindParam(1, value)
-  #   preparedStmt.bindParam(2, count)
-
-  # db.exec(preparedStmt)
+    execPrepared(db, insertQuery, value, $count)
 
 
 proc insertLogs*(db: DbConn, logs: seq[Log]) =

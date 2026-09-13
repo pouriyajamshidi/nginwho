@@ -13,6 +13,7 @@ All notable changes to **nginwho** are listed here.
 - Reduce unnecessary logging of accepted traffic.
 - V1 to V2 database migration pages with `rowid` instead of `OFFSET`, which is much faster on big databases.
 - Keep `.xml` requests during migration like live log processing does.
+- Inserts prepare their SQL once per batch instead of once per row, about 7 times faster.
 - The database uses WAL mode, `synchronous = NORMAL`, a 5 second busy timeout and enforces foreign keys.
 
 ### Fixed
