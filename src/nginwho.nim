@@ -94,9 +94,9 @@ proc getArgs(): Args =
       of "dbPath": args.dbPath = p.val
       of "interval": args.interval = parseInt(p.val) * 1000 # convert to seconds
       of "omitReferrer": args.omitReferrer = p.val
-      of "showRealIps": args.showRealIPs = parseBool(p.val)
-      of "blockUntrustedCidrs": args.blockUntrustedCidrs = parseBool(p.val)
-      of "processNginxLogs": args.processNginxLogs = parseBool(p.val)
+      of "showRealIps": args.showRealIPs = p.val == "" or parseBool(p.val)
+      of "blockUntrustedCidrs": args.blockUntrustedCidrs = p.val == "" or parseBool(p.val)
+      of "processNginxLogs": args.processNginxLogs = p.val == "" or parseBool(p.val)
     of cmdArgument: discard
 
   if args.migrateV1ToV2Db:
