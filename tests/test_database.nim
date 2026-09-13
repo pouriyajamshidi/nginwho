@@ -147,14 +147,16 @@ suite "database":
     insertLogs(db, @[
       log(uri = "/missing", status = "404", date = today),
       log(uri = "/missing", status = "404", date = today),
+      log(uri = "/missing", status = "404", date = today, userAgent = "bot/1.0"),
       log(uri = "/broken", status = "500", date = today),
       log(uri = "/fine", status = "200", date = today),
       log(uri = "/moved", status = "301", date = today),
       log(uri = "/old", status = "404", date = "2020-01-01 00:00:00"),
     ])
     check db.getTopUnsuccessfulRequests(10) == @[
-      @["/missing with user agent curl/8.0", "2"],
-      @["/broken with user agent curl/8.0", "1"],
+      @["404 /missing with user agent curl/8.0", "2"],
+      @["404 /missing with user agent bot/1.0", "1"],
+      @["500 /broken with user agent curl/8.0", "1"],
     ]
 
   test "empty tables give empty results":

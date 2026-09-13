@@ -113,6 +113,7 @@ proc getTopUnsuccessfulRequests*(db: DbConn, num: uint = 3): seq[Row] =
 
   let statement = fmt"""
   SELECT
+    sc.status_code,
     ru.request_uri,
     ua.user_agent,
     COUNT(*) as occurrence_count
@@ -126,8 +127,8 @@ proc getTopUnsuccessfulRequests*(db: DbConn, num: uint = 3): seq[Row] =
       d.date >= date('now', '-30 days')
       AND CAST(sc.status_code AS INTEGER) NOT BETWEEN 200 AND 399
       AND hm.http_method = 'GET'
-  GROUP BY sc.status_code, ru.request_uri
-  ORDER BY occurrence_count DESC
+  GROUP BY sc.status_code, ru.request_uri, ua.user_agent
+  ORDER BY occurrence_count DESC, sc.status_code, ru.request_uri, ua.user_agent
   LIMIT {num}
   """
 
@@ -140,7 +141,7 @@ proc getTopUnsuccessfulRequests*(db: DbConn, num: uint = 3): seq[Row] =
   var mergedRows: seq[Row] = @[]
 
   for row in rows:
-    mergedRows.add(@[fmt"{row[0]} with user agent {row[1]}", row[2]])
+    mergedRows.add(@[fmt"{row[0]} {row[1]} with user agent {row[2]}", row[3]])
 
   return mergedRows
 

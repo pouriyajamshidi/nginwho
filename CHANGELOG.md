@@ -40,6 +40,7 @@ All notable changes to **nginwho** are listed here.
 - Rules were applied even when writing the nftables rules file failed.
 - The `--report` menu listed its options in a random order.
 - `--report` with a wrong `--dbPath` created an empty database and crashed.
+- Top unsuccessful requests showed a random user agent for each URI. Each status code, URI and user agent is now counted on its own, and the status code is shown.
 - `--blockUntrustedCidrs` without `--showRealIps` slept six hours for nothing.
 - Report mode crashed on Ctrl+D.
 - Migration batch counting.
