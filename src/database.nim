@@ -508,32 +508,34 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
 
   let selectStatement = sql"""
     SELECT date, remoteIP, httpMethod, requestURI, statusCode, responseSize,
-           referrer, userAgent, remoteUser, authenticatedUser
+           referrer, userAgent, remoteUser, authenticatedUser, rowid
     FROM nginwho
-    WHERE date IS NOT NULL AND date != ''
-    LIMIT ? OFFSET ?
+    WHERE rowid > ? AND date IS NOT NULL AND date != ''
+    ORDER BY rowid
+    LIMIT ?
   """
 
   const migrationBatchSize = 100_000
 
   var
     logs: Logs
-    batchCount = 0
-    offset = 0
-    totalRecordsToProcess = parseInt(totalRecords)
+    lastRowId = 0
 
-  while totalRecordsToProcess > 0:
-    info(fmt"🔥 Processing records from offset {offset} in batches of {migrationBatchSize}")
+  # page with rowid instead of OFFSET so each batch does not scan all the previous rows
+  while true:
+    info(fmt"🔥 Processing records after rowid {lastRowId} in batches of {migrationBatchSize}")
 
     var rows: seq[Row]
 
     try:
-      rows = v1Db.getAllRows(selectStatement, migrationBatchSize, offset)
+      rows = v1Db.getAllRows(selectStatement, lastRowId, migrationBatchSize)
       if len(rows) == 0:
         break
     except DbError as e:
-      error(fmt"Could not get rows with limit of {migrationBatchSize} from offset {offset}: {e.msg}")
+      error(fmt"Could not get rows with limit of {migrationBatchSize} after rowid {lastRowId}: {e.msg}")
       break
+
+    lastRowId = parseInt(rows[^1][10])
 
     for row in rows:
       var httpMethod = row[2]
@@ -567,23 +569,18 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
         )
       )
 
-      batchCount += 1
-      if batchCount >= migrationBatchSize:
+      if len(logs) >= migrationBatchSize:
         let start = epochTime()
         insertLogs(v2Db, logs)
         let elapsed = epochTime() - start
         let elapsedStr = elapsed.formatFloat(format = ffDecimal, precision = 3)
         info(fmt"Row insertion took {elapsedStr} seconds")
 
-        batchCount = 0
         logs = @[]
 
-    offset += migrationBatchSize
-    totalRecordsToProcess = abs(totalRecordsToProcess - offset)
-
   # if there are leftovers, add them
-  if batchCount > 0:
-    info(fmt"Adding {batchCount} leftovers")
+  if len(logs) > 0:
+    info(fmt"Adding {len(logs)} leftovers")
     insertLogs(v2Db, logs)
 
   info(fmt"Processed {totalRecords} records")
