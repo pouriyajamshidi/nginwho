@@ -119,6 +119,7 @@ proc processAndRecordLogs(args: Args) {.async.} =
   var
     offset: int64 = 0
     fileId: FileId
+    failedInserts = 0
 
   while true:
     var fileInfo: FileInfo
@@ -140,6 +141,7 @@ proc processAndRecordLogs(args: Args) {.async.} =
       continue
 
     let fromStart = offset == 0
+    let previousOffset = offset
     var logs: Logs
 
     for line in readNewLines(args.logPath, offset):
@@ -163,10 +165,19 @@ proc processAndRecordLogs(args: Args) {.async.} =
     if fromStart:
       logs = dropAlreadyInserted(logs, getLastRow(db))
 
-    if len(logs) > 0:
-      insertLogs(db, logs)
-    else:
+    if len(logs) == 0:
       info("Database is up to date with the latest logs")
+    elif insertLogs(db, logs):
+      failedInserts = 0
+    else:
+      failedInserts += 1
+      # read the same lines again next time, but don't get stuck on logs that can never be saved
+      if failedInserts < MAX_INSERT_ATTEMPTS:
+        warn(fmt"Will retry these logs in {args.interval div 1000} seconds")
+        offset = previousOffset
+      else:
+        error(fmt"Dropping {len(logs)} logs after {MAX_INSERT_ATTEMPTS} failed inserts")
+        failedInserts = 0
 
     await sleepAsync(args.interval)
 

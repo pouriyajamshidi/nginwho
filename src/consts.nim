@@ -12,6 +12,7 @@ const
   DATE_FORMAT*: string = "yyyy-MM-dd HH:mm:ss"
 
   NGINWHO_DB_FILE*: string = "/var/log/nginwho.db"
+  MAX_INSERT_ATTEMPTS*: int = 3
 
   FIVE_SECONDS*: int = int(initDuration(seconds = 5).inMilliseconds)
   TEN_SECONDS*: int = int(initDuration(seconds = 10).inMilliseconds)

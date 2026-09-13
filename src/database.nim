@@ -373,11 +373,12 @@ proc upsert(db: DbConn, table, column: string, values: seq[string]) =
     execPrepared(db, insertQuery, value, $count)
 
 
-proc insertLogs*(db: DbConn, logs: seq[Log]) =
+proc insertLogs*(db: DbConn, logs: seq[Log]): bool {.discardable.} =
+  ## Returns false when the insert failed and nothing was saved
   let logsLen = len(logs)
   if logsLen < 1:
     warn("No logs received")
-    return
+    return true
 
   info(fmt"Inserting {logsLen} logs into database")
 
@@ -426,6 +427,7 @@ proc insertLogs*(db: DbConn, logs: seq[Log]) =
     normalizeNginwhoTable(db, logs)
 
     db.exec(sql"COMMIT")
+    return true
   except DbError as e:
     # without a rollback the transaction stays open and every next insert fails
     # tryExec because there is no transaction to roll back when BEGIN itself failed

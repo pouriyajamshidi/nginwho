@@ -107,11 +107,11 @@ suite "database":
   test "a failed insert rolls back and the database keeps working":
     let db = newDb()
     # a log without a status code breaks the NOT NULL constraint of the nginwho table
-    insertLogs(db, @[log(uri = "/lost"), log(status = "")])
+    check not insertLogs(db, @[log(uri = "/lost"), log(status = "")])
     check db.count("nginwho") == 0
     check db.count("request_uris") == 0
 
-    insertLogs(db, @[log(uri = "/ok")])
+    check insertLogs(db, @[log(uri = "/ok")])
     check db.count("nginwho") == 1
 
   test "a request with an empty user agent does not lose the other logs":
