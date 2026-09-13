@@ -16,6 +16,13 @@ proc getDbConnection*(dbPath: string): DbConn =
 
   try:
     let connection: DbConn = open(dbPath, "", "", "")
+    # WAL lets --report read while the service writes
+    connection.exec(sql"PRAGMA journal_mode = WAL")
+    # safe with WAL and much faster than the default FULL
+    connection.exec(sql"PRAGMA synchronous = NORMAL")
+    # wait for a lock instead of failing right away
+    connection.exec(sql"PRAGMA busy_timeout = 5000")
+    connection.exec(sql"PRAGMA foreign_keys = ON")
     return connection
   except db_sqlite.DbError as e:
     error(fmt"Could not open or connect to database: {e.msg}")
@@ -389,9 +396,9 @@ proc insertLogs*(db: DbConn, logs: seq[Log]) =
     if len(log.authenticatedUser) > 0: authenticatedUsers.add(
         log.authenticatedUser)
 
-  db.exec(sql"BEGIN TRANSACTION")
-
   try:
+    # IMMEDIATE takes the write lock up front, so busy_timeout applies to the whole insert
+    db.exec(sql"BEGIN IMMEDIATE")
     upsert(db, "dates", "date", dates)
     upsert(db, "remote_ips", "remote_ip", remoteIPs)
     upsert(db, "http_methods", "http_method", httpMethods)
@@ -409,7 +416,8 @@ proc insertLogs*(db: DbConn, logs: seq[Log]) =
     db.exec(sql"COMMIT")
   except DbError as e:
     # without a rollback the transaction stays open and every next insert fails
-    db.exec(sql"ROLLBACK")
+    # tryExec because there is no transaction to roll back when BEGIN itself failed
+    discard db.tryExec(sql"ROLLBACK")
     error(fmt"Failed inserting {logsLen} logs, rolled back: {e.msg}")
 
 

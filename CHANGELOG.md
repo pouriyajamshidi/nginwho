@@ -13,6 +13,7 @@ All notable changes to **nginwho** are listed here.
 - Reduce unnecessary logging of accepted traffic.
 - V1 to V2 database migration pages with `rowid` instead of `OFFSET`, which is much faster on big databases.
 - Keep `.xml` requests during migration like live log processing does.
+- The database uses WAL mode, `synchronous = NORMAL`, a 5 second busy timeout and enforces foreign keys.
 
 ### Fixed
 
@@ -24,6 +25,7 @@ All notable changes to **nginwho** are listed here.
 - Cloudflare CIDR updates stopped forever after the first change.
 - Failed Cloudflare API calls crashed nginwho. The http client is now closed and has a timeout.
 - Failed log inserts left the database transaction open.
+- Running `--report` while the service was writing could crash the service with "database is locked".
 - Crashes when checking nftables rules with unexpected keys.
 - Crash when the current nftables rules can't be read.
 - Crash on trailing spaces or invalid CIDRs in `/etc/nginx/nginwho`.

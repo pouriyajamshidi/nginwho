@@ -1,14 +1,14 @@
-import std/[unittest, times, strutils]
+import std/[unittest, times, strutils, os]
 import db_connector/db_sqlite
 
 from types import Log, Logs
 from nginx import parseLogEntry, dropAlreadyInserted
-from database import createTables, insertLogs, getLastRow, getTopIPs, getTopURIs,
+from database import getDbConnection, closeDbConnection, createTables, insertLogs, getLastRow, getTopIPs, getTopURIs,
     getTopReferres, getTopUnsuccessfulRequests, getNonDefaults
 
 
 proc newDb(): DbConn =
-  result = open(":memory:", "", "", "")
+  result = getDbConnection(":memory:")
   createTables(result)
 
 
@@ -152,3 +152,17 @@ suite "database":
     let db = newDb()
     check db.getTopIPs(3).len == 0
     check db.getTopUnsuccessfulRequests(3).len == 0
+
+  test "a database file uses WAL and enforces foreign keys":
+    let path = getTempDir() / "nginwho_test_wal.db"
+    removeFile(path)
+    let db = getDbConnection(path)
+    defer:
+      closeDbConnection(db)
+      removeFile(path)
+
+    createTables(db)
+    insertLogs(db, @[log()])
+    check db.count("nginwho") == 1
+    check db.getValue(sql"PRAGMA journal_mode") == "wal"
+    check db.getValue(sql"PRAGMA foreign_keys") == "1"
