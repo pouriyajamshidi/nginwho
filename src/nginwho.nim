@@ -131,7 +131,7 @@ proc parseLogEntry(logLine: string, omit: string): Log =
 
     var requestURI = matches[6].replace("\"", "")
     if requestURI.endsWith("/") and len(requestURI) > 1:
-      requestURI = requestURI.strip(chars = {'/'}, trailing = true)
+      requestURI = requestURI.strip(leading = false, chars = {'/'})
     log.requestURI = requestURI
 
     log.statusCode = matches[8]
@@ -144,7 +144,7 @@ proc parseLogEntry(logLine: string, omit: string): Log =
       log.referrer = ""
     else:
       if referrer.endsWith("/"):
-        referrer = referrer.strip(chars = {'/'}, trailing = true)
+        referrer = referrer.strip(leading = false, chars = {'/'})
       log.referrer = referrer
 
     log.userAgent = matches[11..^1].join(" ").replace("\"", "")
