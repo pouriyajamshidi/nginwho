@@ -148,8 +148,12 @@ proc createInputChainPolicy(): JsonNode =
   }
 
 
-proc createSet(cidrs: JsonNode, setName: string, setType: SetType): JsonNode =
+proc createSet(cidrs: JsonNode, setName: string, setType: SetType): seq[JsonNode] =
+  ## Returns the commands that create the Set or replace the elements of an existing one.
+  ## Adding to an existing Set keeps its old elements, so it is flushed first
   info(fmt"Creating {setType} Set")
+
+  let setId = %* {"family": "inet", "table": "filter", "name": setName}
 
   var ipSet: JsonNode = %* {
     "add": {
@@ -178,7 +182,12 @@ proc createSet(cidrs: JsonNode, setName: string, setType: SetType): JsonNode =
     }
     )
 
-  return ipSet
+  # adding a Set that exists does nothing, so this makes sure there is one to flush.
+  # nft applies the file at once, so the Set is never empty in between
+  var emptySet = ipSet.copy()
+  emptySet["add"]["set"].delete("elem")
+
+  return @[emptySet, %*{"flush": {"set": setId}}, ipSet]
 
 
 proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
@@ -187,10 +196,12 @@ proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
   var rules: JsonNode = %* {"nftables": []}
 
   if nftAttrs.withCloudflareV4Set:
-    rules[NFT_KEY_NAME].add(createSet(nftSet.ipv4, NFT_SET_NAME_CF_IPv4, SetType.IPv4))
+    for command in createSet(nftSet.ipv4, NFT_SET_NAME_CF_IPv4, SetType.IPv4):
+      rules[NFT_KEY_NAME].add(command)
 
   if nftAttrs.withCloudflareV6Set:
-    rules[NFT_KEY_NAME].add(createSet(nftSet.ipv6, NFT_SET_NAME_CF_IPv6, SetType.IPv6))
+    for command in createSet(nftSet.ipv6, NFT_SET_NAME_CF_IPv6, SetType.IPv6):
+      rules[NFT_KEY_NAME].add(command)
 
   if nftAttrs.withNginwhoChain:
     rules[NFT_KEY_NAME].add(createNginwhoChain())
