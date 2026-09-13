@@ -12,6 +12,7 @@ All notable changes to **nginwho** are listed here.
 - Use the async http client for Cloudflare so a slow call does not block log processing.
 - Write nftables rules to `/run/nginwho.nft` instead of `/tmp/nginwho.nft`.
 - Reduce unnecessary logging of accepted traffic.
+- The systemd service restarts nginwho after a crash and has basic sandboxing.
 - V1 to V2 database migration pages with `rowid` instead of `OFFSET`, which is much faster on big databases.
 - Keep `.xml` requests during migration like live log processing does.
 - Inserts prepare their SQL once per batch instead of once per row, about 7 times faster.

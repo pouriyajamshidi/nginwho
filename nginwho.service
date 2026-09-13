@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-RemainAfterExit=yes
+# root is needed to reload nginx and change nftables rules
 User=root
 ExecStart=/usr/local/bin/nginwho \
     --logPath:/var/log/nginx/access.log \
@@ -15,6 +15,14 @@ ExecStart=/usr/local/bin/nginwho \
     --blockUntrustedCidrs:true
 Restart=on-failure
 RestartSec=5
+
+# hardening. nginwho only writes its database, the nginx CIDRs file and the nftables rules file
+NoNewPrivileges=yes
+PrivateTmp=yes
+# read-only so `nginx -t` still works when the nginx config uses files in /home
+ProtectHome=read-only
+ProtectSystem=full
+ReadWritePaths=/etc/nginx
 
 [Install]
 WantedBy=multi-user.target
