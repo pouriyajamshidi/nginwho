@@ -47,13 +47,13 @@ nimble install nginwho
 
 ### Build from source
 
-Requires [Nim](https://nim-lang.org/install.html) 2.2.0 or newer:
+Requires [Nimble](https://github.com/nim-lang/nimble). It downloads the latest stable Nim if needed:
 
 ```bash
 git clone https://github.com/pouriyajamshidi/nginwho.git
 cd nginwho
 nimble install -y --depsOnly
-nim c -d:release --opt:speed -d:ssl -o:nginwho src/nginwho.nim
+nimble c -d:release --opt:speed -d:ssl -o:nginwho src/nginwho.nim
 sudo install nginwho -D -t /usr/local/bin/
 ```
 
