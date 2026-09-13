@@ -32,6 +32,10 @@ All notable changes to **nginwho** are listed here.
 - Report mode crashed on Ctrl+D.
 - Migration batch counting.
 - `network.target` name in the systemd service.
+- A request with an empty `User-Agent` made the whole batch of logs fail to save.
+- CIDRs removed by Cloudflare stayed allowed in nftables, and the Sets were applied again every six hours.
+- The sample `nft` commands shown when the `inet filter` table is missing failed because they never created the `input` chain.
+- Crash on a single IP without a prefix length (for example `set_real_ip_from 1.2.3.4;`) in `/etc/nginx/nginwho`. Invalid prefix lengths are skipped now too.
 
 ### Removed
 
