@@ -1,10 +1,10 @@
 import std/[asyncdispatch, os, strformat, json]
 
-from strutils import split, parseInt, isDigit, join, replace, repeat
+from strutils import split, splitWhitespace, parseInt, join, replace, repeat
 from algorithm import sorted
 from logging import info, error, warn, fatal
 from osproc import execProcess, execCmd
-from net import parseIpAddress, IpAddressFamily
+from net import parseIpAddress, IpAddress, IpAddressFamily
 from types import SetType, IPProtocol, NftSet, NftAttrs
 
 import consts
@@ -350,19 +350,24 @@ proc createNftSetsFrom(fileName: string = NGINX_CIDR_FILE): NftSet =
     if line.len() == 0:
       continue
 
-    let splitLine = line.split(" ")
-    if splitLine.len() < 2 or splitLine.len() > 2:
+    let splitLine = line.splitWhitespace()
+    if splitLine.len() != 2 or splitLine[0] != NGINX_SET_REAL_IP_FROM:
       continue
 
-    if splitLine[1][0].isDigit():
-      let ipAndMask = splitLine[1].replace(";", "")
-      let ipAddr = parseIpAddress(ipAndMask.split("/")[0])
+    let ipAndMask = splitLine[1].replace(";", "")
 
-      if ipAddr.family == IpAddressFamily.IPv4:
-        ipv4Cidrs.add($ipAndMask)
+    var ipAddr: IpAddress
+    try:
+      ipAddr = parseIpAddress(ipAndMask.split("/")[0])
+    except ValueError:
+      warn(fmt"Skipping invalid CIDR in {fileName}: {ipAndMask}")
+      continue
 
-      if ipAddr.family == IpAddressFamily.IPv6:
-        ipv6Cidrs.add($ipAndMask)
+    if ipAddr.family == IpAddressFamily.IPv4:
+      ipv4Cidrs.add(ipAndMask)
+
+    if ipAddr.family == IpAddressFamily.IPv6:
+      ipv6Cidrs.add(ipAndMask)
 
   return NftSet(ipv4: %*ipv4Cidrs, ipv6: %*ipv6Cidrs)
 
