@@ -4,7 +4,7 @@ from os import fileExists
 from logging import info, error, warn, fatal
 
 import consts
-from nginx import reloadNginxAt, populateReverseProxyFile
+from nginx import reloadNginx, populateReverseProxyFile
 from nftables import acceptOnly
 from types import Cidrs, NftSet
 
@@ -77,8 +77,9 @@ proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool = false) {.async.} =
         acceptOnly(NftSet(ipv4: cidrs.ipv4, ipv6: cidrs.ipv6))
 
       if currentEtag != cidrs.etag:
+        # nginx reload is graceful and does not drop open connections
         if populateReverseProxyFile(NGINX_CIDR_FILE, cidrs):
-          waitFor reloadNginxAt(3, 0)
+          reloadNginx()
       else:
         info(fmt"etag has not changed {currentEtag}")
     of false:

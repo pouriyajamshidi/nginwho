@@ -1,4 +1,4 @@
-import std/[asyncdispatch, times]
+from std/times import getTime, format
 from json import JsonNode, getStr, items
 from os import findExe, fileExists
 from osproc import execCmd
@@ -6,7 +6,7 @@ from strformat import fmt
 from logging import info, error, warn, fatal
 
 from types import Cidrs
-from consts import NGINX_CMD, NGINX_TEST_CMD, NGINX_RELOAD_CMD, ONE_MINUTE,
+from consts import NGINX_CMD, NGINX_TEST_CMD, NGINX_RELOAD_CMD,
     DATE_FORMAT, NGINX_SET_REAL_IP_FROM, NGINX_REAL_IP_HEADER, NGINX_CF_REAL_IP_HEADER
 
 
@@ -65,7 +65,7 @@ proc testNginxConfig(): int =
   return execCmd(command = NGINX_TEST_CMD)
 
 
-proc reloadNginx() =
+proc reloadNginx*() =
   info("Attempting to soft-reload nginx")
 
   let testResult: int = testNginxConfig()
@@ -79,15 +79,3 @@ proc reloadNginx() =
     error("nginx process reload failed")
   else:
     info("nginx process reloaded successfully")
-
-
-proc reloadNginxAt*(hour: int = 3, minute: int = 0) {.async.} =
-  info(fmt"Preparing to soft-reload nginx at {hour}:{minute}")
-
-  while true:
-    let now: DateTime = getTime().local()
-    if now.hour == hour and now.minute == minute:
-      reloadNginx()
-
-    await sleepAsync(ONE_MINUTE)
-

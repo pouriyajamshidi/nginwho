@@ -116,7 +116,7 @@ The second feature, `--showRealIps` flag fetches **Cloudflare CIDRs** (`IPv4` an
 
 It is worthwhile to mention that **nginwho** leverages the `etag` field in Cloudflare's API response, so, if the newly fetched `etag` is the same as the current one, the `/etc/nginx/nginwho` file will not be overwritten.
 
-If the `/etc/nginx/nginwho` file has changed or this is a fresh run, **nginwho** schedules the **nginx** service to be soft reloaded (`nginx -s reload`) at 3 AM.
+If the `/etc/nginx/nginwho` file has changed or this is a fresh run, **nginwho** tests the **nginx** config (`nginx -t`) and if it passes, soft reloads **nginx** (`nginx -s reload`) right away. A soft reload does not drop open connections.
 
 > [!IMPORTANT]
 > The `--showRealIps` flag requires **root privileges**.
