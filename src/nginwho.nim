@@ -92,7 +92,7 @@ proc getArgs(): Args =
 
       of "logPath": args.logPath = p.val
       of "dbPath": args.dbPath = p.val
-      of "interval": args.interval = parseInt(p.val) * 1000 # convert to seconds
+      of "interval": args.interval = parseInt(p.val) * 1000 # convert seconds to milliseconds
       of "omitReferrer": args.omitReferrer = p.val
       of "showRealIps": args.showRealIPs = p.val == "" or parseBool(p.val)
       of "blockUntrustedCidrs": args.blockUntrustedCidrs = p.val == "" or parseBool(p.val)
