@@ -111,29 +111,6 @@ proc getTopReferres*(db: DbConn, num: uint = 3): seq[Row] =
 proc getTopUnsuccessfulRequests*(db: DbConn, num: uint = 3): seq[Row] =
   info(fmt"Getting top {num} unsuccessful requests in the past 30 days")
 
-  # let statement = fmt"""
-  # SELECT
-  #   d.date,
-  #   sc.status_code,
-  #   ru.request_uri,
-  #   hm.http_method,
-  #   ua.user_agent,
-  #   COUNT(*) as occurrence_count
-  # FROM nginwho n
-  # JOIN dates d ON n.date_id = d.id
-  # JOIN status_codes sc ON n.status_code_id = sc.id
-  # JOIN request_uris ru ON n.request_uri_id = ru.id
-  # JOIN http_methods hm ON n.http_method_id = hm.id
-  # JOIN user_agents ua ON n.user_agent_id = ua.id
-  # WHERE
-  #     d.date >= date('now', '-30 days')
-  #     AND CAST(sc.status_code AS INTEGER) NOT BETWEEN 200 AND 399
-  #     AND hm.http_method = 'GET'
-  # GROUP BY d.date, sc.status_code, ru.request_uri
-  # ORDER BY occurrence_count DESC
-  # LIMIT {num}
-  # """
-
   let statement = fmt"""
   SELECT
     ru.request_uri,
@@ -254,16 +231,6 @@ proc createTables*(db: DbConn) =
       FOREIGN KEY (authenticated_user_id) REFERENCES authenticated_users(id)
     )"""
   )
-
-  # TODO: Check how these can be utilized
-  # db.exec(sql"""
-  #   CREATE INDEX IF NOT EXISTS idx_nginwho_date ON nginwho(date_id);
-  #   CREATE INDEX IF NOT EXISTS idx_nginwho_remote_ip ON nginwho(remote_ip_id);
-  #   CREATE INDEX IF NOT EXISTS idx_nginwho_http_method ON nginwho(http_method_id);
-  #   CREATE INDEX IF NOT EXISTS idx_nginwho_request_uri ON nginwho(request_uri_id);
-  #   CREATE INDEX IF NOT EXISTS idx_nginwho_referrer ON nginwho(referrer_id);
-  #   CREATE INDEX IF NOT EXISTS idx_nginwho_user_agent ON nginwho(user_agent_id);
-  # """)
 
   db.exec(sql"COMMIT")
 

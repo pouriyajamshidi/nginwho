@@ -182,14 +182,6 @@ suite "cloudflare CIDRs file":
     check "set_real_ip_from 173.245.48.0/20;" in content
     check "real_ip_header CF-Connecting-IP;" in content
 
-  test "file is not rewritten when the etag did not change":
-    let path = tempDir / "nginwho_unchanged"
-    writeFile(path, "old")
-    var cidrs = parseCidrsResponse(apiResponse).get
-    cidrs.etagChanged = false
-    check not populateReverseProxyFile(path, cidrs)
-    check readFile(path) == "old"
-
   test "no etag when the file does not exist":
     check getCurrentEtag(tempDir / "missing") == ""
 

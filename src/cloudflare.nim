@@ -26,8 +26,7 @@ proc parseCidrsResponse*(jsonResponse: JsonNode): Option[Cidrs] =
     warn("API response is missing IPv4 or IPv6 CIDRs")
     return none(Cidrs)
   else:
-    return some(Cidrs(ipv4: ipv4Cidrs, ipv6: ipv6Cidrs, etag: etag,
-        etagChanged: true))
+    return some(Cidrs(ipv4: ipv4Cidrs, ipv6: ipv6Cidrs, etag: etag))
 
 
 proc getCloudflareCIDRs(): Future[Option[Cidrs]] {.async.} =

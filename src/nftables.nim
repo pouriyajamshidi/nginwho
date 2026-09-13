@@ -90,22 +90,6 @@ proc createNginwhoChain(name: string = "nginwho"): JsonNode =
   }
 
 
-proc createNginwhoLogPolicy(): JsonNode =
-  info("Creating nginwho log policy")
-
-  return %* {
-    "add": {
-      "rule": {
-        "family": "inet",
-        "table": "filter",
-        "chain": "nginwho",
-        "handle": 1,
-        "expr": [{"log": {"prefix": NFT_LOG_PREFIXV4}}]
-    }
-  }
-  }
-
-
 proc createNginwhoIPPolicy(protocol: IPProtocol, setName: string, logPrefix: string): JsonNode =
   info(fmt"Creating nginwho {protocol} policy for Set {setName}")
 

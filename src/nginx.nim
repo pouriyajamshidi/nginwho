@@ -17,32 +17,28 @@ proc populateReverseProxyFile*(filePath: string, cidrs: Cidrs): bool =
 
   let now: string = getTime().format(DATE_FORMAT)
 
-  if cidrs.etagChanged:
-    try:
-      let file: File = open(filePath, fmWrite)
-      defer: file.close()
+  try:
+    let file: File = open(filePath, fmWrite)
+    defer: file.close()
 
-      file.write("# Cloudflare ranges\n")
-      file.write("# Last update: ", now, "\n")
-      file.write("# Last etag: ", cidrs.etag, "\n\n")
-      file.write("# IPv4 CIDRs\n")
+    file.write("# Cloudflare ranges\n")
+    file.write("# Last update: ", now, "\n")
+    file.write("# Last etag: ", cidrs.etag, "\n\n")
+    file.write("# IPv4 CIDRs\n")
 
-      for cidr in cidrs.ipv4:
-        file.write(NGINX_SET_REAL_IP_FROM, " ", cidr.getStr(), ";", "\n")
+    for cidr in cidrs.ipv4:
+      file.write(NGINX_SET_REAL_IP_FROM, " ", cidr.getStr(), ";", "\n")
 
-      file.write("\n# IPv6 CIDRs\n")
+    file.write("\n# IPv6 CIDRs\n")
 
-      for cidr in cidrs.ipv6:
-        file.write(NGINX_SET_REAL_IP_FROM, " ", cidr.getStr(), ";", "\n")
+    for cidr in cidrs.ipv6:
+      file.write(NGINX_SET_REAL_IP_FROM, " ", cidr.getStr(), ";", "\n")
 
-      file.write("\n\n", NGINX_REAL_IP_HEADER, " ", NGINX_CF_REAL_IP_HEADER, "\n")
-      return true
-    except:
-      error(fmt"Could not open {filePath}")
-      return false
-
-  info("CIDR tag has not changed")
-  return false
+    file.write("\n\n", NGINX_REAL_IP_HEADER, " ", NGINX_CF_REAL_IP_HEADER, "\n")
+    return true
+  except:
+    error(fmt"Could not open {filePath}")
+    return false
 
 
 proc ensureNginxLogExists*(logPath: string) =
