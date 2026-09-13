@@ -13,24 +13,32 @@ from types import Cidrs, NftSet
 proc getCloudflareCIDRs(): Option[Cidrs] =
   info("Getting Cloudflare CIDRs")
 
-  let client: HttpClient = newHttpClient()
-  let response: Response = client.get(CLOUDFLARE_CIDR_API_URL)
+  let client: HttpClient = newHttpClient(timeout = TEN_SECONDS)
+  defer: client.close()
 
-  if response.code != Http200:
-    error(fmt"Call to {CLOUDFLARE_CIDR_API_URL} failed")
+  var jsonResponse: JsonNode
+
+  try:
+    let response: Response = client.get(CLOUDFLARE_CIDR_API_URL)
+
+    if response.code != Http200:
+      error(fmt"Call to {CLOUDFLARE_CIDR_API_URL} failed")
+      return none(Cidrs)
+
+    jsonResponse = parseJson(response.body)
+  except CatchableError as e:
+    error(fmt"Call to {CLOUDFLARE_CIDR_API_URL} failed: {e.msg}")
     return none(Cidrs)
 
-  let jsonResponse: JsonNode = parseJson(response.body)
+  let etag: string = jsonResponse{"result", "etag"}.getStr()
 
-  let etag: string = jsonResponse["result"]["etag"].getStr()
-
-  let apiSuccess: bool = jsonResponse["success"].getBool()
+  let apiSuccess: bool = jsonResponse{"success"}.getBool()
   if apiSuccess != true:
     warn(fmt"API `success` is not true: {apiSuccess}")
     return none(Cidrs)
 
-  let ipv4Cidrs: JsonNode = jsonResponse["result"]["ipv4_cidrs"]
-  let ipv6Cidrs: JsonNode = jsonResponse["result"]["ipv6_cidrs"]
+  let ipv4Cidrs: JsonNode = jsonResponse{"result", "ipv4_cidrs"}
+  let ipv6Cidrs: JsonNode = jsonResponse{"result", "ipv6_cidrs"}
 
   if ipv4Cidrs.isNil or ipv6Cidrs.isNil:
     return none(Cidrs)
