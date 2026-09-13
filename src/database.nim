@@ -391,21 +391,26 @@ proc insertLogs*(db: DbConn, logs: seq[Log]) =
 
   db.exec(sql"BEGIN TRANSACTION")
 
-  upsert(db, "dates", "date", dates)
-  upsert(db, "remote_ips", "remote_ip", remoteIPs)
-  upsert(db, "http_methods", "http_method", httpMethods)
-  upsert(db, "request_uris", "request_uri", requestURIs)
-  upsert(db, "status_codes", "status_code", statusCodes)
-  upsert(db, "response_sizes", "response_size", responseSizes)
-  upsert(db, "referrers", "referrer", referrers)
-  upsert(db, "user_agents", "user_agent", userAgents)
-  upsert(db, "non_defaults", "non_default", nonDefaults)
-  upsert(db, "remote_users", "remote_user", remoteUsers)
-  upsert(db, "authenticated_users", "authenticated_user", authenticatedUsers)
+  try:
+    upsert(db, "dates", "date", dates)
+    upsert(db, "remote_ips", "remote_ip", remoteIPs)
+    upsert(db, "http_methods", "http_method", httpMethods)
+    upsert(db, "request_uris", "request_uri", requestURIs)
+    upsert(db, "status_codes", "status_code", statusCodes)
+    upsert(db, "response_sizes", "response_size", responseSizes)
+    upsert(db, "referrers", "referrer", referrers)
+    upsert(db, "user_agents", "user_agent", userAgents)
+    upsert(db, "non_defaults", "non_default", nonDefaults)
+    upsert(db, "remote_users", "remote_user", remoteUsers)
+    upsert(db, "authenticated_users", "authenticated_user", authenticatedUsers)
 
-  normalizeNginwhoTable(db, logs)
+    normalizeNginwhoTable(db, logs)
 
-  db.exec(sql"COMMIT")
+    db.exec(sql"COMMIT")
+  except DbError as e:
+    # without a rollback the transaction stays open and every next insert fails
+    db.exec(sql"ROLLBACK")
+    error(fmt"Failed inserting {logsLen} logs, rolled back: {e.msg}")
 
 
 proc insertLogV1*(db: DbConn, logs: var seq[
