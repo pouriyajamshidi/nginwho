@@ -1,4 +1,4 @@
-import std/[asyncdispatch, os, strformat, json]
+import std/[os, strformat, json]
 
 from strutils import split, splitWhitespace, parseInt, join, replace, repeat
 from algorithm import sorted
@@ -482,19 +482,7 @@ proc acceptOnly*(nftSet: NftSet) =
     writeRulesAndApply(rules)
 
 
-proc acceptOnly*(path: string) {.async.} =
+proc acceptOnly*(path: string) =
   info(fmt"Using {path} to construct nftables rules ")
 
-  let nftSet: NftSet = createNftSetsFrom(path)
-
-  if nftSet.ipv4.len() == 0:
-    warn("Received empty CIDRs")
-    return
-
-  let nftAttrs: NftAttrs = runPrechecks(nftSet)
-
-  if changesRequired(nftAttrs):
-    let rules: JsonNode = createRules(nftSet, nftAttrs)
-    writeRulesAndApply(rules)
-
-  await sleepAsync(SIX_HOURS)
+  acceptOnly(createNftSetsFrom(path))

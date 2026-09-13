@@ -275,9 +275,11 @@ proc main() =
     asyncCheck fetchAndProcessIPCidrs(args.blockUntrustedCidrs)
 
   if args.blockUntrustedCidrs and not args.showRealIPs:
-    asyncCheck acceptOnly(NGINX_CIDR_FILE)
+    acceptOnly(NGINX_CIDR_FILE)
 
-  runForever()
+  # blocking CIDRs from the nginx file alone runs once and has nothing to wait for
+  if hasPendingOperations():
+    runForever()
 
 when is_main_module:
   main()
