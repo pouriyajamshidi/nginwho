@@ -1,0 +1,25 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    # same as the release build. unprivileged user namespaces also work here, which the nftables tests need
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: nim-lang/setup-nimble-action@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install nftables
+        run: sudo apt-get update && sudo apt-get install -y nftables
+
+      - name: Test
+        run: |
+          nimble install -y --depsOnly
+          nimble test
