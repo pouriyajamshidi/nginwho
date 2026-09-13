@@ -1,5 +1,5 @@
 from std/times import getTime, format
-from std/strutils import splitWhitespace, replace, endsWith, strip, contains, join, rfind, splitLines
+from std/strutils import splitWhitespace, replace, endsWith, startsWith, strip, contains, join, rfind, splitLines
 from json import JsonNode, getStr, items
 from os import findExe, fileExists
 from osproc import execCmd
@@ -9,7 +9,7 @@ from logging import info, error, warn, fatal
 from types import Cidrs, Log, Logs
 from utils import convertDateFormat
 from consts import NGINX_CMD, NGINX_TEST_CMD, NGINX_RELOAD_CMD,
-    DATE_FORMAT, NGINX_SET_REAL_IP_FROM, NGINX_REAL_IP_HEADER, NGINX_CF_REAL_IP_HEADER
+    DATE_FORMAT, READ_CHUNK_BYTES, NGINX_SET_REAL_IP_FROM, NGINX_REAL_IP_HEADER, NGINX_CF_REAL_IP_HEADER
 
 
 proc populateReverseProxyFile*(filePath: string, cidrs: Cidrs): bool =
@@ -133,34 +133,45 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
   return log
 
 
-proc readNewLines*(path: string, offset: var int64): seq[string] =
-  ## Reads the complete lines added to the file since `offset` and moves `offset` forward
+proc readNewLines*(path: string, offset: var int64, maxBytes = READ_CHUNK_BYTES): seq[string] =
+  ## Reads the complete lines added to the file since `offset`, up to `maxBytes`, and moves `offset` forward
   let file = open(path)
   defer: file.close()
 
   file.setFilePos(offset)
-  let data = file.readAll()
+  var data = newString(maxBytes)
+  data.setLen(file.readChars(data))
 
   # leave a half written last line for the next read
   let lastNewline = data.rfind('\n')
   if lastNewline == -1:
+    # a line longer than maxBytes never fits in one read, skip it instead of getting stuck
+    if data.len == maxBytes:
+      offset += maxBytes
     return
 
   offset += lastNewline + 1
   return data[0 ..< lastNewline].splitLines()
 
 
-proc dropAlreadyInserted*(logs: Logs, lastLog: Log): Logs =
-  ## Drops the logs up to and including `lastLog`, the last log saved in the database
+proc offsetAfterLastInserted*(path: string, lastLog: Log): int64 =
+  ## Returns the file offset right after the last line that matches `lastLog`,
+  ## the last log saved in the database. Returns 0 when no line matches
   if lastLog.date == "":
-    return logs
+    return 0
 
-  # search from the end so repeated requests in the same second are not inserted again
-  for i in countdown(logs.high, 0):
-    if logs[i].date == lastLog.date and
-    logs[i].remoteIP == lastLog.remoteIP and
-    logs[i].httpMethod == lastLog.httpMethod and
-    logs[i].requestURI == lastLog.requestURI:
-      return logs[i+1..^1]
+  let file = open(path)
+  defer: file.close()
 
-  return logs
+  var line: string
+  while file.readLine(line):
+    # parsing every line is slow, most lines are from another IP
+    if not line.startsWith(lastLog.remoteIP & " "):
+      continue
+
+    let log = parseLogEntry(line, "")
+    # keep going to the last match, the same request can repeat in the same second
+    if log.date == lastLog.date and
+    log.httpMethod == lastLog.httpMethod and
+    log.requestURI == lastLog.requestURI:
+      result = file.getFilePos()

@@ -1,7 +1,7 @@
 import std/[unittest, os, json, options, strutils]
 
 from types import Log, Logs, Cidrs
-from nginx import parseLogEntry, readNewLines, dropAlreadyInserted, populateReverseProxyFile
+from nginx import parseLogEntry, readNewLines, offsetAfterLastInserted, populateReverseProxyFile
 from cloudflare import getCurrentEtag, parseCidrsResponse
 from nftables import createNftSetsFrom
 
@@ -95,6 +95,19 @@ suite "readNewLines":
     f.close()
     check readNewLines(path, offset) == @["two"]
 
+  test "reads a big file in chunks":
+    var offset: int64 = 0
+    writeFile(path, "one\ntwo\nthree\n")
+    check readNewLines(path, offset, maxBytes = 9) == @["one", "two"]
+    check readNewLines(path, offset, maxBytes = 9) == @["three"]
+    check offset == 14
+
+  test "a line longer than a chunk is skipped instead of getting stuck":
+    var offset: int64 = 0
+    writeFile(path, "0123456789")
+    check readNewLines(path, offset, maxBytes = 4).len == 0
+    check offset == 4
+
   test "no complete line yet":
     var offset: int64 = 0
     writeFile(path, "partial")
@@ -102,31 +115,31 @@ suite "readNewLines":
     check offset == 0
 
 
-suite "dropAlreadyInserted":
-  proc log(date, uri: string): Log =
-    Log(date: date, remoteIP: "1.1.1.1", httpMethod: "GET", requestURI: uri)
+suite "offsetAfterLastInserted":
+  let path = tempDir / "resume.log"
+  const
+    a = """1.1.1.1 - - [13/Sep/2026:10:00:00 +0000] "GET /a HTTP/1.1" 200 1 "-" "curl/8.0""""
+    b = """2.2.2.2 - - [13/Sep/2026:10:00:01 +0000] "GET /b HTTP/1.1" 200 1 "-" "curl/8.0""""
 
-  test "keeps everything when the database is empty":
-    let logs = @[log("2026-09-13 10:00:00", "/a"), log("2026-09-13 10:00:01", "/b")]
-    check dropAlreadyInserted(logs, Log()) == logs
+  test "starts from the beginning when the database is empty":
+    writeFile(path, a & "\n" & b & "\n")
+    check offsetAfterLastInserted(path, Log()) == 0
 
-  test "keeps only the logs after the last saved one":
-    let logs = @[log("2026-09-13 10:00:00", "/a"), log("2026-09-13 10:00:01", "/b"),
-        log("2026-09-13 10:00:02", "/c")]
-    check dropAlreadyInserted(logs, logs[1]) == @[logs[2]]
+  test "starts right after the last saved log":
+    writeFile(path, a & "\n" & b & "\n")
+    check offsetAfterLastInserted(path, parseLogEntry(a, "")) == a.len + 1
 
   test "same request repeated in one second is matched from the end":
-    let same = log("2026-09-13 10:00:00", "/a")
-    let logs = @[same, same, same, log("2026-09-13 10:00:01", "/b")]
-    check dropAlreadyInserted(logs, same) == @[logs[3]]
+    writeFile(path, a & "\n" & a & "\n" & b & "\n")
+    check offsetAfterLastInserted(path, parseLogEntry(a, "")) == 2 * (a.len + 1)
 
   test "nothing new":
-    let logs = @[log("2026-09-13 10:00:00", "/a")]
-    check dropAlreadyInserted(logs, logs[0]).len == 0
+    writeFile(path, a & "\n")
+    check offsetAfterLastInserted(path, parseLogEntry(a, "")) == a.len + 1
 
-  test "keeps everything when the last saved log is not in the file (rotated log)":
-    let logs = @[log("2026-09-14 00:00:00", "/a")]
-    check dropAlreadyInserted(logs, log("2026-09-13 23:59:59", "/z")) == logs
+  test "starts from the beginning when the last saved log is not in the file (rotated log)":
+    writeFile(path, b & "\n")
+    check offsetAfterLastInserted(path, parseLogEntry(a, "")) == 0
 
 
 suite "cloudflare CIDRs file":

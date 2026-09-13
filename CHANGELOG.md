@@ -7,6 +7,7 @@ All notable changes to **nginwho** are listed here.
 ### Changed
 
 - Only read new lines from the nginx log instead of reading the whole file every time. Log rotation and truncation are handled.
+- Big nginx logs are read in 16 MB chunks instead of all at once. After a restart, nginwho finds where it left off without loading the whole file.
 - Reload nginx right away after the Cloudflare CIDRs change, as long as `nginx -t` passes. The reload is graceful and does not drop open connections.
 - Use the async http client for Cloudflare so a slow call does not block log processing.
 - Write nftables rules to `/run/nginwho.nft` instead of `/tmp/nginwho.nft`.

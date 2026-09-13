@@ -2,7 +2,7 @@ import std/[unittest, times, strutils, os]
 import db_connector/db_sqlite
 
 from types import Log, Logs
-from nginx import parseLogEntry, dropAlreadyInserted
+from nginx import parseLogEntry, readNewLines, offsetAfterLastInserted
 from database import getDbConnection, closeDbConnection, createTables, insertLogs, getLastRow, getTopIPs, getTopURIs,
     getTopReferres, getTopUnsuccessfulRequests, getNonDefaults
 
@@ -86,22 +86,31 @@ suite "database":
 
   test "restarting on the same log file does not save logs twice":
     let db = newDb()
-    let lines = @[
-      """1.1.1.1 - - [13/Sep/2026:10:00:00 +0000] "GET /a HTTP/1.1" 200 1 "-" "curl/8.0"""",
-      """1.1.1.1 - - [13/Sep/2026:10:00:00 +0000] "GET /a HTTP/1.1" 200 1 "-" "curl/8.0"""",
-      """2.2.2.2 - - [13/Sep/2026:10:00:01 +0000] "GET /b HTTP/1.1" 200 1 "-" "curl/8.0"""",
-    ]
-    var logs: Logs
-    for line in lines:
-      logs.add(parseLogEntry(line, ""))
+    let path = getTempDir() / "nginwho_test_restart.log"
+    writeFile(path, """1.1.1.1 - - [13/Sep/2026:10:00:00 +0000] "GET /a HTTP/1.1" 200 1 "-" "curl/8.0"
+1.1.1.1 - - [13/Sep/2026:10:00:00 +0000] "GET /a HTTP/1.1" 200 1 "-" "curl/8.0"
+""")
 
-    insertLogs(db, logs[0..1])
+    proc readAndInsert(offset: var int64) =
+      var logs: Logs
+      for line in readNewLines(path, offset):
+        logs.add(parseLogEntry(line, ""))
+      insertLogs(db, logs)
 
-    # nginwho restarts and reads the file from the start, now with one more line
-    insertLogs(db, dropAlreadyInserted(logs, db.getLastRow()))
+    var offset: int64 = 0
+    readAndInsert(offset)
+
+    # nginwho restarts, now with one more line in the file
+    let f = open(path, fmAppend)
+    f.write("""2.2.2.2 - - [13/Sep/2026:10:00:01 +0000] "GET /b HTTP/1.1" 200 1 "-" "curl/8.0"""" & "\n")
+    f.close()
+
+    offset = offsetAfterLastInserted(path, db.getLastRow())
+    readAndInsert(offset)
     check db.count("nginwho") == 3
 
-    insertLogs(db, dropAlreadyInserted(logs, db.getLastRow()))
+    offset = offsetAfterLastInserted(path, db.getLastRow())
+    readAndInsert(offset)
     check db.count("nginwho") == 3
 
   test "a failed insert rolls back and the database keeps working":

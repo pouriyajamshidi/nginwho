@@ -9,7 +9,7 @@ from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
 import consts
 from types import Args, Log, Logs
 from nginx import ensureNginxExists, ensureNginxLogExists, parseLogEntry,
-    readNewLines, dropAlreadyInserted
+    readNewLines, offsetAfterLastInserted
 from cloudflare import fetchAndProcessIPCidrs
 from nftables import acceptOnly, ensureNftExists
 from database import getDbConnection, closeDbConnection,
@@ -130,21 +130,31 @@ proc processAndRecordLogs(args: Args) {.async.} =
       await sleepAsync(args.interval)
       continue
 
-    # the log was rotated or truncated, start from the beginning
-    if fileInfo.id.file != fileId or fileInfo.size < offset:
-      fileId = fileInfo.id.file
-      offset = 0
+    var
+      logs: Logs
+      lines: seq[string]
+      previousOffset: int64
 
-    if fileInfo.size == offset:
-      info(fmt"{args.logPath} has no new logs... sleeping")
+    try:
+      # first run, rotated or truncated log. skip the lines saved before a restart,
+      # a new log has none of them so this starts from the beginning
+      if fileInfo.id.file != fileId or fileInfo.size < offset:
+        fileId = fileInfo.id.file
+        offset = offsetAfterLastInserted(args.logPath, getLastRow(db))
+
+      if fileInfo.size == offset:
+        info(fmt"{args.logPath} has no new logs... sleeping")
+        await sleepAsync(args.interval)
+        continue
+
+      previousOffset = offset
+      lines = readNewLines(args.logPath, offset)
+    except IOError as e:
+      warn(fmt"Could not read {args.logPath}: {e.msg}")
       await sleepAsync(args.interval)
       continue
 
-    let fromStart = offset == 0
-    let previousOffset = offset
-    var logs: Logs
-
-    for line in readNewLines(args.logPath, offset):
+    for line in lines:
       if line.len() == 0:
         continue
 
@@ -161,10 +171,6 @@ proc processAndRecordLogs(args: Args) {.async.} =
 
     info(fmt"Got {len(logs)} logs to process")
 
-    # only a read from the start of the file can have logs that are already in the database
-    if fromStart:
-      logs = dropAlreadyInserted(logs, getLastRow(db))
-
     if len(logs) == 0:
       info("Database is up to date with the latest logs")
     elif insertLogs(db, logs):
@@ -179,7 +185,9 @@ proc processAndRecordLogs(args: Args) {.async.} =
         error(fmt"Dropping {len(logs)} logs after {MAX_INSERT_ATTEMPTS} failed inserts")
         failedInserts = 0
 
-    await sleepAsync(args.interval)
+    # a big log is read in chunks, keep going without waiting until it is caught up
+    let moreToRead = failedInserts == 0 and fileInfo.size - previousOffset > READ_CHUNK_BYTES
+    await sleepAsync(if moreToRead: 0 else: args.interval)
 
 
 proc runPreChecks(args: Args) =
