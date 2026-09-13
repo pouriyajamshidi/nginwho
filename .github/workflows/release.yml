@@ -29,7 +29,10 @@ jobs:
           grep -q "^version *= \"$version\"" nginwho.nimble || { echo "nginwho.nimble version is not $version"; exit 1; }
 
       - name: Build
-        run: nimble build -y -d:release -d:ssl
+        # orc is the default memory manager since nim 2.0, no need for --mm:orc
+        run: |
+          nimble install -y --depsOnly
+          nim c -d:release --opt:speed -d:ssl -o:nginwho src/nginwho.nim
 
       - name: Get release notes from changelog
         run: |
