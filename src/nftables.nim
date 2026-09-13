@@ -269,15 +269,18 @@ proc nginwhoChainHasPolicy(nftOutput: JsonNode, setName: string): bool =
     if expression.len() < 4:
       continue
 
-    let destination = expression[0]["match"]["right"].getStr()
-    let service = expression[1]["match"]["right"]["set"].getElems()
+    try:
+      let destination = expression[0]["match"]["right"].getStr()
+      let service = expression[1]["match"]["right"]["set"].getElems()
 
-    if destination == fmt"@{setName}" and
-      service.len() == 2 and
-      service[0].getInt() == 80 and
-      service[1].getInt() == 443:
-      info(fmt"nginwho chain already has the required policy for Set {setName}")
-      return true
+      if destination == fmt"@{setName}" and
+        service.len() == 2 and
+        service[0].getInt() == 80 and
+        service[1].getInt() == 443:
+        info(fmt"nginwho chain already has the required policy for Set {setName}")
+        return true
+    except:
+      continue
 
   warn(fmt"{NFT_CHAIN_NGINWHO_NAME} chain does not have the required policy for Set {setName}")
 
