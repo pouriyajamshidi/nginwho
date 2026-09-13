@@ -4,6 +4,7 @@ from logging import info, warn, error
 from std/strformat import fmt
 from std/strutils import parseUInt, repeat
 from std/rdstdin import readLineFromStdin
+from std/os import fileExists
 from db_connector/db_sqlite import DbConn, Row
 
 from database import getDbConnection, closeDbConnection, getTopIPs,
@@ -118,6 +119,11 @@ proc runQueryFunction(db: DbConn, optionProc: OptionProc, num: uint) =
 
 proc report*(dbPath: string) =
   info("Entering report mode")
+
+  # opening a missing database creates an empty one and every query fails
+  if not fileExists(dbPath):
+    error(fmt"Database not found at {dbPath}")
+    quit(1)
 
   let db = getDbConnection(dbPath)
 

@@ -38,6 +38,7 @@ All notable changes to **nginwho** are listed here.
 - An empty IPv4 or IPv6 list from the Cloudflare API emptied its nftables Set and blocked all Cloudflare traffic of that IP version.
 - Rules were applied even when writing the nftables rules file failed.
 - The `--report` menu listed its options in a random order.
+- `--report` with a wrong `--dbPath` created an empty database and crashed.
 - `--blockUntrustedCidrs` without `--showRealIps` slept six hours for nothing.
 - Report mode crashed on Ctrl+D.
 - Migration batch counting.

@@ -29,6 +29,11 @@ suite "cli":
   test "exits with an error when told to do nothing":
     check run("--processNginxLogs=false").exitCode == 1
 
+  test "report fails when the database is missing":
+    let missing = tempDir / "missing_report.db"
+    check run("--report --dbPath=" & quoteShell(missing)).exitCode == 1
+    check not fileExists(missing)
+
   test "migration needs both database paths":
     check run("--migrateV1ToV2Db --v1DbPath=x.db").exitCode == 1
 
