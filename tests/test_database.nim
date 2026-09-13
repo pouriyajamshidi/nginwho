@@ -4,7 +4,8 @@ import db_connector/db_sqlite
 from types import Log, Logs
 from nginx import parseLogEntry, readNewLines, offsetAfterLastInserted
 from database import getDbConnection, closeDbConnection, createTables, insertLogs, getLastRow, getTopIPs, getTopURIs,
-    getTopReferres, getTopUnsuccessfulRequests, getNonDefaults
+    getTopReferres, getTopUnsuccessfulRequests, getNonDefaults, getTotalRequests,
+    getTotalNonDefaults, hasDateIndex
 
 
 proc newDb(): DbConn =
@@ -153,7 +154,8 @@ suite "database":
       log(uri = "/moved", status = "301", date = today),
       log(uri = "/old", status = "404", date = "2020-01-01 00:00:00"),
     ])
-    check db.getTopUnsuccessfulRequests(10) == @[
+    let lastMonth = (now().utc - 30.days).format("yyyy-MM-dd HH:mm:ss")
+    check db.getTopUnsuccessfulRequests(10, lastMonth) == @[
       @["404 /missing with user agent curl/8.0", "2"],
       @["404 /missing with user agent bot/1.0", "1"],
       @["500 /broken with user agent curl/8.0", "1"],
@@ -162,7 +164,32 @@ suite "database":
   test "empty tables give empty results":
     let db = newDb()
     check db.getTopIPs(3).len == 0
+    check db.getTopIPs(3, "2026-09-13 00:00:00").len == 0
     check db.getTopUnsuccessfulRequests(3).len == 0
+    check db.getTotalRequests() == 0
+    check db.getTotalNonDefaults() == 0
+
+  test "time window only counts logs from that date on":
+    let db = newDb()
+    insertLogs(db, @[
+      log(ip = "1.1.1.1", referrer = "https://old.com", date = "2026-08-01 10:00:00"),
+      log(ip = "1.1.1.1", referrer = "https://old.com", date = "2026-08-01 10:00:01"),
+      log(ip = "1.1.1.1", referrer = "https://old.com", date = "2026-08-01 10:00:02"),
+      log(ip = "2.2.2.2", uri = "/new", referrer = "https://new.com", date = "2026-09-13 10:00:00"),
+      log(ip = "2.2.2.2", uri = "/new", date = "2026-09-13 10:00:00"),
+      log(ip = "1.1.1.1", uri = "/new", date = "2026-09-13 11:00:00"),
+    ])
+    const since = "2026-09-13 00:00:00"
+
+    check db.getTopIPs(10) == @[@["1.1.1.1", "4"], @["2.2.2.2", "2"]]
+    check db.getTopIPs(10, since) == @[@["2.2.2.2", "2"], @["1.1.1.1", "1"]]
+    check db.getTopURIs(10, since) == @[@["/new", "3"]]
+    check db.getTopReferres(10, since) == @[@["https://new.com", "1"]]
+    check db.getTotalRequests() == 6
+    check db.getTotalRequests(since) == 3
+
+  test "the date index exists":
+    check newDb().hasDateIndex()
 
   test "a database file uses WAL and enforces foreign keys":
     let path = getTempDir() / "nginwho_test_wal.db"

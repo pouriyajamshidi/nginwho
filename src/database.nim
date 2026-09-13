@@ -48,122 +48,101 @@ proc closeDbConnection*(db: DbConn) =
     quit(1)
 
 
-proc getTopIPs*(db: DbConn, num: uint = 3): seq[Row] =
+proc topValues(db: DbConn, column: string, num: uint, since: string): seq[Row] =
+  ## Returns the most seen values of a column with their count, from `since` on.
+  ## An empty `since` means all time
+  if since == "":
+    # the count column is updated on every insert, much faster than counting the nginwho table
+    return db.getAllRows(sql(fmt"""
+      SELECT {column}, count
+      FROM {column}s
+      ORDER BY count DESC, {column}
+      LIMIT ?"""), num)
+
+  # CROSS JOIN makes SQLite find the dates first and then use the date index,
+  # without it SQLite scans every row of the nginwho table
+  return db.getAllRows(sql(fmt"""
+    SELECT t.{column}, COUNT(*) AS occurrences
+    FROM dates d
+    CROSS JOIN nginwho n ON n.date_id = d.id
+    JOIN {column}s t ON n.{column}_id = t.id
+    WHERE d.date >= ?
+    GROUP BY n.{column}_id
+    ORDER BY occurrences DESC, t.{column}
+    LIMIT ?"""), since, num)
+
+
+proc getTopIPs*(db: DbConn, num: uint, since = ""): seq[Row] =
   info(fmt"Getting top {num} visitor IPs")
-
-  let statement = fmt"""
-  SELECT
-    remote_ip, count
-  FROM remote_ips
-  ORDER BY count DESC
-  LIMIT {num}
-  """
-
-  let rows = db.getAllRows(sql(statement))
-
-  if len(rows) < 1:
-    warn("No records found")
-    return
-
-  return rows
+  return topValues(db, "remote_ip", num, since)
 
 
-proc getTopURIs*(db: DbConn, num: uint = 3): seq[Row] =
+proc getTopURIs*(db: DbConn, num: uint, since = ""): seq[Row] =
   info(fmt"Getting top {num} URIs")
-
-  let statement = fmt"""
-  SELECT
-    request_uri, count
-  FROM request_uris
-  ORDER BY count DESC
-  LIMIT {num}
-  """
-
-  let rows = db.getAllRows(sql(statement))
-
-  if len(rows) < 1:
-    warn("No records found")
-    return
-
-  return rows
+  return topValues(db, "request_uri", num, since)
 
 
-proc getTopReferres*(db: DbConn, num: uint = 3): seq[Row] =
+proc getTopReferres*(db: DbConn, num: uint, since = ""): seq[Row] =
   info(fmt"Getting top {num} referrers")
-
-  let statement = fmt"""
-  SELECT
-    referrer, count
-  FROM referrers
-  ORDER BY count DESC
-  LIMIT {num}
-  """
-
-  let rows = db.getAllRows(sql(statement))
-
-  if len(rows) < 1:
-    warn("No records found")
-    return
-
-  return rows
+  return topValues(db, "referrer", num, since)
 
 
-proc getTopUnsuccessfulRequests*(db: DbConn, num: uint = 3): seq[Row] =
-  info(fmt"Getting top {num} unsuccessful requests in the past 30 days")
+proc getTopUnsuccessfulRequests*(db: DbConn, num: uint, since = ""): seq[Row] =
+  info(fmt"Getting top {num} unsuccessful requests")
 
-  let statement = fmt"""
+  let statement = sql"""
   SELECT
     sc.status_code,
     ru.request_uri,
     ua.user_agent,
-    COUNT(*) as occurrence_count
-  FROM nginwho n
-  JOIN dates d ON n.date_id = d.id
+    COUNT(*) as occurrences
+  FROM dates d
+  CROSS JOIN nginwho n ON n.date_id = d.id
   JOIN status_codes sc ON n.status_code_id = sc.id
   JOIN request_uris ru ON n.request_uri_id = ru.id
   JOIN http_methods hm ON n.http_method_id = hm.id
   JOIN user_agents ua ON n.user_agent_id = ua.id
   WHERE
-      d.date >= date('now', '-30 days')
+      d.date >= ?
       AND CAST(sc.status_code AS INTEGER) NOT BETWEEN 200 AND 399
       AND hm.http_method = 'GET'
   GROUP BY sc.status_code, ru.request_uri, ua.user_agent
-  ORDER BY occurrence_count DESC, sc.status_code, ru.request_uri, ua.user_agent
-  LIMIT {num}
+  ORDER BY occurrences DESC, sc.status_code, ru.request_uri, ua.user_agent
+  LIMIT ?
   """
-
-  let rows = db.getAllRows(sql(statement))
-
-  if len(rows) < 1:
-    warn("No records found")
-    return
 
   var mergedRows: seq[Row] = @[]
 
-  for row in rows:
+  for row in db.getAllRows(statement, since, num):
     mergedRows.add(@[fmt"{row[0]} {row[1]} with user agent {row[2]}", row[3]])
 
   return mergedRows
 
 
-proc getNonDefaults*(db: DbConn, num: uint = 3): seq[Row] =
+proc getNonDefaults*(db: DbConn, num: uint, since = ""): seq[Row] =
+  ## Non-default logs have no date, so `since` is ignored
   info(fmt"Getting top {num} non-default logs")
+  return topValues(db, "non_default", num, "")
 
-  let statement = fmt"""
-  SELECT
-    non_default, count
-  FROM non_defaults
-  ORDER BY count DESC
-  LIMIT {num}
-  """
 
-  let rows = db.getAllRows(sql(statement))
+proc getTotalRequests*(db: DbConn, since = ""): int =
+  ## Returns how many requests are saved from `since` on. An empty `since` means all time
+  if since == "":
+    return parseInt(db.getValue(sql"SELECT COUNT(*) FROM nginwho"))
 
-  if len(rows) < 1:
-    warn("No records found")
-    return
+  return parseInt(db.getValue(sql"""
+    SELECT COUNT(*)
+    FROM dates d
+    CROSS JOIN nginwho n ON n.date_id = d.id
+    WHERE d.date >= ?""", since))
 
-  return rows
+
+proc getTotalNonDefaults*(db: DbConn): int =
+  return parseInt(db.getValue(sql"SELECT IFNULL(SUM(count), 0) FROM non_defaults"))
+
+
+proc hasDateIndex*(db: DbConn): bool =
+  return db.getValue(sql"SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_nginwho_date'") == "1"
 
 
 proc execPrepared(db: DbConn, statement: SqlPrepared, values: varargs[string]) =
@@ -232,6 +211,9 @@ proc createTables*(db: DbConn) =
       FOREIGN KEY (authenticated_user_id) REFERENCES authenticated_users(id)
     )"""
   )
+
+  # time window reports look up logs by date
+  db.exec(sql"CREATE INDEX IF NOT EXISTS idx_nginwho_date ON nginwho(date_id)")
 
   db.exec(sql"COMMIT")
 

@@ -170,7 +170,7 @@ There will be a bunch of tests and pre-checks done before applying any policies.
 
 ### Reporting
 
-Running **nginwho** with the `--report` flag will launch a TUI, providing some options (top visited URLs, top visiting IP addresses, etc.) that you can select and specify how many records to be queried.
+Running **nginwho** with the `--report` flag will launch a TUI, providing some options (top visited URLs, top visiting IP addresses, etc.) that you can select and specify how many records to be queried. Reports cover the last 30 days by default. Press `w` to switch to the last 24 hours, 7 days or all time.
 
 ```bash
 nginwho --report --dbPath:/var/log/nginwho.db
