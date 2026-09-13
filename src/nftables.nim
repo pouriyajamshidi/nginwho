@@ -387,9 +387,14 @@ proc getCurrentRules(): JsonNode =
   info(fmt"Getting current nftables rules using `{NFT_GET_RULESET_CMD}`")
 
   try:
-    return parseJson(execProcess(NFT_GET_RULESET_CMD))
+    result = parseJson(execProcess(NFT_GET_RULESET_CMD)){NFT_KEY_NAME}
   except Exception as e:
     error(fmt"Failed parsing JSON: {e.msg}")
+
+  # we can't decide which rules to add without the current ones
+  if result.isNil:
+    error("Could not get current nftables rules - Are you root?")
+    quit(1)
 
 
 proc writeRulesAndApply(rules: JsonNode) =
@@ -424,7 +429,7 @@ proc changesRequired(nftAttrs: NftAttrs): bool =
 proc runPrechecks(nftSet: NftSet): NftAttrs =
   info("Running nftables pre-checks")
 
-  let nftOutput: JsonNode = getCurrentRules()[NFT_KEY_NAME]
+  let nftOutput: JsonNode = getCurrentRules()
 
   if not inetFilterExists(nftOutput):
     error("nftables `inet` filter not found")
