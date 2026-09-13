@@ -21,7 +21,9 @@ proc parseCidrsResponse*(jsonResponse: JsonNode): Option[Cidrs] =
   let ipv4Cidrs: JsonNode = jsonResponse{"result", "ipv4_cidrs"}
   let ipv6Cidrs: JsonNode = jsonResponse{"result", "ipv6_cidrs"}
 
-  if ipv4Cidrs.isNil or ipv6Cidrs.isNil:
+  # an empty list would flush its nftables Set and block all Cloudflare traffic of that IP version
+  if ipv4Cidrs.isNil or ipv6Cidrs.isNil or ipv4Cidrs.len == 0 or ipv6Cidrs.len == 0:
+    warn("API response is missing IPv4 or IPv6 CIDRs")
     return none(Cidrs)
   else:
     return some(Cidrs(ipv4: ipv4Cidrs, ipv6: ipv6Cidrs, etag: etag,

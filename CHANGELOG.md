@@ -32,6 +32,7 @@ All notable changes to **nginwho** are listed here.
 - Crash when the current nftables rules can't be read.
 - Crash on trailing spaces or invalid CIDRs in `/etc/nginx/nginwho`.
 - Crash on invalid CIDRs from the Cloudflare API.
+- An empty IPv4 or IPv6 list from the Cloudflare API emptied its nftables Set and blocked all Cloudflare traffic of that IP version.
 - Rules were applied even when writing the nftables rules file failed.
 - `--blockUntrustedCidrs` without `--showRealIps` slept six hours for nothing.
 - Report mode crashed on Ctrl+D.

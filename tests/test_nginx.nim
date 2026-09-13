@@ -151,6 +151,7 @@ suite "cloudflare CIDRs file":
     check parseCidrsResponse(parseJson("""{"success": false, "result": {"ipv4_cidrs": [], "ipv6_cidrs": []}}""")).isNone
     check parseCidrsResponse(parseJson("""{"success": true, "result": {"ipv4_cidrs": []}}""")).isNone
     check parseCidrsResponse(parseJson("{}")).isNone
+    check parseCidrsResponse(parseJson("""{"success": true, "result": {"ipv4_cidrs": ["1.1.1.0/24"], "ipv6_cidrs": []}}""")).isNone
 
   test "written file gives back the same etag and CIDRs":
     # the etag decides if nginx gets reloaded, the CIDRs feed nftables
