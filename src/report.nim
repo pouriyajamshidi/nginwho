@@ -1,5 +1,3 @@
-import std/tables
-
 from std/terminal import setForegroundColor, resetAttributes, styledWriteLine,
     styleUnderscore, fgYellow, fgRed, fgGreen, fgBlue
 from logging import info, warn, error
@@ -16,13 +14,14 @@ const parenRepeatCount = 80
 
 type OptionProc = proc (db: DbConn, num: uint): seq[Row]
 
-var optionMapping = newTable[string, OptionProc]()
-
-optionMapping["Show top IP addresses"] = getTopIPs
-optionMapping["Show top URIs"] = getTopURIs
-optionMapping["Show top unsuccessful requests"] = getTopUnsuccessfulRequests
-optionMapping["Show top referrers"] = getTopReferres
-optionMapping["Show top non-defaults"] = getNonDefaults
+# a seq keeps the menu in this order, a Table would not
+let options: seq[(string, OptionProc)] = @[
+  ("Show top IP addresses", getTopIPs),
+  ("Show top URIs", getTopURIs),
+  ("Show top unsuccessful requests", getTopUnsuccessfulRequests),
+  ("Show top referrers", getTopReferres),
+  ("Show top non-defaults", getNonDefaults),
+]
 
 
 
@@ -41,10 +40,8 @@ proc showAvailableOptions() =
   echoNewlines()
   echoSigns()
 
-  var counter = 1
-  for option, _ in optionMapping:
-    stdout.write(counter, ")", " ", option, "\n")
-    counter += 1
+  for i, (name, _) in options:
+    stdout.write(i + 1, ")", " ", name, "\n")
 
   echoSigns()
   echoNewlines()
@@ -84,7 +81,7 @@ proc getUserChoice(): (uint, uint) =
       error("Option and number should be greater than 0")
       return getUserChoice()
 
-    if parsedOption > uint(len(optionMapping)):
+    if parsedOption > uint(len(options)):
       error("Option number is too large... Try again")
       return getUserChoice()
 
@@ -92,14 +89,6 @@ proc getUserChoice(): (uint, uint) =
   except ValueError:
     error("Bad number... Try again")
     return getUserChoice()
-
-
-proc mapNumToOptionProc(num: uint): OptionProc =
-  var counter = 0
-  for k, v in optionMapping:
-    if num - 1 == uint(counter):
-      return optionMapping[k]
-    counter += 1
 
 
 proc runQueryFunction(db: DbConn, optionProc: OptionProc, num: uint) =
@@ -141,7 +130,7 @@ proc report*(dbPath: string) =
       stdout.resetAttributes()
       break
 
-    let option = mapNumToOptionProc(optionNumber)
+    let option = options[optionNumber - 1][1]
     stdout.resetAttributes()
 
     runQueryFunction(db, option, num)
