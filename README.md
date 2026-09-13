@@ -57,6 +57,8 @@ nimble c -d:release --opt:speed -d:ssl -o:nginwho src/nginwho.nim
 sudo install nginwho -D -t /usr/local/bin/
 ```
 
+To run the tests, use `nimble test`. The nftables tests run the real `nft` in a throwaway network namespace, so they don't need root or touch your firewall. They are skipped if that is not possible.
+
 ### Run as a service
 
 Use the [accompanying systemd service](https://github.com/pouriyajamshidi/nginwho/blob/master/nginwho.service) to run **nginwho** in the background and survive reboots. Check the flags in `ExecStart` before enabling it, since it turns on `--showRealIps` and `--blockUntrustedCidrs`:
