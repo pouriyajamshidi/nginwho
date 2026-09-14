@@ -2,6 +2,16 @@
 
 All notable changes to **nginwho** are listed here.
 
+## [Unreleased]
+
+### Changed
+
+- Report mode uses colors: yellow menus, cyan prompts, red warnings, a green report title and green bars.
+
+### Fixed
+
+- The time window menu in report mode was white while the main menu was yellow.
+
 ## [2.3.1]
 
 ### Fixed
