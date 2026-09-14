@@ -1,7 +1,7 @@
-from std/terminal import setForegroundColor, resetAttributes, styledWriteLine,
-    styleBright, styleUnderscore, fgYellow
+from std/terminal import setForegroundColor, resetAttributes, styledWrite, styledWriteLine,
+    styleBright, styleUnderscore, fgYellow, fgCyan, fgRed, fgGreen
 from std/strformat import fmt
-from std/strutils import parseInt, repeat, strip, insertSep, align, formatFloat, ffDecimal
+from std/strutils import parseInt, repeat, strip, insertSep, align, formatFloat, ffDecimal, rfind
 from std/unicode import runeLen, runeSubStr
 from std/rdstdin import readLineFromStdin
 from std/os import fileExists
@@ -95,10 +95,15 @@ proc formatTable*(columns: seq[string], rows: seq[Row], total: int): seq[string]
         align(percent.formatFloat(ffDecimal, 1) & "%", 6) & "  " & bar)
 
 
+proc warn(message: string) =
+  stdout.styledWriteLine(fgRed, message)
+
+
 proc ask(question: string): string =
+  stdout.styledWrite(fgCyan, question)
   # treat Ctrl+D the same as quitting
   try:
-    return readLineFromStdin(question).strip()
+    return readLineFromStdin("").strip()
   except IOError:
     return "q"
 
@@ -117,28 +122,35 @@ proc askNumber(question: string, max: int): int =
     except ValueError:
       discard
 
-    echo(fmt"Pick a number from 1 to {max}, or q to go back")
+    warn(fmt"Pick a number from 1 to {max}, or q to go back")
 
 
-proc showMenu(window: TimeWindow) =
+proc printMenu(lines: seq[string]) =
+  ## Prints menu lines in yellow so every menu looks the same
   setForegroundColor(fgYellow, true)
-
   echo()
-  for i, report in reports:
-    let note = if report.allTimeOnly: " (all time)" else: ""
-    echo(fmt"  {i + 1}) {report.name}{note}")
-
-  echo(fmt"  w) Change time window (now: {window.name})")
-  echo("  q) Quit")
+  for line in lines:
+    echo("  ", line)
   echo()
-
   stdout.resetAttributes()
 
 
+proc showMenu(window: TimeWindow) =
+  var lines: seq[string]
+  for i, report in reports:
+    let note = if report.allTimeOnly: " (all time)" else: ""
+    lines.add(fmt"{i + 1}) {report.name}{note}")
+
+  lines.add(fmt"w) Change time window (now: {window.name})")
+  lines.add("q) Quit")
+  printMenu(lines)
+
+
 proc chooseTimeWindow(current: int): int =
-  echo()
+  var lines: seq[string]
   for i, window in timeWindows:
-    echo(fmt"  {i + 1}) {window.name}")
+    lines.add(fmt"{i + 1}) {window.name}")
+  printMenu(lines)
 
   let choice = askNumber("Select a time window (q to keep the current one): ", len(timeWindows))
   if choice == 0:
@@ -153,23 +165,25 @@ proc showResults(db: DbConn, report: Report, num: uint, window: TimeWindow) =
   let total = if report.allTimeOnly: getTotalNonDefaults(db) else: getTotalRequests(db, since(window))
 
   echo()
-  stdout.styledWriteLine(styleBright, fmt"{report.name}, {windowName} ({insertSep($total, ',')} requests)")
+  stdout.styledWriteLine(fgGreen, styleBright, fmt"{report.name}, {windowName} ({insertSep($total, ',')} requests)")
   echo()
 
   if len(rows) == 0:
-    echo("  No records found")
+    warn("  No records found")
     return
 
   let lines = formatTable(report.columns, rows, total)
-  stdout.styledWriteLine(styleUnderscore, "  ", lines[0])
+  stdout.styledWriteLine(styleBright, styleUnderscore, "  ", lines[0])
   for line in lines[1..^1]:
-    echo("  ", line)
+    # the bar is the last part of the line and has no spaces
+    let barStart = line.rfind("  ") + 2
+    stdout.styledWriteLine("  ", line[0 ..< barStart], fgGreen, line[barStart..^1])
 
 
 proc report*(dbPath: string) =
   # opening a missing database creates an empty one and every query fails
   if not fileExists(dbPath):
-    echo(fmt"Database not found at {dbPath}")
+    warn(fmt"Database not found at {dbPath}")
     quit(1)
 
   let db = getDbConnection(dbPath)
@@ -195,7 +209,7 @@ proc report*(dbPath: string) =
 
     let option = try: parseInt(choice) except ValueError: 0
     if option < 1 or option > len(reports):
-      echo("Pick an option from the menu")
+      warn("Pick an option from the menu")
       continue
 
     let num = askNumber("Number of records to show: ", high(int32))

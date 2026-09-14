@@ -1,7 +1,10 @@
 name: test
 
+# other branches are tested through their pull request, so they don't run twice
 on:
   push:
+    branches:
+      - master
   pull_request:
 
 jobs:
