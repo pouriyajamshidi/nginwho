@@ -2,6 +2,12 @@
 
 All notable changes to **nginwho** are listed here.
 
+## [2.4.1]
+
+### Fixed
+
+- In report mode, the number you type no longer shows up at the start of the prompt, like `1Select an option:`.
+
 ## [2.4.0]
 
 ### Changed
@@ -116,6 +122,7 @@ All notable changes to **nginwho** are listed here.
 
 For older versions, see the git history.
 
+[2.4.1]: https://github.com/pouriyajamshidi/nginwho/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/pouriyajamshidi/nginwho/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/pouriyajamshidi/nginwho/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/pouriyajamshidi/nginwho/compare/v2.2.0...v2.3.0

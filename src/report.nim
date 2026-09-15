@@ -3,7 +3,6 @@ from std/terminal import setForegroundColor, resetAttributes, styledWrite, style
 from std/strformat import fmt
 from std/strutils import parseInt, repeat, strip, insertSep, align, formatFloat, ffDecimal, rfind
 from std/unicode import runeLen, runeSubStr
-from std/rdstdin import readLineFromStdin
 from std/os import fileExists
 from std/times import Duration, initDuration, now, format, `-`, DurationZero, `==`
 from db_connector/db_sqlite import DbConn, Row
@@ -101,9 +100,10 @@ proc warn(message: string) =
 
 proc ask(question: string): string =
   stdout.styledWrite(fgCyan, question)
+  stdout.flushFile()
   # treat Ctrl+D the same as quitting
   try:
-    return readLineFromStdin("").strip()
+    return stdin.readLine().strip()
   except IOError:
     return "q"
 
