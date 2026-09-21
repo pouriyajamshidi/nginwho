@@ -1,10 +1,10 @@
+import std/times
 from std/terminal import setForegroundColor, resetAttributes, styledWrite, styledWriteLine,
     styleBright, styleUnderscore, fgYellow, fgCyan, fgRed, fgGreen
 from std/strformat import fmt
 from std/strutils import parseInt, repeat, strip, insertSep, align, formatFloat, ffDecimal, rfind
 from std/unicode import runeLen, runeSubStr
 from std/os import fileExists
-from std/times import Duration, initDuration, now, format, `-`, DurationZero, `==`
 from db_connector/db_sqlite import DbConn, Row
 
 from consts import DATE_FORMAT

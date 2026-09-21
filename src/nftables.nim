@@ -1,13 +1,16 @@
-import std/[os, strformat, json]
-
-from strutils import split, splitWhitespace, parseInt, join, replace, repeat
-from algorithm import sorted
-from logging import info, error, warn, fatal
-from osproc import execProcess, execCmd
-from net import parseIpAddress, IpAddress, IpAddressFamily
+import std/json
+from std/os import fileExists, findExe
+from std/strformat import fmt
+from std/strutils import split, splitWhitespace, parseInt, join, replace, repeat
+from std/algorithm import sorted
+from std/logging import info, error, warn, fatal
+from std/osproc import execProcess, execCmd
+from std/net import parseIpAddress, IpAddress, IpAddressFamily
 from types import SetType, IPProtocol, NftSet, NftAttrs
 
-import consts
+from consts import NFT_GET_RULESET_CMD, NFT_SET_NAME_CF_IPv4, NFT_SET_NAME_CF_IPv6, NFT_KEY_NAME,
+    NFT_CHAIN_NGINWHO_NAME, NFT_CHAIN_INPUT_NAME, NFT_CIDR_RULES_FILE, NFT_LOG_PREFIXV4, NFT_LOG_PREFIXV6,
+    NFT_SAMPLE_POLICY, NGINX_CIDR_FILE, NGINX_SET_REAL_IP_FROM
 
 
 

@@ -1,4 +1,6 @@
-import std/[unittest, os, json, options, strutils]
+import std/[unittest, os, json]
+from std/options import isSome, isNone, get
+from std/strutils import contains
 
 from types import Log, Logs, Cidrs
 from nginx import parseLogEntry, readNewLines, offsetAfterLastInserted, populateReverseProxyFile

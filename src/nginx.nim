@@ -1,10 +1,10 @@
 from std/times import getTime, format
 from std/strutils import splitWhitespace, replace, endsWith, startsWith, strip, contains, join, rfind, splitLines
-from json import JsonNode, getStr, items
-from os import findExe, fileExists
-from osproc import execCmd
-from strformat import fmt
-from logging import info, error, warn, fatal
+from std/json import JsonNode, getStr, items
+from std/os import findExe, fileExists
+from std/osproc import execCmd
+from std/strformat import fmt
+from std/logging import info, error, warn, fatal
 
 from types import Cidrs, Log, Logs
 from utils import convertDateFormat

@@ -1,5 +1,6 @@
-import std/[unittest, times, strutils, os]
-import db_connector/db_sqlite
+import std/[unittest, times, os]
+from std/strutils import parseInt
+from db_connector/db_sqlite import DbConn, Row, open, close, getAllRows, getValue, sql
 
 from types import Log, Logs
 from nginx import parseLogEntry, readNewLines, offsetAfterLastInserted

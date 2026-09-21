@@ -1,4 +1,5 @@
-import db_connector/db_sqlite
+from db_connector/db_sqlite import DbConn, DbError, Row, SqlPrepared, sql, open, close, exec, tryExec,
+    prepare, getRow, getAllRows, getValue, dbError
 from db_connector/sqlite3 import PStmt, bind_text, step, reset, finalize,
     SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT
 from std/tables import initTable, mgetOrPut, pairs
@@ -7,7 +8,7 @@ from std/os import fileExists, setFilePermissions, FilePermission
 from std/strutils import parseInt, contains, split, formatFloat, ffDecimal
 from std/sequtils import any
 from std/times import format, epochTime
-from logging import info, warn, error
+from std/logging import info, warn, error
 
 from types import Log, Logs
 from utils import convertDateFormat, isStaticAsset

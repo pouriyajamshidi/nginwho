@@ -1,6 +1,9 @@
 ## Runs the static server in this process and talks to it over a real socket
 
-import std/[unittest, asyncdispatch, asyncnet, net, os, strutils]
+import std/[unittest, asyncdispatch, os]
+from std/asyncnet import AsyncSocket, newAsyncSocket, connect, send, recv, close
+from std/net import Port
+from std/strutils import split, splitLines, startsWith, endsWith, strip, contains, count
 
 from server import serve, accessLogLine
 from nginx import parseLogEntry

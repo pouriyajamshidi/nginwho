@@ -1,9 +1,13 @@
 ## A small static file server that writes nginx style access logs
 
-import std/[asyncdispatch, asyncnet, net, httpcore, mimetypes, os, strutils, times]
+import std/[asyncdispatch, net, httpcore, os]
+from std/strutils import find, contains, strip, split, startsWith, endsWith, toHex, replace, removePrefix, toLowerAscii
+from std/times import fromUnix, utc, format, now, getTime, toUnix
+from std/asyncnet import AsyncSocket, recvLine, send, close, getPeerAddr, newAsyncSocket, setSockOpt, bindAddr, listen, accept
 from std/uri import decodeUrl
 from std/strformat import fmt
-from logging import info, error
+from std/mimetypes import newMimetypes, getMimetype
+from std/logging import info, error
 
 from consts import SERVER_MAX_LINE, SERVER_MAX_HEADERS, SERVER_HEAD_TIMEOUT, SERVER_CHUNK_BYTES
 

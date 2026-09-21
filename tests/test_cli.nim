@@ -1,7 +1,9 @@
 ## Runs the real nginwho binary
 
-import std/[unittest, os, osproc, strutils]
-import db_connector/db_sqlite
+import std/[unittest, os]
+from std/osproc import execCmdEx
+from std/strutils import splitLines, strip, contains
+from db_connector/db_sqlite import Row, open, close, exec, getAllRows, sql
 
 from consts import VERSION
 

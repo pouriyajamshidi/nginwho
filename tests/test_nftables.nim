@@ -1,4 +1,6 @@
-import std/[unittest, json, os, osproc, strutils]
+import std/[unittest, json, os]
+from std/osproc import execCmdEx
+from std/strutils import splitLines, startsWith, join, find
 
 from types import NftSet, NftAttrs
 from consts import NFT_SAMPLE_POLICY

@@ -1,9 +1,13 @@
-import std/[asyncdispatch, httpclient, json, strformat, options, strutils]
+import std/[asyncdispatch, httpcore, json]
+from std/httpclient import AsyncHttpClient, AsyncResponse, newAsyncHttpClient, close, get, code, body
+from std/strformat import fmt
+from std/options import Option, none, some, isSome, get
+from std/strutils import startsWith, split
 
-from os import fileExists
-from logging import info, error, warn, fatal
+from std/os import fileExists
+from std/logging import info, error, warn, fatal
 
-import consts
+from consts import CLOUDFLARE_CIDR_API_URL, TEN_SECONDS, SIX_HOURS, NGINX_CIDR_FILE
 from nginx import reloadNginx, populateReverseProxyFile
 from nftables import acceptOnly
 from types import Cidrs, NftSet

@@ -1,4 +1,5 @@
-import times, strutils
+from std/times import initDuration, inMilliseconds
+from std/strutils import splitLines, startsWith, split, strip
 
 proc nimbleVersion(): string =
   ## Reads the version from nginwho.nimble at compile time

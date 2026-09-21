@@ -1,4 +1,5 @@
-import std/[unittest, strutils]
+import std/unittest
+from std/strutils import repeat, startsWith
 
 from report import formatTable
 

@@ -1,12 +1,15 @@
-import std/[strutils, strformat, asyncdispatch]
+import std/asyncdispatch
+from std/strformat import fmt
+from std/strutils import parseInt, parseBool
 from db_connector/db_sqlite import DbConn
 from std/os import getFileInfo, FileInfo, FileId, dirExists, fileExists
 
-from parseopt import CmdLineKind, initOptParser, next
-from logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
+from std/parseopt import CmdLineKind, initOptParser, next
+from std/logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
     warn, fatal, setLogFilter, lvlError
 
-import consts
+from consts import VERSION, NGINWHO_DB_FILE, MAX_INSERT_ATTEMPTS, READ_CHUNK_BYTES, TEN_SECONDS,
+    SERVER_DEFAULT_ROOT, SERVER_DEFAULT_PORT, NGINX_CIDR_FILE, NGINX_DEFAULT_LOG_PATH
 from types import Args, Log, Logs
 from utils import isStaticAsset
 from nginx import ensureNginxExists, ensureNginxLogExists, parseLogEntry,
