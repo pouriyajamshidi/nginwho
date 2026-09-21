@@ -8,7 +8,7 @@ from std/os import fileExists
 from db_connector/db_sqlite import DbConn, Row
 
 from consts import DATE_FORMAT
-from database import getDbConnection, closeDbConnection, createTables, hasDateIndex,
+from database import getDbConnection, closeDbConnection, createTables, hasOldSchema,
     getTopIPs, getTopURIs, getTopUnsuccessfulRequests, getTopReferres, getNonDefaults,
     getTotalRequests, getTotalNonDefaults
 
@@ -188,9 +188,9 @@ proc report*(dbPath: string) =
 
   let db = getDbConnection(dbPath)
 
-  # databases from older versions don't have the index yet
-  if not hasDateIndex(db):
-    echo("Creating the date index for time window reports, this can take a while on big databases...")
+  # databases from older versions keep dates in their own table
+  if hasOldSchema(db):
+    echo("Upgrading the database, this can take a while on big databases...")
     createTables(db)
 
   var window = 2 # last 30 days

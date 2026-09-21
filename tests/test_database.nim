@@ -1,12 +1,12 @@
 import std/[unittest, times, os]
 from std/strutils import parseInt
-from db_connector/db_sqlite import DbConn, Row, open, close, getAllRows, getValue, sql
+from db_connector/db_sqlite import DbConn, Row, open, close, exec, getAllRows, getValue, sql
 
 from types import Log, Logs
 from nginx import parseLogEntry, readNewLines, offsetAfterLastInserted
 from database import getDbConnection, closeDbConnection, createTables, insertLogs, getLastRow, getTopIPs, getTopURIs,
     getTopReferres, getTopUnsuccessfulRequests, getNonDefaults, getTotalRequests,
-    getTotalNonDefaults, hasDateIndex
+    getTotalNonDefaults, hasOldSchema
 
 
 proc newDb(): DbConn =
@@ -21,10 +21,9 @@ proc count(db: DbConn, table: string): int =
 proc allLogs(db: DbConn): seq[Row] =
   ## Joins the nginwho table back into full logs, in insert order
   db.getAllRows(sql"""
-    SELECT d.date, ri.remote_ip, hm.http_method, ru.request_uri, sc.status_code,
+    SELECT datetime(n.date, 'unixepoch'), ri.remote_ip, hm.http_method, ru.request_uri, sc.status_code,
            rs.response_size, IFNULL(r.referrer, ''), ua.user_agent
     FROM nginwho n
-    JOIN dates d ON n.date_id = d.id
     JOIN remote_ips ri ON n.remote_ip_id = ri.id
     JOIN http_methods hm ON n.http_method_id = hm.id
     JOIN request_uris ru ON n.request_uri_id = ru.id
@@ -190,7 +189,24 @@ suite "database":
     check db.getTotalRequests(since) == 3
 
   test "the date index exists":
-    check newDb().hasDateIndex()
+    check newDb().getValue(sql"SELECT 1 FROM sqlite_master WHERE name = 'idx_nginwho_date'") == "1"
+    check not newDb().hasOldSchema()
+
+  test "an old database with a dates table is upgraded without losing logs":
+    let db = newDb()
+    insertLogs(db, @[log(uri = "/old", date = "2026-09-13 10:00:05")])
+
+    # turn it back into the old layout, where nginwho points to a row in the dates table
+    db.exec(sql"CREATE TABLE dates (id INTEGER PRIMARY KEY, date TEXT UNIQUE NOT NULL, count INTEGER NOT NULL DEFAULT 1)")
+    db.exec(sql"INSERT INTO dates (id, date) VALUES (7, '2026-09-13 10:00:05')")
+    db.exec(sql"ALTER TABLE nginwho ADD COLUMN date_id INTEGER")
+    db.exec(sql"UPDATE nginwho SET date_id = 7, date = 0")
+    check db.hasOldSchema()
+
+    createTables(db)
+    check not db.hasOldSchema()
+    check db.count("sqlite_master WHERE name = 'dates'") == 0
+    check db.allLogs()[0][0 .. 3] == @["2026-09-13 10:00:05", "1.1.1.1", "GET", "/old"]
 
   test "a database file uses WAL and enforces foreign keys":
     let path = getTempDir() / "nginwho_test_wal.db"

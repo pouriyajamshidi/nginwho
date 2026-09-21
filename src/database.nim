@@ -14,6 +14,50 @@ from types import Log, Logs
 from utils import convertDateFormat, isStaticAsset
 
 
+const
+  # dates are saved as unix seconds, 4 bytes instead of a 19 character string.
+  # strftime instead of unixepoch because unixepoch needs SQLite 3.38
+  toUnix = "CAST(strftime('%s', ?) AS INTEGER)"
+  fromUnix = "datetime(n.date, 'unixepoch')"
+
+  lookupColumns = [
+    "remote_ip",
+    "http_method",
+    "request_uri",
+    "status_code",
+    "response_size",
+    "referrer",
+    "user_agent",
+    "non_default",
+    "remote_user",
+    "authenticated_user"
+  ]
+
+  nginwhoTable = """
+    (
+      id INTEGER PRIMARY KEY,
+      date INTEGER NOT NULL,
+      remote_ip_id INTEGER NOT NULL,
+      http_method_id INTEGER NOT NULL,
+      request_uri_id INTEGER NOT NULL,
+      status_code_id INTEGER NOT NULL,
+      response_size_id INTEGER NOT NULL,
+      referrer_id INTEGER,
+      user_agent_id INTEGER NOT NULL,
+      remote_user_id INTEGER,
+      authenticated_user_id INTEGER,
+      FOREIGN KEY (remote_ip_id) REFERENCES remote_ips(id),
+      FOREIGN KEY (http_method_id) REFERENCES http_methods(id),
+      FOREIGN KEY (request_uri_id) REFERENCES request_uris(id),
+      FOREIGN KEY (status_code_id) REFERENCES status_codes(id),
+      FOREIGN KEY (response_size_id) REFERENCES response_sizes(id),
+      FOREIGN KEY (referrer_id) REFERENCES referrers(id),
+      FOREIGN KEY (user_agent_id) REFERENCES user_agents(id),
+      FOREIGN KEY (remote_user_id) REFERENCES remote_users(id),
+      FOREIGN KEY (authenticated_user_id) REFERENCES authenticated_users(id)
+    )"""
+
+
 proc getDbConnection*(dbPath: string): DbConn =
   info(fmt"Opening Database connection to {dbPath}")
 
@@ -60,14 +104,11 @@ proc topValues(db: DbConn, column: string, num: uint, since: string): seq[Row] =
       ORDER BY count DESC, {column}
       LIMIT ?"""), num)
 
-  # CROSS JOIN makes SQLite find the dates first and then use the date index,
-  # without it SQLite scans every row of the nginwho table
   return db.getAllRows(sql(fmt"""
     SELECT t.{column}, COUNT(*) AS occurrences
-    FROM dates d
-    CROSS JOIN nginwho n ON n.date_id = d.id
+    FROM nginwho n
     JOIN {column}s t ON n.{column}_id = t.id
-    WHERE d.date >= ?
+    WHERE n.date >= {toUnix}
     GROUP BY n.{column}_id
     ORDER BY occurrences DESC, t.{column}
     LIMIT ?"""), since, num)
@@ -91,26 +132,25 @@ proc getTopReferres*(db: DbConn, num: uint, since = ""): seq[Row] =
 proc getTopUnsuccessfulRequests*(db: DbConn, num: uint, since = ""): seq[Row] =
   info(fmt"Getting top {num} unsuccessful requests")
 
-  let statement = sql"""
+  let statement = sql(fmt"""
   SELECT
     sc.status_code,
     ru.request_uri,
     ua.user_agent,
     COUNT(*) as occurrences
-  FROM dates d
-  CROSS JOIN nginwho n ON n.date_id = d.id
+  FROM nginwho n
   JOIN status_codes sc ON n.status_code_id = sc.id
   JOIN request_uris ru ON n.request_uri_id = ru.id
   JOIN http_methods hm ON n.http_method_id = hm.id
   JOIN user_agents ua ON n.user_agent_id = ua.id
   WHERE
-      d.date >= ?
+      n.date >= {toUnix}
       AND CAST(sc.status_code AS INTEGER) NOT BETWEEN 200 AND 399
       AND hm.http_method = 'GET'
   GROUP BY sc.status_code, ru.request_uri, ua.user_agent
   ORDER BY occurrences DESC, sc.status_code, ru.request_uri, ua.user_agent
   LIMIT ?
-  """
+  """)
 
   return db.getAllRows(statement, since, num)
 
@@ -126,19 +166,16 @@ proc getTotalRequests*(db: DbConn, since = ""): int =
   if since == "":
     return parseInt(db.getValue(sql"SELECT COUNT(*) FROM nginwho"))
 
-  return parseInt(db.getValue(sql"""
-    SELECT COUNT(*)
-    FROM dates d
-    CROSS JOIN nginwho n ON n.date_id = d.id
-    WHERE d.date >= ?""", since))
+  return parseInt(db.getValue(sql(fmt"SELECT COUNT(*) FROM nginwho WHERE date >= {toUnix}"), since))
 
 
 proc getTotalNonDefaults*(db: DbConn): int =
   return parseInt(db.getValue(sql"SELECT IFNULL(SUM(count), 0) FROM non_defaults"))
 
 
-proc hasDateIndex*(db: DbConn): bool =
-  return db.getValue(sql"SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_nginwho_date'") == "1"
+proc hasOldSchema*(db: DbConn): bool =
+  ## Databases from older versions keep dates in their own table
+  return db.getValue(sql"SELECT 1 FROM pragma_table_info('nginwho') WHERE name = 'date_id'") == "1"
 
 
 proc execPrepared(db: DbConn, statement: SqlPrepared, values: varargs[string]) =
@@ -156,23 +193,11 @@ proc execPrepared(db: DbConn, statement: SqlPrepared, values: varargs[string]) =
 proc createTables*(db: DbConn) =
   info("Creating database tables")
 
+  let upgrade = hasOldSchema(db)
+
   db.exec(sql"BEGIN TRANSACTION")
 
-  let columns = [
-    "date",
-    "remote_ip",
-    "http_method",
-    "request_uri",
-    "status_code",
-    "response_size",
-    "referrer",
-    "user_agent",
-    "non_default",
-    "remote_user",
-    "authenticated_user"
-  ]
-
-  for column in columns:
+  for column in lookupColumns:
     db.exec(sql(fmt"""CREATE TABLE IF NOT EXISTS {column}s
         (
           id INTEGER PRIMARY KEY,
@@ -182,44 +207,41 @@ proc createTables*(db: DbConn) =
       )
     )
 
-  db.exec(sql"""CREATE TABLE IF NOT EXISTS nginwho
-    (
-      id INTEGER PRIMARY KEY,
-      date_id INTEGER NOT NULL,
-      remote_ip_id INTEGER NOT NULL,
-      http_method_id INTEGER NOT NULL,
-      request_uri_id INTEGER NOT NULL,
-      status_code_id INTEGER NOT NULL,
-      response_size_id INTEGER NOT NULL,
-      referrer_id INTEGER,
-      user_agent_id INTEGER NOT NULL,
-      remote_user_id INTEGER,
-      authenticated_user_id INTEGER,
-      FOREIGN KEY (date_id) REFERENCES dates(id),
-      FOREIGN KEY (remote_ip_id) REFERENCES remote_ips(id),
-      FOREIGN KEY (http_method_id) REFERENCES http_methods(id),
-      FOREIGN KEY (request_uri_id) REFERENCES request_uris(id),
-      FOREIGN KEY (status_code_id) REFERENCES status_codes(id),
-      FOREIGN KEY (response_size_id) REFERENCES response_sizes(id),
-      FOREIGN KEY (referrer_id) REFERENCES referrers(id),
-      FOREIGN KEY (user_agent_id) REFERENCES user_agents(id),
-      FOREIGN KEY (remote_user_id) REFERENCES remote_users(id),
-      FOREIGN KEY (authenticated_user_id) REFERENCES authenticated_users(id)
-    )"""
-  )
+  db.exec(sql("CREATE TABLE IF NOT EXISTS nginwho" & nginwhoTable))
+
+  # older versions kept dates in their own table. Nearly every log has its own date,
+  # so that table and its index were bigger than the nginwho table itself
+  if upgrade:
+    info("Moving dates into the nginwho table, this can take a while on big databases")
+    db.exec(sql("CREATE TABLE nginwho_new" & nginwhoTable))
+    db.exec(sql"""
+      INSERT INTO nginwho_new
+      SELECT n.id, CAST(strftime('%s', d.date) AS INTEGER), n.remote_ip_id, n.http_method_id,
+             n.request_uri_id, n.status_code_id, n.response_size_id, n.referrer_id,
+             n.user_agent_id, n.remote_user_id, n.authenticated_user_id
+      FROM nginwho n
+      JOIN dates d ON n.date_id = d.id""")
+    db.exec(sql"DROP TABLE nginwho")
+    db.exec(sql"DROP TABLE dates")
+    db.exec(sql"ALTER TABLE nginwho_new RENAME TO nginwho")
 
   # time window reports look up logs by date
-  db.exec(sql"CREATE INDEX IF NOT EXISTS idx_nginwho_date ON nginwho(date_id)")
+  db.exec(sql"CREATE INDEX IF NOT EXISTS idx_nginwho_date ON nginwho(date)")
 
   db.exec(sql"COMMIT")
+
+  if upgrade:
+    # give the space of the dropped tables back to the disk
+    db.exec(sql"VACUUM")
+    db.exec(sql"PRAGMA wal_checkpoint(TRUNCATE)")
 
 
 proc normalizeNginwhoTable(db: DbConn, logs: seq[Log]) =
   info("Populating the nginwho table")
 
-  let defaultQuery = db.prepare("""
+  let defaultQuery = db.prepare(fmt"""
     INSERT INTO nginwho (
-      date_id,
+      date,
       remote_ip_id,
       http_method_id,
       request_uri_id,
@@ -231,7 +253,7 @@ proc normalizeNginwhoTable(db: DbConn, logs: seq[Log]) =
       authenticated_user_id
     )
     SELECT
-      (SELECT id FROM dates WHERE date = ?),
+      {toUnix},
       (SELECT id FROM remote_ips WHERE remote_ip = ?),
       (SELECT id FROM http_methods WHERE http_method = ?),
       (SELECT id FROM request_uris WHERE request_uri = ?),
@@ -265,20 +287,19 @@ proc normalizeNginwhoTable(db: DbConn, logs: seq[Log]) =
 proc getLastRow*(db: DbConn): Log =
   info("Getting the last record from database")
 
-  let selectStatement = sql"""
-    SELECT 
-      d.date,
+  let selectStatement = sql(fmt"""
+    SELECT
+      {fromUnix},
       ri.remote_ip,
       hm.http_method,
       ru.request_uri
     FROM nginwho n
-    JOIN dates d ON n.date_id = d.id
     JOIN remote_ips ri ON n.remote_ip_id = ri.id
     JOIN http_methods hm on n.http_method_id = hm.id
     JOIN request_uris ru ON n.request_uri_id = ru.id
     ORDER BY n.id DESC
     LIMIT 1
-  """
+  """)
 
   let row = db.getRow(selectStatement)
 
@@ -329,7 +350,6 @@ proc insertLogs*(db: DbConn, logs: seq[Log]): bool {.discardable.} =
   info(fmt"Inserting {logsLen} logs into database")
 
   var
-    dates: seq[string]
     remoteIPs: seq[string]
     httpMethods: seq[string]
     requestURIs: seq[string]
@@ -342,7 +362,6 @@ proc insertLogs*(db: DbConn, logs: seq[Log]): bool {.discardable.} =
     authenticatedUsers: seq[string]
 
   for log in logs:
-    if len(log.date) > 0: dates.add(log.date)
     if len(log.remoteIP) > 0: remoteIPs.add(log.remoteIP)
     if len(log.httpMethod) > 0: httpMethods.add(log.httpMethod)
     if len(log.requestURI) > 0: requestURIs.add(log.requestURI)
@@ -358,7 +377,6 @@ proc insertLogs*(db: DbConn, logs: seq[Log]): bool {.discardable.} =
   try:
     # IMMEDIATE takes the write lock up front, so busy_timeout applies to the whole insert
     db.exec(sql"BEGIN IMMEDIATE")
-    upsert(db, "dates", "date", dates)
     upsert(db, "remote_ips", "remote_ip", remoteIPs)
     upsert(db, "http_methods", "http_method", httpMethods)
     upsert(db, "request_uris", "request_uri", requestURIs)

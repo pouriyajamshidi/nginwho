@@ -2,6 +2,14 @@
 
 All notable changes to **nginwho** are listed here.
 
+## [Unreleased]
+
+### Changed
+
+- Dates are saved in the `nginwho` table as unix seconds instead of in their own `dates` table. Nearly every log has its own date, so that table and its index were bigger than the logs themselves. A real 90.7 MB database went down to 54.9 MB.
+- Inserting logs is about 35% faster, and time window reports are as fast or faster.
+- Existing databases are upgraded once on start or when running `--report`, then vacuumed so the file shrinks. This takes a few seconds on big databases. Older versions can't read an upgraded database, so keep a backup if you may go back.
+
 ## [2.4.1]
 
 ### Fixed

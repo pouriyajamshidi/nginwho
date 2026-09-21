@@ -89,8 +89,7 @@ suite "migrate v1 to v2":
     ])
     check migrate() == 0
 
-    check query("""SELECT d.date, ri.remote_ip, hm.http_method, ru.request_uri FROM nginwho n
-        JOIN dates d ON n.date_id = d.id
+    check query("""SELECT datetime(n.date, 'unixepoch'), ri.remote_ip, hm.http_method, ru.request_uri FROM nginwho n
         JOIN remote_ips ri ON n.remote_ip_id = ri.id
         JOIN http_methods hm ON n.http_method_id = hm.id
         JOIN request_uris ru ON n.request_uri_id = ru.id
