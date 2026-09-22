@@ -1,9 +1,9 @@
 ## A small static file server that writes nginx style access logs
 
 import std/[asyncdispatch, net, httpcore, os]
-from std/strutils import find, contains, strip, split, startsWith, endsWith, toHex, replace, removePrefix, toLowerAscii
+from std/strutils import find, contains, strip, split, startsWith, endsWith, toHex, replace, removePrefix, toLowerAscii, parseInt
 from std/times import fromUnix, utc, format, now, getTime, toUnix
-from std/asyncnet import AsyncSocket, recvLine, send, close, getPeerAddr, newAsyncSocket, setSockOpt, bindAddr, listen, accept
+from std/asyncnet import AsyncSocket, recvLine, recv, send, close, getPeerAddr, newAsyncSocket, setSockOpt, bindAddr, listen, accept
 from std/uri import decodeUrl
 from std/strformat import fmt
 from std/mimetypes import newMimetypes, getMimetype
@@ -12,19 +12,19 @@ from std/logging import info, error
 from consts import SERVER_MAX_LINE, SERVER_MAX_HEADERS, SERVER_HEAD_TIMEOUT, SERVER_CHUNK_BYTES
 
 
-type Request = object
-  line: string # the request line as it was sent, for the access log
-  httpMethod: string
-  path: string
-  query: string
-  version: string
-  headers: HttpHeaders
+type Request* = object
+  line*: string # the request line as it was sent, for the access log
+  httpMethod*: string
+  path*: string
+  query*: string
+  version*: string
+  headers*: HttpHeaders
 
 
 let mimes = newMimetypes()
 
 
-proc readRequest(client: AsyncSocket): Future[Request] {.async.} =
+proc readRequest*(client: AsyncSocket): Future[Request] {.async.} =
   ## Reads the request line and headers. An empty `line` means the client left,
   ## an empty `httpMethod` means the request is broken
   result.headers = newHttpHeaders()
@@ -53,11 +53,22 @@ proc readRequest(client: AsyncSocket): Future[Request] {.async.} =
   result.httpMethod = parts[0]
 
 
-proc header(req: Request, name: string): string =
+proc header*(req: Request, name: string): string =
   if req.headers.hasKey(name): $req.headers[name] else: ""
 
 
-proc httpDate(unixTime: int64): string =
+proc readBody*(client: AsyncSocket, req: Request, limit: int): Future[string] {.async.} =
+  ## Reads a small request body, such as a submitted login form. Bigger bodies are cut short
+  var length = 0
+  try:
+    length = min(parseInt(req.header("Content-Length")), limit)
+  except ValueError:
+    return
+  if length > 0:
+    result = await client.recv(length)
+
+
+proc httpDate*(unixTime: int64): string =
   times.fromUnix(unixTime).utc.format("ddd, dd MMM yyyy HH:mm:ss 'GMT'")
 
 
@@ -88,7 +99,7 @@ proc writeAccessLog(path, line: string) =
     error(fmt"Could not write to {path}: {e.msg}")
 
 
-proc responseHead(status: HttpCode, keepAlive: bool, headers: openArray[(string, string)]): string =
+proc responseHead*(status: HttpCode, keepAlive: bool, headers: openArray[(string, string)]): string =
   result = "HTTP/1.1 " & $status & "\r\n"
   result.add("Server: nginwho\r\n")
   result.add("Date: " & httpDate(times.getTime().toUnix) & "\r\n")

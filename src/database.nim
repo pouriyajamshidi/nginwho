@@ -1,4 +1,4 @@
-from db_connector/db_sqlite import DbConn, DbError, Row, SqlPrepared, sql, open, close, exec, tryExec,
+from db_connector/db_sqlite import DbConn, DbError, Row, SqlPrepared, sql, open, close, exec, tryExec, insertID,
     prepare, getRow, getAllRows, getValue, dbError
 from db_connector/sqlite3 import PStmt, bind_text, step, reset, finalize,
     SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT
@@ -10,7 +10,7 @@ from std/sequtils import any
 from std/times import format, epochTime
 from std/logging import info, warn, error
 
-from types import Log, Logs
+from types import Log, Logs, TrapHit
 from utils import convertDateFormat, isStaticAsset
 
 
@@ -18,6 +18,8 @@ const
   # dates are saved as unix seconds, 4 bytes instead of a 19 character string.
   # strftime instead of unixepoch because unixepoch needs SQLite 3.38
   toUnix = "CAST(strftime('%s', ?) AS INTEGER)"
+  # an empty `since` means all time
+  toUnixOrAll = "IFNULL(CAST(strftime('%s', ?) AS INTEGER), 0)"
   fromUnix = "datetime(n.date, 'unixepoch')"
 
   lookupColumns = [
@@ -55,6 +57,24 @@ const
       FOREIGN KEY (user_agent_id) REFERENCES user_agents(id),
       FOREIGN KEY (remote_user_id) REFERENCES remote_users(id),
       FOREIGN KEY (authenticated_user_id) REFERENCES authenticated_users(id)
+    )"""
+
+  # trap hits are rare next to normal logs, so their values are kept as they are
+  # instead of being spread over lookup tables
+  trapHitsTable = """
+    CREATE TABLE IF NOT EXISTS trap_hits
+    (
+      id INTEGER PRIMARY KEY,
+      date INTEGER NOT NULL,
+      remote_ip TEXT NOT NULL,
+      http_method TEXT NOT NULL,
+      request_uri TEXT NOT NULL,
+      user_agent TEXT NOT NULL,
+      trap TEXT NOT NULL,
+      tactic TEXT NOT NULL,
+      bytes_sent INTEGER NOT NULL,
+      seconds INTEGER NOT NULL,
+      detail TEXT
     )"""
 
 
@@ -225,8 +245,11 @@ proc createTables*(db: DbConn) =
     db.exec(sql"DROP TABLE dates")
     db.exec(sql"ALTER TABLE nginwho_new RENAME TO nginwho")
 
+  db.exec(sql(trapHitsTable))
+
   # time window reports look up logs by date
   db.exec(sql"CREATE INDEX IF NOT EXISTS idx_nginwho_date ON nginwho(date)")
+  db.exec(sql"CREATE INDEX IF NOT EXISTS idx_trap_hits_date ON trap_hits(date)")
 
   db.exec(sql"COMMIT")
 
@@ -397,6 +420,102 @@ proc insertLogs*(db: DbConn, logs: seq[Log]): bool {.discardable.} =
     # tryExec because there is no transaction to roll back when BEGIN itself failed
     discard db.tryExec(sql"ROLLBACK")
     error(fmt"Failed inserting {logsLen} logs, rolled back: {e.msg}")
+
+
+proc insertTrapHit*(db: DbConn, hit: TrapHit): int64 =
+  ## Saves a trapped request as soon as it starts, so we know who tried what even
+  ## when the bot is still hanging on a slow drip. Returns the new row id, or -1 on
+  ## failure, to update the byte count and duration once the trap ends
+  info(fmt"Saving {hit.tactic} trap hit from {hit.remoteIP} for {hit.requestURI}")
+
+  try:
+    return db.insertID(sql(fmt"""
+      INSERT INTO trap_hits
+        (date, remote_ip, http_method, request_uri, user_agent, trap, tactic, bytes_sent, seconds, detail)
+      VALUES ({toUnix}, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""),
+      hit.date, hit.remoteIP, hit.httpMethod, hit.requestURI, hit.userAgent,
+      hit.trap, hit.tactic, hit.bytesSent, hit.seconds, hit.detail)
+  except DbError as e:
+    error(fmt"Could not save trap hit: {e.msg}")
+    return -1
+
+
+proc finishTrapHit*(db: DbConn, id: int64, bytesSent, seconds: int, detail: string) =
+  ## Fills in what the trap ended up sending and how long it held the bot
+  if id < 0:
+    return
+  try:
+    db.exec(sql"""
+      UPDATE trap_hits SET bytes_sent = ?, seconds = ?, detail = ?
+      WHERE id = ?""", bytesSent, seconds, detail, id)
+  except DbError as e:
+    error(fmt"Could not update trap hit {id}: {e.msg}")
+
+
+const
+  # seconds as "3h 20m", "12m" or "45s", so the report reads at a glance
+  humanSeconds = """
+    CASE
+      WHEN SUM(seconds) >= 3600 THEN printf('%dh %dm', SUM(seconds)/3600, (SUM(seconds)%3600)/60)
+      WHEN SUM(seconds) >= 60 THEN printf('%dm', SUM(seconds)/60)
+      ELSE printf('%ds', SUM(seconds))
+    END"""
+
+
+proc getTopTrappedIPs*(db: DbConn, num: uint, since = ""): seq[Row] =
+  ## The busiest bots, with how long they were held. Last column is the hit count
+  info(fmt"Getting top {num} trapped IPs")
+  return db.getAllRows(sql(fmt"""
+    SELECT remote_ip, {humanSeconds}, COUNT(*) AS hits
+    FROM trap_hits
+    WHERE date >= {toUnixOrAll}
+    GROUP BY remote_ip
+    ORDER BY hits DESC, remote_ip
+    LIMIT ?"""), since, num)
+
+
+proc getTopTraps*(db: DbConn, num: uint, since = ""): seq[Row] =
+  ## What the bots were after and what we did about it
+  info(fmt"Getting top {num} traps")
+  return db.getAllRows(sql(fmt"""
+    SELECT trap, tactic, {humanSeconds}, COUNT(*) AS hits
+    FROM trap_hits
+    WHERE date >= {toUnixOrAll}
+    GROUP BY trap, tactic
+    ORDER BY hits DESC, trap
+    LIMIT ?"""), since, num)
+
+
+proc getTopTrappedURIs*(db: DbConn, num: uint, since = ""): seq[Row] =
+  info(fmt"Getting top {num} trapped URIs")
+  return db.getAllRows(sql(fmt"""
+    SELECT request_uri, trap, COUNT(*) AS hits
+    FROM trap_hits
+    WHERE date >= {toUnixOrAll}
+    GROUP BY request_uri, trap
+    ORDER BY hits DESC, request_uri
+    LIMIT ?"""), since, num)
+
+
+proc getTrappedCredentials*(db: DbConn, num: uint, since = ""): seq[Row] =
+  ## Usernames and passwords bots typed into the fake login pages
+  info(fmt"Getting top {num} trapped credentials")
+  return db.getAllRows(sql(fmt"""
+    SELECT remote_ip, detail, COUNT(*) AS hits
+    FROM trap_hits
+    WHERE date >= {toUnixOrAll} AND tactic = 'login' AND detail != ''
+    GROUP BY remote_ip, detail
+    ORDER BY hits DESC, remote_ip
+    LIMIT ?"""), since, num)
+
+
+proc getTrapTotals*(db: DbConn, since = ""): tuple[hits, seconds, bytes: int] =
+  ## Total hits, seconds wasted and bytes sent, for the report header
+  let row = db.getRow(sql(fmt"""
+    SELECT COUNT(*), IFNULL(SUM(seconds), 0), IFNULL(SUM(bytes_sent), 0)
+    FROM trap_hits
+    WHERE date >= {toUnixOrAll}"""), since)
+  return (parseInt(row[0]), parseInt(row[1]), parseInt(row[2]))
 
 
 proc migrateV1ToV2*(v1DbName, v2DbName: string) =

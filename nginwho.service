@@ -6,13 +6,8 @@ After=network.target
 Type=simple
 # root is needed to reload nginx and change nftables rules
 User=root
-ExecStart=/usr/local/bin/nginwho \
-    --logPath:/var/log/nginx/access.log \
-    --dbPath:/var/log/nginwho.db \
-    --interval:30 \
-    --processNginxLogs:true \
-    --showRealIps:true \
-    --blockUntrustedCidrs:true
+# everything is read from /etc/nginwho/nginwho.conf. add flags here to override it
+ExecStart=/usr/local/bin/nginwho
 Restart=on-failure
 RestartSec=5
 

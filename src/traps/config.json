@@ -1,0 +1,29 @@
+{
+  "env": "production",
+  "app": {
+    "name": "{{APP}}",
+    "url": "https://{{HOST}}",
+    "secret_key": "{{HEX}}"
+  },
+  "database": {
+    "host": "{{IP}}",
+    "port": 5432,
+    "name": "{{APP}}_prod",
+    "user": "{{APP}}_admin",
+    "password": "{{PASS}}"
+  },
+  "aws": {
+    "access_key_id": "{{AWS_KEY}}",
+    "secret_access_key": "{{AWS_SECRET}}",
+    "bucket": "{{APP}}-prod-assets"
+  },
+  "stripe": {
+    "publishable_key": "pk_live_{{ID}}",
+    "secret_key": "{{STRIPE}}"
+  },
+  "smtp": {
+    "host": "smtp.mailgun.org",
+    "user": "postmaster@{{HOST}}",
+    "password": "{{PASS3}}"
+  }
+}

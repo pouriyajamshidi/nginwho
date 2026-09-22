@@ -1,0 +1,18 @@
+{
+  "activeProfiles": ["production"],
+  "propertySources": [
+    {
+      "name": "systemEnvironment",
+      "properties": {
+        "SPRING_DATASOURCE_URL": {"value": "jdbc:postgresql://{{IP}}:5432/{{APP}}_prod"},
+        "SPRING_DATASOURCE_USERNAME": {"value": "{{APP}}_admin"},
+        "SPRING_DATASOURCE_PASSWORD": {"value": "{{PASS}}"},
+        "AWS_ACCESS_KEY_ID": {"value": "{{AWS_KEY}}"},
+        "AWS_SECRET_ACCESS_KEY": {"value": "{{AWS_SECRET}}"},
+        "JWT_SECRET": {"value": "{{HEX}}"},
+        "ADMIN_USER": {"value": "{{USER}}"},
+        "ADMIN_PASSWORD": {"value": "{{PASS2}}"}
+      }
+    }
+  ]
+}

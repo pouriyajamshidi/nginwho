@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{APP}} administration</title>
+<style>
+body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#f0f0f1;margin:0;padding:80px 0}
+form{background:#fff;max-width:320px;margin:0 auto;padding:26px 24px;border:1px solid #c3c4c7}
+h1{font-size:18px;margin:0 0 18px;color:#3c434a}
+label{display:block;font-size:13px;color:#3c434a;margin:12px 0 4px}
+input[type=text],input[type=password]{width:100%;padding:8px;border:1px solid #8c8f94;box-sizing:border-box}
+button{margin-top:18px;background:#2271b1;color:#fff;border:0;padding:9px 16px;cursor:pointer}
+.error{background:#fff;border-left:4px solid #d63638;padding:12px;max-width:320px;margin:0 auto 16px;font-size:13px}
+.footer{text-align:center;font-size:12px;color:#646970;margin-top:20px}
+</style>
+</head>
+<body>
+{{ERROR}}
+<form method="post" action="">
+<h1>{{APP}} administration</h1>
+<label for="user">Username or Email Address</label>
+<input type="text" name="log" id="user" autocomplete="username">
+<label for="pass">Password</label>
+<input type="password" name="pwd" id="pass" autocomplete="current-password">
+<button type="submit" name="wp-submit">Log In</button>
+</form>
+<p class="footer">{{APP}} {{VERSION}} &middot; session {{ID}}</p>
+</body>
+</html>

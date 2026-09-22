@@ -1,5 +1,29 @@
 from std/json import JsonNode
 
+type
+  TrapConfig* = object
+    enabled*: bool
+    port*: int
+    maxConnections*: int
+    maxSeconds*: int
+    dripMinMs*: int
+    dripMaxMs*: int
+    bombs*: bool
+    bombAfter*: int # trapped hits from one IP in a day before it gets a bomb
+
+  TrapHit* = object
+    date*: string
+    remoteIP*: string
+    httpMethod*: string
+    requestURI*: string
+    userAgent*: string
+    trap*: string   # what they were looking for
+    tactic*: string # what we did to them
+    bytesSent*: int
+    seconds*: int
+    detail*: string # the fake secret we handed out, or the credentials they tried
+
+
 type Log* = object
   date*: string
   remoteIP*: string
@@ -32,6 +56,7 @@ type
     migrateV1ToV2Db: bool,
     v1DbPath: string,
     v2DbPath: string,
+    trap: TrapConfig,
   ]
 
 

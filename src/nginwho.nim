@@ -8,9 +8,11 @@ from std/parseopt import CmdLineKind, initOptParser, next
 from std/logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
     warn, fatal, setLogFilter, lvlError
 
-from consts import VERSION, NGINWHO_DB_FILE, MAX_INSERT_ATTEMPTS, READ_CHUNK_BYTES, TEN_SECONDS,
-    SERVER_DEFAULT_ROOT, SERVER_DEFAULT_PORT, NGINX_CIDR_FILE, NGINX_DEFAULT_LOG_PATH
-from types import Args, Log, Logs
+from consts import VERSION, NGINWHO_DB_FILE, NGINWHO_CONFIG_FILE, MAX_INSERT_ATTEMPTS,
+    READ_CHUNK_BYTES, TEN_SECONDS, SERVER_DEFAULT_ROOT, SERVER_DEFAULT_PORT, NGINX_CIDR_FILE,
+    NGINX_DEFAULT_LOG_PATH, TRAP_DEFAULT_PORT, TRAP_MAX_CONNECTIONS, TRAP_MAX_SECONDS,
+    TRAP_DRIP_MIN_MS, TRAP_DRIP_MAX_MS, TRAP_BOMB_AFTER
+from types import Args, Log, Logs, TrapConfig
 from utils import isStaticAsset
 from nginx import ensureNginxExists, ensureNginxLogExists, parseLogEntry,
     readNewLines, offsetAfterLastInserted
@@ -20,6 +22,8 @@ from database import getDbConnection, closeDbConnection,
     createTables, insertLogs, migrateV1ToV2, getLastRow
 from report import report
 from server import serve
+from trap import trap
+from config import readConfigFile
 from std/net import Port
 
 var logger: ConsoleLogger = newConsoleLogger(
@@ -45,6 +49,11 @@ proc usage(errorCode: int = 0) =
   --root                  : Directory to serve files from (default: /var/www/html)
   --port                  : Port to serve on, IPv4 and IPv6 (default: 80)
   --report                : Enter report mode and query the database for statistics
+  --config                : Path to the config file (default: /etc/nginwho/nginwho.conf).
+                            Command line flags win over it
+  --trap                  : Play with bots that probe for files we do not have.
+                            nginx forwards its 403s and 404s to us (default: false)
+  --trapPort              : Port the trap listens on, on localhost only (default: 7777)
 
   --migrateV1ToV2Db       : Migrate V1 database to V2 and exit (default: false).
                             Use with '--v1DbPath' and '--v2DbPath' flags
@@ -60,6 +69,7 @@ proc validateArgs(args: Args) =
   not args.showRealIPs and
   not args.blockUntrustedCidrs and
   not args.serve and
+  not args.trap.enabled and
   not args.migrateV1ToV2Db:
     error("Provided flags say do nothing... Exiting")
     usage(1)
@@ -81,7 +91,29 @@ proc getArgs(): Args =
       migrateV1ToV2Db: false,
       v1DbPath: "",
       v2DbPath: "",
+      trap: TrapConfig(
+        enabled: false,
+        port: TRAP_DEFAULT_PORT,
+        maxConnections: TRAP_MAX_CONNECTIONS,
+        maxSeconds: TRAP_MAX_SECONDS,
+        dripMinMs: TRAP_DRIP_MIN_MS,
+        dripMaxMs: TRAP_DRIP_MAX_MS,
+        bombs: true,
+        bombAfter: TRAP_BOMB_AFTER,
+      ),
     )
+
+  # the config file comes first so that command line flags can win over it
+  var configPath = NGINWHO_CONFIG_FILE
+  var configParser = initOptParser()
+  while true:
+    configParser.next()
+    case configParser.kind
+    of cmdEnd: break
+    of cmdShortOption, cmdLongOption:
+      if configParser.key == "config": configPath = configParser.val
+    of cmdArgument: discard
+  readConfigFile(configPath, args)
 
   var p = initOptParser()
 
@@ -93,6 +125,13 @@ proc getArgs(): Args =
       try:
         case p.key
         of "report": args.report = true
+        of "config": discard # already read
+        of "trap": args.trap.enabled = p.val == "" or parseBool(p.val)
+        of "trapPort":
+          let port = parseInt(p.val)
+          if port < 1 or port > 65535:
+            raise newException(ValueError, "must be between 1 and 65535")
+          args.trap.port = port
         of "help", "h": usage()
         of "version", "v":
           echo VERSION
@@ -247,6 +286,9 @@ proc main() =
 
   if args.serve:
     asyncCheck serve(args.root, args.logPath, Port(args.port))
+
+  if args.trap.enabled:
+    asyncCheck trap(args.trap, args.dbPath)
 
   if args.processNginxLogs:
     asyncCheck processAndRecordLogs(args)

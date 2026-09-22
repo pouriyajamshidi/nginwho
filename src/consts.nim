@@ -13,6 +13,7 @@ const
   DATE_FORMAT*: string = "yyyy-MM-dd HH:mm:ss"
 
   NGINWHO_DB_FILE*: string = "/var/log/nginwho.db"
+  NGINWHO_CONFIG_FILE*: string = "/etc/nginwho/nginwho.conf"
   MAX_INSERT_ATTEMPTS*: int = 3
   READ_CHUNK_BYTES*: int = 1024 * 1024
 
@@ -25,6 +26,15 @@ const
   SERVER_MAX_HEADERS*: int = 100
   SERVER_HEAD_TIMEOUT*: int = 10_000 # milliseconds to send the headers, also the keep-alive timeout
   SERVER_CHUNK_BYTES*: int = 64 * 1024
+
+  TRAP_DEFAULT_PORT*: int = 7777
+  TRAP_MAX_CONNECTIONS*: int = 200
+  TRAP_MAX_SECONDS*: int = 900
+  TRAP_DRIP_MIN_MS*: int = 500
+  TRAP_DRIP_MAX_MS*: int = 700
+  TRAP_BOMB_AFTER*: int = 3 # trapped hits from one IP in a day before it gets a bomb
+  TRAP_BOMB_MEMBERS*: int = 10_000 # 1 MiB of zeros each, about 10 GB unpacked
+  TRAP_MAX_BODY_BYTES*: int = 8192 # of a fake login POST
 
   CLOUDFLARE_CIDR_API_URL*: string = "https://api.cloudflare.com/client/v4/ips"
 
