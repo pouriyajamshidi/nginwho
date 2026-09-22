@@ -10,7 +10,8 @@ from db_connector/db_sqlite import DbConn, Row
 from consts import DATE_FORMAT
 from database import getDbConnection, closeDbConnection, createTables, hasOldSchema,
     getTopIPs, getTopURIs, getTopUnsuccessfulRequests, getTopReferres, getNonDefaults,
-    getTotalRequests, getTotalNonDefaults
+    getTotalRequests, getTotalNonDefaults,
+    getTopTrappedIPs, getTopTraps, getTopTrappedURIs, getTrappedCredentials, getTrapTotals
 
 
 const
@@ -24,6 +25,7 @@ type
     columns: seq[string]
     query: proc (db: DbConn, num: uint, since: string): seq[Row] {.nimcall.}
     allTimeOnly: bool
+    isTrap: bool # counts and percentages are against trap hits, not all requests
 
   TimeWindow = tuple[name: string, duration: Duration]
 
@@ -35,6 +37,15 @@ let reports = [
   Report(name: "Top referrers", columns: @["Referrer"], query: getTopReferres),
   # non-default logs are saved without a date
   Report(name: "Top non-defaults", columns: @["Log line"], query: getNonDefaults, allTimeOnly: true),
+  # trap reports: who probed us and what we did to them
+  Report(name: "Trap: top attackers", columns: @["IP address", "Time wasted"],
+      query: getTopTrappedIPs, isTrap: true),
+  Report(name: "Trap: what they wanted", columns: @["Target", "Tactic", "Time wasted"],
+      query: getTopTraps, isTrap: true),
+  Report(name: "Trap: top probed paths", columns: @["URI", "Target"],
+      query: getTopTrappedURIs, isTrap: true),
+  Report(name: "Trap: credentials tried", columns: @["IP address", "Credentials"],
+      query: getTrappedCredentials, isTrap: true),
 ]
 
 # a zero duration means all time
@@ -162,10 +173,15 @@ proc showResults(db: DbConn, report: Report, num: uint, window: TimeWindow) =
   let rows = report.query(db, num, since(window))
 
   let windowName = if report.allTimeOnly: "all time" else: window.name
-  let total = if report.allTimeOnly: getTotalNonDefaults(db) else: getTotalRequests(db, since(window))
+  let total =
+    if report.isTrap: getTrapTotals(db, since(window)).hits
+    elif report.allTimeOnly: getTotalNonDefaults(db)
+    else: getTotalRequests(db, since(window))
+
+  let unit = if report.isTrap: "trap hits" else: "requests"
 
   echo()
-  stdout.styledWriteLine(fgGreen, styleBright, fmt"{report.name}, {windowName} ({insertSep($total, ',')} requests)")
+  stdout.styledWriteLine(fgGreen, styleBright, fmt"{report.name}, {windowName} ({insertSep($total, ',')} {unit})")
   echo()
 
   if len(rows) == 0:
