@@ -4,6 +4,13 @@ All notable changes to **nginwho** are listed here.
 
 ## [Unreleased]
 
+### Added
+
+- Trap mode (`--trap`). nginx forwards its 403s and 404s to nginwho, which plays with the bots instead of returning an error. Based on the paths it asks for, a bot gets a fake `.env`, `.git/config`, `phpinfo()` or config file full of made up secrets, a fake login page that never lets it in but records what it typed, a body that never ends, a maze of fake folders, or a gzip bomb. Fake files are dripped one byte at a time so a scan hangs for a long time. A bot that keeps coming back gets a bomb.
+- Every trapped request is saved in a new `trap_hits` table: who it was, what they wanted, what we did, how long we held them and any credentials they typed. The hit is written as soon as the trap starts, so a slow drip still shows up right away.
+- Report mode has four new trap reports: top attackers, what they wanted, top probed paths and credentials tried.
+- A config file at `/etc/nginwho/nginwho.conf` (`--config` to point elsewhere). Command line flags override it. A sample `nginwho.conf` is in the repository.
+
 ### Changed
 
 - Dates are saved in the `nginwho` table as unix seconds instead of in their own `dates` table. Nearly every log has its own date, so that table and its index were bigger than the logs themselves. A real 90.7 MB database went down to 54.9 MB.

@@ -61,9 +61,13 @@ To run the tests, use `nimble test`. The nftables tests run the real `nft` in a 
 
 ### Run as a service
 
-Use the [accompanying systemd service](https://github.com/pouriyajamshidi/nginwho/blob/master/nginwho.service) to run **nginwho** in the background and survive reboots. Check the flags in `ExecStart` before enabling it, since it turns on `--showRealIps` and `--blockUntrustedCidrs`:
+Use the [accompanying systemd service](https://github.com/pouriyajamshidi/nginwho/blob/master/nginwho.service) to run **nginwho** in the background and survive reboots. The service reads everything from `/etc/nginwho/nginwho.conf`, so put the [sample config](https://github.com/pouriyajamshidi/nginwho/blob/master/nginwho.conf) there and edit it before enabling the service:
 
 ```bash
+curl -Lo nginwho.conf https://raw.githubusercontent.com/pouriyajamshidi/nginwho/master/nginwho.conf
+sudo install -m 644 nginwho.conf -D -t /etc/nginwho/
+# edit /etc/nginwho/nginwho.conf to fit your setup
+
 curl -Lo nginwho.service https://raw.githubusercontent.com/pouriyajamshidi/nginwho/master/nginwho.service
 sudo install -m 644 nginwho.service -D -t /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -110,6 +114,11 @@ Here are the available flags:
   --root                  : Directory to serve files from (default: /var/www/html)
   --port                  : Port to serve on, IPv4 and IPv6 (default: 80)
   --report                : Enter report mode and query the database for statistics
+  --config                : Path to the config file (default: /etc/nginwho/nginwho.conf).
+                            Command line flags win over it
+  --trap                  : Play with bots that probe for files we do not have.
+                            nginx forwards its 403s and 404s to us (default: false)
+  --trapPort              : Port the trap listens on, on localhost only (default: 7777)
 
   --migrateV1ToV2Db       : Migrate V1 database to V2 and exit (default: false).
                             Use with '--v1DbPath' and '--v2DbPath' flags
@@ -185,6 +194,67 @@ The database file is only readable by the user that created it, so if nginwho ru
 ```bash
 sudo nginwho --report --dbPath:/var/log/nginwho.db
 ```
+
+### Trap mode
+
+Instead of returning a plain `403` or `404` to bots that probe for `.env` files, `.git`
+directories, WordPress logins and the like, nginwho can play with them. Turn it on with
+`--trap` (or `enabled = true` under `[trap]` in the config file), then point nginx at it.
+
+nginx forwards its `403`s and `404`s to nginwho, which decides what to do based on the path:
+
+- **Fake files.** A probe for `.env`, `.git/config`, `phpinfo()`, `credentials` or a config
+  file gets a believable file full of made up secrets that lead nowhere. Each fake secret is
+  tied to the IP that asked for it, so if it ever turns up somewhere else you know who took it.
+- **Slow drip.** Fake files are sent one byte at a time with a random pause between bytes, so
+  a scan hangs for a long time on a single file.
+- **Fake logins.** Login pages (`wp-login.php`, `/admin`, phpMyAdmin) show a login form that
+  never lets anyone in and records the username and password that was typed.
+- **Endless bodies and mazes.** Backup and API probes get a body that never ends, and `.git`
+  probes get a maze of fake folders that link to more fake folders.
+- **Gzip bombs.** Repeat offenders and probes for archives get a small download that unpacks
+  into gigabytes.
+
+Everything is saved in the `trap_hits` table and shows up under the `Trap:` entries in report
+mode: who probed you, what they were after, how long you held them and what they typed into
+the fake logins.
+
+The matching nginx config sends misses and blocked requests to the trap while keeping the
+real site read-only and still showing a normal 404 page for genuine typos:
+
+```nginx
+# a genuine missing page shows this. bots reach the trap through @trap instead
+error_page 404 /404.html;
+
+# blocked scrapers (403) and probe POSTs (405) are handed to the trap
+error_page 403 405 = @trap;
+
+location @trap {
+    proxy_pass http://127.0.0.1:7777;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_buffering off;         # or nginx holds back the slow drip
+    proxy_read_timeout 15m;
+    proxy_intercept_errors on;   # a genuine miss still gets the real 404 page
+    error_page 404 /404.html;
+    error_page 502 504 =404 /404.html;  # if nginwho is down, act like a normal site
+    gzip off;                    # never re-compress the trap, it breaks the gzip bomb
+}
+
+location / {
+    if ($request_method !~ ^(GET|HEAD)$) { return 405; }
+    # ... your user agent and referer blocks return 403 here ...
+
+    # a missing file goes to the trap. known probe paths get trapped,
+    # a genuine typo gets the 404 page through @trap
+    try_files $uri $uri/ @trap;
+}
+```
+
+> Behind Cloudflare, check that the slow drip is streamed and that the gzip bomb is passed
+> through before relying on either. Cloudflare gives up if no response starts within 100
+> seconds, so the trap always sends its headers right away.
 
 ### Migrating v1 database to v2
 
