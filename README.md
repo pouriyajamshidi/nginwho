@@ -242,6 +242,7 @@ location @trap {
     error_page 404 /404.html;
     error_page 502 504 =404 /404.html;  # if nginwho is down, act like a normal site
     gzip off;                    # never re-compress the trap, it breaks the gzip bomb
+    access_log off;              # the trap keeps its own record in trap_hits
 }
 
 location / {
