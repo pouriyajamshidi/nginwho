@@ -2,7 +2,7 @@ import std/[unittest, json, os]
 from std/osproc import execCmdEx
 from std/strutils import splitLines, startsWith, join, find
 
-from nftables import NftSet, NftAttrs, samplePolicy, createRules, requiredChanges, inetFilterExists
+from nftables import NftSet, NftAttrs, samplePolicy, createRules, requiredChanges, inetFilterExists, validCidrs
 
 const allChanges = NftAttrs(withCloudflareV4Set: true, withCloudflareV6Set: true,
     withNginwhoChain: true, withNginwhoIPv4Policy: true, withNginwhoIPv6Policy: true,
@@ -55,6 +55,13 @@ suite "nftables":
     let withJunk = NftSet(ipv4: %*["173.245.48.0/20", "junk", 42], ipv6: %*["2400:cb00::/32"])
     let elems = createRules(withJunk, NftAttrs(withCloudflareV4Set: true))["nftables"][^1]["add"]["set"]["elem"]
     check elems == %*[{"prefix": {"addr": "173.245.48.0", "len": 20}}]
+
+  test "junk CIDRs are dropped":
+    check validCidrs(%*["1.2.3.0/24", "not-an-ip/8", "1.2.3.0/33", "1.2.3.0/abc", "1.2.3.0/24/1",
+        "2001:db8::/32"]) == @["1.2.3.0/24", "2001:db8::/32"]
+
+  test "single IPs without a prefix length get one":
+    check validCidrs(%*["1.2.3.4", "2001:db8::1"]) == @["1.2.3.4/32", "2001:db8::1/128"]
 
   test "real nft accepts the rules and the next run sees nothing to change":
     # without this nginwho adds the same rules again every six hours

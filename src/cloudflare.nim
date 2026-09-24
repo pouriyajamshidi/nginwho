@@ -1,7 +1,7 @@
 import std/[asyncdispatch, httpcore, json]
 from std/httpclient import AsyncHttpClient, AsyncResponse, newAsyncHttpClient, close, get, code, body
 from std/strformat import fmt
-from std/options import Option, none, some, isSome, get
+from std/options import Option, none, some, isNone, get
 from std/strutils import startsWith, split
 from std/times import getTime, format
 
@@ -24,6 +24,7 @@ const
   apiUrl = "https://api.cloudflare.com/client/v4/ips"
   timeoutMs = 10_000
   refreshMs = 6 * 60 * 60 * 1000
+  retryMs = 60 * 1000
 
 
 proc parseCidrsResponse*(jsonResponse: JsonNode): Option[Cidrs] =
@@ -117,31 +118,35 @@ proc getCurrentEtag*(configFile: string = cidrFile): string =
         return etagLine[1]
 
 
-proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool = false) {.async.} =
+proc fetchAndProcessIPCidrs*(showRealIPs, blockUntrustedCidrs: bool) {.async.} =
+  ## Fetches Cloudflare's ranges every six hours. `showRealIPs` writes them for nginx and
+  ## `blockUntrustedCidrs` lets only them through nftables. Each works without the other
   info("Fetching and processing Cloudflare CIDRs")
 
   while true:
-    let currentEtag: string = getCurrentEtag()
     let cfCIDRs: Option[Cidrs] = await getCloudflareCIDRs()
+    if cfCIDRs.isNone:
+      # try again soon, a boot without network should not leave the firewall open for six hours
+      error("Failed fetching CIDRs, trying again in a minute")
+      await sleepAsync(retryMs)
+      continue
 
-    if cfCIDRs.isSome:
-      let cidrs: Cidrs = cfCIDRs.get()
+    let cidrs: Cidrs = cfCIDRs.get()
 
-      if blockUntrustedCidrs:
-        warn("will block untrusted CIDRs using nftables")
-        try:
-          acceptOnly(NftSet(ipv4: cidrs.ipv4, ipv6: cidrs.ipv6))
-        except NftError as e:
-          # a firewall problem must not stop the real IPs or anything else nginwho runs
-          error(e.msg)
+    if blockUntrustedCidrs:
+      try:
+        acceptOnly(NftSet(ipv4: cidrs.ipv4, ipv6: cidrs.ipv6))
+      except NftError as e:
+        # a firewall problem must not stop the real IPs or anything else nginwho runs
+        error(e.msg)
 
+    if showRealIPs:
+      let currentEtag: string = getCurrentEtag()
       if currentEtag != cidrs.etag:
         # nginx reload is graceful and does not drop open connections
         if populateReverseProxyFile(cidrFile, cidrs):
           reloadNginx()
       else:
         info(fmt"etag has not changed {currentEtag}")
-    else:
-      error("Failed fetching CIDRs")
 
     await sleepAsync(refreshMs)

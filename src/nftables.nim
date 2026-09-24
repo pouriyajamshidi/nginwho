@@ -1,7 +1,7 @@
 import std/json
-from std/os import fileExists, findExe
+from std/os import findExe
 from std/strformat import fmt
-from std/strutils import split, splitWhitespace, parseInt, join, replace, repeat
+from std/strutils import split, parseInt
 from std/algorithm import sorted
 from std/logging import info, error, warn, fatal
 from std/osproc import execProcess, execCmd
@@ -125,7 +125,7 @@ proc withMask(cidr: string): string =
   return cidr
 
 
-proc validCidrs(cidrs: JsonNode): seq[string] =
+proc validCidrs*(cidrs: JsonNode): seq[string] =
   ## Returns the CIDRs with a prefix length and skips the invalid ones
   for cidr in cidrs:
     let withPrefix = withMask(cidr.getStr())
@@ -453,36 +453,6 @@ proc setExists(nftOutput: JsonNode, setName: string): bool =
   warn(fmt"Set {setName} does not exist")
 
 
-proc createNftSetsFrom*(fileName: string): NftSet =
-  info(fmt"Fetching NFT Sets from {fileName}")
-
-  if not fileExists(fileName):
-    raise newException(NftError, fmt"{fileName} does not exist, run with --showRealIps once to create it")
-
-  var ipv4Cidrs: seq[string] = @[]
-  var ipv6Cidrs: seq[string] = @[]
-
-  for line in lines(fileName):
-    if line.len() == 0:
-      continue
-
-    let splitLine = line.splitWhitespace()
-    if splitLine.len() != 2 or splitLine[0] != "set_real_ip_from":
-      continue
-
-    let cidr = withMask(splitLine[1].replace(";", ""))
-    if cidr == "":
-      warn(fmt"Skipping invalid CIDR in {fileName}: {splitLine[1]}")
-      continue
-
-    if parseIpAddress(cidr.split("/")[0]).family == IpAddressFamily.IPv4:
-      ipv4Cidrs.add(cidr)
-    else:
-      ipv6Cidrs.add(cidr)
-
-  return NftSet(ipv4: %*ipv4Cidrs, ipv6: %*ipv6Cidrs)
-
-
 proc inetFilterExists*(nftOutput: JsonNode): bool =
   info("Checking nftables `inet filter` table existence")
 
@@ -541,8 +511,6 @@ proc changesRequired(nftAttrs: NftAttrs): bool =
 
 proc requiredChanges*(nftOutput: JsonNode, nftSet: NftSet): NftAttrs =
   ## Compares the current ruleset with what nginwho needs and returns the missing parts
-  var nftAttrs: NftAttrs
-
   return NftAttrs(
     withCloudflareV4Set: not setExists(nftOutput, setNameV4) or setChanged(nftOutput, nftSet.ipv4, setNameV4),
     withCloudflareV6Set: not setExists(nftOutput, setNameV6) or setChanged(nftOutput, nftSet.ipv6, setNameV6),
@@ -581,8 +549,3 @@ proc acceptOnly*(nftSet: NftSet) =
     let rules: JsonNode = createRules(nftSet, nftAttrs)
     writeRulesAndApply(rules)
 
-
-proc acceptOnly*(path: string) =
-  info(fmt"Using {path} to construct nftables rules ")
-
-  acceptOnly(createNftSetsFrom(path))

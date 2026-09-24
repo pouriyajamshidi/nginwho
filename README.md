@@ -161,10 +161,7 @@ So that nginx knows how to restore original visitor IP addresses.
 
 ### Block Untrusted Requests
 
-The third feature, `--blockUntrustedCidrs` flag gets Cloudflare CIDRs, either through:
-
-1. Cloudflare APIs every _six hours_ when used together with the `--showRealIps` flag
-2. or the `/etc/nginx/nginwho` file, read once at start, when the `--showRealIps` flag is not specified
+The third feature, `--blockUntrustedCidrs` flag gets Cloudflare CIDRs from Cloudflare's API every _six hours_, with or without the `--showRealIps` flag. If the API can't be reached, for example right after a boot without network, it tries again every minute.
 
 The fetched CIDRs will be checked against your existing **nftables** rules and if necessary, the required rules will be created and added through _nftable's JSON API_.
 

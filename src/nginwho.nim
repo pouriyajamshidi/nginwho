@@ -9,8 +9,8 @@ from std/logging import addHandler, newConsoleLogger, info, error, warn, setLogF
 
 from nginx import Log, isStaticAsset, readChunkBytes, ensureNginxExists, ensureNginxLogExists,
     parseLogEntry, readNewLines, offsetAfterLastInserted
-from cloudflare import fetchAndProcessIPCidrs, cidrFile
-from nftables import acceptOnly, ensureNftExists, NftError
+from cloudflare import fetchAndProcessIPCidrs
+from nftables import ensureNftExists
 from database import getDbConnection, closeDbConnection,
     createTables, insertLogs, migrateV1ToV2, getLastRow
 from report import report
@@ -268,10 +268,6 @@ proc main() =
 
   runPreChecks(args)
 
-  # a one time job, so a failure here is a setup problem and stops nginwho before anything starts
-  if args.blockUntrustedCidrs and not args.showRealIPs:
-    acceptOnly(cidrFile)
-
   if args.serve:
     asyncCheck serve(args.root, args.logPath, Port(args.port))
 
@@ -283,16 +279,16 @@ proc main() =
 
   if args.showRealIPs:
     warn("Do not forget to add `include /etc/nginx/nginwho;` in your nginx config file")
-    asyncCheck fetchAndProcessIPCidrs(args.blockUntrustedCidrs)
 
-  # blocking CIDRs from the nginx file alone runs once and has nothing to wait for
-  if hasPendingOperations():
-    runForever()
+  if args.showRealIPs or args.blockUntrustedCidrs:
+    asyncCheck fetchAndProcessIPCidrs(args.showRealIPs, args.blockUntrustedCidrs)
+
+  runForever()
 
 when isMainModule:
   try:
     main()
-  except DbError, IOError, OSError, NftError:
+  except DbError, IOError, OSError:
     # these end the program when they happen at start, or in an async task
     error(getCurrentExceptionMsg())
     quit(1)

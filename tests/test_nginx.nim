@@ -4,7 +4,6 @@ from std/strutils import contains
 
 from nginx import Log, parseLogEntry, readNewLines, offsetAfterLastInserted
 from cloudflare import Cidrs, getCurrentEtag, parseCidrsResponse, populateReverseProxyFile
-from nftables import createNftSetsFrom
 
 let tempDir = getTempDir() / "nginwho_test_nginx"
 createDir(tempDir)
@@ -175,10 +174,6 @@ suite "cloudflare CIDRs file":
 
     check getCurrentEtag(path) == cidrs.etag
 
-    let sets = createNftSetsFrom(path)
-    check sets.ipv4 == cidrs.ipv4
-    check sets.ipv6 == cidrs.ipv6
-
     let content = readFile(path)
     check "set_real_ip_from 173.245.48.0/20;" in content
     check "real_ip_header CF-Connecting-IP;" in content
@@ -186,18 +181,3 @@ suite "cloudflare CIDRs file":
   test "no etag when the file does not exist":
     check getCurrentEtag(tempDir / "missing") == ""
 
-  test "reading CIDRs skips junk, comments and trailing spaces":
-    let path = tempDir / "nginwho_hand_edited"
-    writeFile(path, "# comment\n\nset_real_ip_from 1.2.3.0/24;   \nset_real_ip_from not-an-ip/8;\n" &
-      "set_real_ip_from 1.2.3.0/33;\nset_real_ip_from 1.2.3.0/abc;\nset_real_ip_from 1.2.3.0/24/1;\n" &
-      "set_real_ip_from 2001:db8::/32;\nreal_ip_header CF-Connecting-IP;\n")
-    let sets = createNftSetsFrom(path)
-    check sets.ipv4 == %*["1.2.3.0/24"]
-    check sets.ipv6 == %*["2001:db8::/32"]
-
-  test "single IPs without a prefix length get one":
-    let path = tempDir / "nginwho_single_ips"
-    writeFile(path, "set_real_ip_from 1.2.3.4;\nset_real_ip_from 2001:db8::1;\n")
-    let sets = createNftSetsFrom(path)
-    check sets.ipv4 == %*["1.2.3.4/32"]
-    check sets.ipv6 == %*["2001:db8::1/128"]
