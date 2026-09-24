@@ -17,13 +17,18 @@ const
   chunkBytes = 64 * 1024
 
 
-type Request* = object
-  line*: string # the request line as it was sent, for the access log
-  httpMethod*: string
-  path*: string
-  query*: string
-  version*: string
-  headers*: HttpHeaders
+type
+  Request* = object
+    line*: string # the request line as it was sent, for the access log
+    httpMethod*: string
+    path*: string
+    query*: string
+    version*: string
+    headers*: HttpHeaders
+
+  TrapHook* = proc (client: AsyncSocket, req: Request, remoteIP: string): Future[bool]
+    ## Gets the requests the server can't serve, like nginx's error_page to the trap.
+    ## Returns false when it does not take one, and the server answers as usual
 
 
 let mimes = newMimetypes()
@@ -208,7 +213,7 @@ proc respond(client: AsyncSocket, req: Request, root: string, keepAlive: bool):
   return (Http404, await client.sendText(req, Http404, keepAlive))
 
 
-proc handleClient(client: AsyncSocket, root, logPath: string) {.async.} =
+proc handleClient(client: AsyncSocket, root, logPath: string, trapHook: TrapHook) {.async.} =
   defer: client.close()
 
   try:
@@ -222,6 +227,12 @@ proc handleClient(client: AsyncSocket, root, logPath: string) {.async.} =
       let req = reading.read()
       if req.line in ["", "\r\n"]:
         return
+
+      # what would be a 404 or 405 goes to the trap first. the trap keeps its own record
+      if trapHook != nil and req.httpMethod != "" and
+          (req.httpMethod notin ["GET", "HEAD"] or resolve(root, req.path) == ""):
+        if await trapHook(client, req, remoteIP):
+          return
 
       # a request body is never read, so the connection can't be reused after one
       let keepAlive = req.httpMethod != "" and req.version == "HTTP/1.1" and
@@ -243,7 +254,7 @@ proc handleClient(client: AsyncSocket, root, logPath: string) {.async.} =
     discard
 
 
-proc serve*(root, logPath: string, port: Port, address = "::") {.async.} =
+proc serve*(root, logPath: string, port: Port, address = "::", trapHook: TrapHook = nil) {.async.} =
   let server = newAsyncSocket(if ':' in address: Domain.AF_INET6 else: Domain.AF_INET)
   server.setSockOpt(OptReuseAddr, true)
   try:
@@ -258,6 +269,6 @@ proc serve*(root, logPath: string, port: Port, address = "::") {.async.} =
   while true:
     try:
       let client = await server.accept()
-      asyncCheck handleClient(client, root, logPath)
+      asyncCheck handleClient(client, root, logPath, trapHook)
     except OSError as e:
       error(fmt"Could not accept a connection: {e.msg}")

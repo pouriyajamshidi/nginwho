@@ -18,7 +18,7 @@ from std/logging import info, error
 from db_connector/db_sqlite import DbConn
 
 from nginx import dateFormat
-from server import Request, readRequest, readBody, header, responseHead, headTimeout
+from server import Request, TrapHook, readRequest, readBody, header, responseHead, headTimeout
 from database import TrapHit, getDbConnection, createTables, insertTrapHit, finishTrapHit
 
 
@@ -426,6 +426,47 @@ proc isRepeatOffender(ip: string, cfg: TrapConfig): bool =
   return hitsToday[ip] > cfg.bombAfter
 
 
+proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
+    db: DbConn): Future[bool] {.async.} =
+  ## Plays with the bot when the request is a probe. Returns false when it is not one
+  ## or the trap is full, so the caller answers as usual
+  let trap = classify(req.path)
+  if trap == noTrap or active >= cfg.maxConnections:
+    return false
+
+  let tactic = tacticFor(trap, req.path, isRepeatOffender(ip, cfg), cfg)
+  info(fmt"Trapping {ip} in the {tactic} for {req.path} ({trap})")
+
+  # the same bot asking for the same file twice sees the same fake content
+  let rng = newRng(hash(ip & req.path))
+  let started = epochTime()
+
+  # the hit is saved before the trap starts, so we know who tried what right away.
+  # a slow drip can hold a bot that already hung up for a long time before a send fails
+  let id = db.insertTrapHit(TrapHit(
+    date: now().format(dateFormat),
+    remoteIP: ip,
+    httpMethod: req.httpMethod,
+    requestURI: req.path & req.query,
+    userAgent: req.header("User-Agent"),
+    trap: $trap,
+    tactic: $tactic,
+  ))
+
+  let played = Played()
+  active.inc
+  try:
+    await client.play(req, trap, tactic, cfg, rng, played)
+  except CatchableError:
+    # a bot hanging up mid trap is the normal ending
+    discard
+  finally:
+    active.dec
+    # fill in what we ended up sending and how long we held them
+    db.finishTrapHit(id, played.bytes, int(epochTime() - started), played.detail)
+  return true
+
+
 proc handle(client: AsyncSocket, cfg: TrapConfig, db: DbConn) {.async.} =
   defer: client.close()
 
@@ -442,44 +483,19 @@ proc handle(client: AsyncSocket, cfg: TrapConfig, db: DbConn) {.async.} =
     if ip == "":
       ip = client.getPeerAddr()[0]
 
-    let trap = classify(req.path)
-    if trap == noTrap or active >= cfg.maxConnections:
+    if not await client.trapRequest(req, ip, cfg, db):
       await client.sendNotFound()
-      return
-
-    let tactic = tacticFor(trap, req.path, isRepeatOffender(ip, cfg), cfg)
-    info(fmt"Trapping {ip} in the {tactic} for {req.path} ({trap})")
-
-    # the same bot asking for the same file twice sees the same fake content
-    let rng = newRng(hash(ip & req.path))
-    let started = epochTime()
-
-    # the hit is saved before the trap starts, so we know who tried what right away.
-    # a slow drip can hold a bot that already hung up for a long time before a send fails
-    let id = db.insertTrapHit(TrapHit(
-      date: now().format(dateFormat),
-      remoteIP: ip,
-      httpMethod: req.httpMethod,
-      requestURI: req.path & req.query,
-      userAgent: req.header("User-Agent"),
-      trap: $trap,
-      tactic: $tactic,
-    ))
-
-    let played = Played()
-    active.inc
-    try:
-      await client.play(req, trap, tactic, cfg, rng, played)
-    except CatchableError:
-      # a bot hanging up mid trap is the normal ending
-      discard
-    finally:
-      active.dec
-      # fill in what we ended up sending and how long we held them
-      db.finishTrapHit(id, played.bytes, int(epochTime() - started), played.detail)
   except CatchableError:
     # a failure before the trap even starts, nothing to record
     discard
+
+
+proc trapHook*(cfg: TrapConfig, dbPath: string): TrapHook =
+  ## For --serve, where no nginx sits in front: the server hands its misses to the trap itself
+  let db = getDbConnection(dbPath)
+  createTables(db)
+  return proc (client: AsyncSocket, req: Request, remoteIP: string): Future[bool] =
+    client.trapRequest(req, remoteIP, cfg, db)
 
 
 proc trap*(cfg: TrapConfig, dbPath: string, address = "127.0.0.1") {.async.} =

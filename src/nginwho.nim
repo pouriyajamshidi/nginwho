@@ -15,7 +15,7 @@ from database import getDbConnection, closeDbConnection,
     createTables, insertLogs, migrateV1ToV2, getLastRow
 from report import report
 from server import serve
-from trap import trap
+from trap import trap, trapHook
 from config import Args, readConfigFile, parsePort, parseInterval, defaultConfigFile,
     defaultDbPath, oldDbPath, nginxLogPath, serveLogPath
 
@@ -55,8 +55,9 @@ proc usage(errorCode: int = 0) =
   --config                : Path to the config file (default: /etc/nginwho/nginwho.conf).
                             Command line flags win over it
   --trap                  : Play with bots that probe for files we do not have.
-                            nginx forwards its 403s and 404s to us (default: false)
-  --trapPort              : Port the trap listens on, on localhost only (default: 7777)
+                            nginx forwards its 403s and 404s to us, or with '--serve'
+                            the server hands them over itself (default: false)
+  --trapPort              : Port the trap listens on for nginx, on localhost only (default: 7777)
 
   --migrateV1ToV2Db       : Migrate V1 database to V2 and exit (default: false).
                             Use with '--v1DbPath' and '--v2DbPath' flags
@@ -269,9 +270,11 @@ proc main() =
   runPreChecks(args)
 
   if args.serve:
-    asyncCheck serve(args.root, args.logPath, Port(args.port))
+    # nginwho is the web server here, so it hands probes to the trap itself instead of nginx
+    let hook = if args.trap.enabled: trapHook(args.trap, args.dbPath) else: nil
+    asyncCheck serve(args.root, args.logPath, Port(args.port), trapHook = hook)
 
-  if args.trap.enabled:
+  if args.trap.enabled and not args.serve:
     asyncCheck trap(args.trap, args.dbPath)
 
   if args.processNginxLogs:

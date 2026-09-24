@@ -5,8 +5,12 @@ from std/asyncnet import AsyncSocket, newAsyncSocket, connect, send, recv, close
 from std/net import Port
 from std/strutils import split, splitLines, startsWith, endsWith, strip, contains, count
 
+from db_connector/db_sqlite import getValue, sql
+
 from server import serve, accessLogLine
 from nginx import parseLogEntry
+from trap import TrapConfig, trapHook
+from database import getDbConnection
 
 let tempDir = getTempDir() / "nginwho_test_server"
 let root = tempDir / "site"
@@ -22,8 +26,15 @@ writeFile(root / "style.css", "body{}")
 
 asyncCheck serve(root, logPath, port, "127.0.0.1")
 
+# the same site with the trap on and no nginx in front
+const trapPort = Port(18093)
+let trapLogPath = tempDir / "trap_access.log"
+let trapDb = tempDir / "trap.db"
+asyncCheck serve(root, trapLogPath, trapPort, "127.0.0.1", trapHook(TrapConfig(enabled: true,
+    maxConnections: 10, maxSeconds: 60, dripMinMs: 0, dripMaxMs: 0, bombs: true, bombAfter: 100), trapDb))
 
-proc request(raw: string): string =
+
+proc request(raw: string, port = port): string =
   ## Sends a raw request and returns everything the server sends back until it closes
   proc run(): Future[string] {.async.} =
     let socket = newAsyncSocket()
@@ -38,8 +49,8 @@ proc request(raw: string): string =
   waitFor run()
 
 
-proc get(path: string, headers = ""): string =
-  request("GET " & path & " HTTP/1.1\r\nHost: x\r\n" & headers & "Connection: close\r\n\r\n")
+proc get(path: string, headers = "", port = port): string =
+  request("GET " & path & " HTTP/1.1\r\nHost: x\r\n" & headers & "Connection: close\r\n\r\n", port)
 
 
 proc body(response: string): string =
@@ -102,3 +113,19 @@ suite "server":
   test "escapes quotes in logs like nginx":
     let line = accessLogLine("1.2.3.4", "GET / HTTP/1.1", 200, 0, "", "a\"b")
     check line.endsWith("\"GET / HTTP/1.1\" 200 0 \"-\" \"a\\x22b\"\n")
+
+
+suite "server with the trap":
+  test "probes are trapped, real files and typos are served as usual":
+    check get("/", port = trapPort).body == "home"
+    check get("/typo", port = trapPort).body == "custom 404"
+
+    let env = get("/.env", port = trapPort)
+    check env.startsWith("HTTP/1.1 200")
+    check "AWS_ACCESS_KEY_ID" in env.body
+
+    let hits = getDbConnection(trapDb).getValue(sql"SELECT request_uri FROM trap_hits")
+    check hits == "/.env"
+    # like nginx's access_log off for the trap, it keeps its own record
+    check "/.env" notin readFile(trapLogPath)
+    check "/typo" in readFile(trapLogPath)

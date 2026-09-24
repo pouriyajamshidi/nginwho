@@ -117,8 +117,9 @@ Here are the available flags:
   --config                : Path to the config file (default: /etc/nginwho/nginwho.conf).
                             Command line flags win over it
   --trap                  : Play with bots that probe for files we do not have.
-                            nginx forwards its 403s and 404s to us (default: false)
-  --trapPort              : Port the trap listens on, on localhost only (default: 7777)
+                            nginx forwards its 403s and 404s to us, or with '--serve'
+                            the server hands them over itself (default: false)
+  --trapPort              : Port the trap listens on for nginx, on localhost only (default: 7777)
 
   --migrateV1ToV2Db       : Migrate V1 database to V2 and exit (default: false).
                             Use with '--v1DbPath' and '--v2DbPath' flags
@@ -197,6 +198,8 @@ sudo nginwho --report --dbPath:/var/lib/nginwho/nginwho.db
 Instead of returning a plain `403` or `404` to bots that probe for `.env` files, `.git`
 directories, WordPress logins and the like, nginwho can play with them. Turn it on with
 `--trap` (or `enabled = true` under `[trap]` in the config file), then point nginx at it.
+If nginwho serves the site itself with `--serve`, there is no nginx to set up: the server
+hands what it can't serve to the trap directly.
 
 nginx forwards its `403`s and `404`s to nginwho, which decides what to do based on the path:
 
