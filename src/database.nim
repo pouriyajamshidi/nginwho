@@ -92,6 +92,7 @@ const
 
 
 proc getDbConnection*(dbPath: string): DbConn =
+  ## Raises DbError when the database can't be opened
   info(fmt"Opening Database connection to {dbPath}")
 
   let isNewFile = dbPath != ":memory:" and not fileExists(dbPath)
@@ -112,8 +113,7 @@ proc getDbConnection*(dbPath: string): DbConn =
 
     return connection
   except CatchableError as e:
-    error(fmt"Could not open or connect to database: {e.msg}")
-    quit(1)
+    raise newException(DbError, fmt"Could not open database {dbPath}: {e.msg}")
 
 
 proc closeDbConnection*(db: DbConn) =
@@ -121,9 +121,9 @@ proc closeDbConnection*(db: DbConn) =
 
   try:
     db.close()
-  except db_sqlite.DbError as e:
+  except DbError as e:
+    # nothing is lost, every write was committed already
     warn(fmt"Could not close database: {e.msg}")
-    quit(1)
 
 
 proc topValues(db: DbConn, column: string, num: uint, since: string): seq[Row] =
@@ -532,12 +532,11 @@ proc getTrapTotals*(db: DbConn, since = ""): tuple[hits, seconds, bytes: int] =
 
 
 proc migrateV1ToV2*(v1DbName, v2DbName: string) =
+  ## Raises IOError when the v1 database is missing and DbError when it can't be read
   info(fmt"Migrating v1 database at '{v1DbName}' to v2 database at '{v2DbName}'")
 
   if not fileExists(v1DbName):
-    error(fmt("V1 database does not exist at {v1DbName}"))
-    quit(1)
-
+    raise newException(IOError, fmt"V1 database does not exist at {v1DbName}")
 
   let v1Db = getDbConnection(v1DbName)
   let v2Db = getDbConnection(v2DbName)
@@ -552,10 +551,9 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
     totalRecords = v1db.getRow(sql"SELECT COUNT(*) from nginwho")[0]
     info(fmt"{v1DbName} contains {totalRecords} records")
   except DbError as e:
-    error(fmt"Could not count rows in {v1DbName}: {e.msg}")
     let recoveryCommand = fmt"sqlite3 {v1DbName} '.recover' | sqlite3 {v1DbName.split('.')[0]}_recovered.db"
-    info(fmt"Retry after recovering your DB with: {recoveryCommand}")
-    quit(1)
+    raise newException(DbError, fmt"Could not count rows in {v1DbName}: {e.msg}. " &
+        fmt"Retry after recovering your DB with: {recoveryCommand}")
 
   createTables(v2Db)
 
@@ -634,5 +632,3 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
     insertLogs(v2Db, logs)
 
   info(fmt"Processed {totalRecords} records")
-
-  quit(0)

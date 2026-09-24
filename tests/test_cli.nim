@@ -42,6 +42,12 @@ suite "cli":
       check exitCode == 1
       check "Bad value" in output
 
+  test "a database that can't be opened ends the program with an error":
+    let (output, exitCode) = run("--serve --root=" & quoteShell(tempDir) & " --port=18557" &
+        " --logPath=" & quoteShell(tempDir / "access.log") & " --dbPath=/nonexistent/dir/x.db")
+    check exitCode == 1
+    check "Could not open database /nonexistent/dir/x.db" in output
+
   test "migration needs both database paths":
     check run("--migrateV1ToV2Db --v1DbPath=x.db").exitCode == 1
 

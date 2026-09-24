@@ -1,7 +1,7 @@
 import std/asyncdispatch
 from std/strformat import fmt
 from std/strutils import parseInt, parseBool, splitLines, startsWith, split, strip
-from db_connector/db_sqlite import DbConn
+from db_connector/db_sqlite import DbConn, DbError
 from std/os import getFileInfo, FileInfo, FileId, dirExists, fileExists
 from std/net import Port
 from std/parseopt import CmdLineKind, initOptParser, next
@@ -139,11 +139,9 @@ proc getArgs(): Args =
         usage(1)
     of cmdArgument: discard
 
-  if args.migrateV1ToV2Db:
-    if args.v1DbPath == "" or args.v2DbPath == "":
-      error("Migration needs '--v1DbPath' and '--v2DbPath' flags")
-      usage(1)
-    migrateV1ToV2(args.v1DbPath, args.v2DbPath)
+  if args.migrateV1ToV2Db and (args.v1DbPath == "" or args.v2DbPath == ""):
+    error("Migration needs '--v1DbPath' and '--v2DbPath' flags")
+    usage(1)
 
   validateArgs(args)
 
@@ -250,10 +248,15 @@ proc main() =
   # parse args first so --help and --version print nothing else
   let args: Args = getArgs()
 
+  if args.migrateV1ToV2Db:
+    migrateV1ToV2(args.v1DbPath, args.v2DbPath)
+    return
+
   if args.report:
     # info logs would get mixed with the report output
     setLogFilter(lvlError)
     report(args.dbPath)
+    return
 
   info("Starting nginwho")
 
@@ -279,5 +282,10 @@ proc main() =
   if hasPendingOperations():
     runForever()
 
-when is_main_module:
-  main()
+when isMainModule:
+  try:
+    main()
+  except DbError, IOError:
+    # a database that can't be opened or read ends the program, even from an async task
+    error(getCurrentExceptionMsg())
+    quit(1)

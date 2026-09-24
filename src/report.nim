@@ -199,12 +199,13 @@ proc showResults(db: DbConn, report: Report, num: uint, window: TimeWindow) =
 
 
 proc report*(dbPath: string) =
+  ## Raises IOError when the database is missing
   # opening a missing database creates an empty one and every query fails
   if not fileExists(dbPath):
-    warn(fmt"Database not found at {dbPath}")
-    quit(1)
+    raise newException(IOError, fmt"Database not found at {dbPath}")
 
   let db = getDbConnection(dbPath)
+  defer: closeDbConnection(db)
 
   # databases from older versions keep dates in their own table
   if hasOldSchema(db):
@@ -237,5 +238,3 @@ proc report*(dbPath: string) =
     showResults(db, reports[option - 1], uint(num), timeWindows[window])
 
   stdout.resetAttributes()
-  closeDbConnection(db)
-  quit(0)
