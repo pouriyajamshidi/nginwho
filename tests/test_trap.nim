@@ -39,6 +39,21 @@ suite "classify":
   test "path traversal and shells are their own target":
     check $classify("/../../etc/passwd") == "rce"
     check $classify("/cgi-bin/test.cgi") == "rce"
+    check $classify("/getcmd") == "rce"
+    check $classify("/deploy.sh") == "rce"
+    check $classify("/..%5c..%5cwindows/win.ini") == "rce"
+
+  test "the paths that used to fall through are trapped now":
+    check $classify("/error.log") == "backup"
+    check $classify("/storage/logs/laravel.log") == "backup"
+    check $classify("/aws.json") == "creds"
+    check $classify("/rclone.conf") == "creds"
+    check $classify("/service_account.json") == "creds"
+    check $classify("/console") == "admin"
+    check $classify("/reset-password") == "admin"
+    check $classify("/health") == "api"
+    check $classify("/server-info") == "api"
+    check $classify("/.DS_Store") == "config"
 
   test "innocent paths are not trapped":
     check $classify("/") == "none"

@@ -105,21 +105,25 @@ proc classify*(path: string): Trap =
   if p.anyOf([".env", "environ", "sendgrid"]) or p.endsWith("/env"): return envFile
   if p.anyOf([".git", ".svn", ".hg", ".bzr"]): return gitRepo
   if p.anyOf(["wp-", "wordpress", "xmlrpc", "wlwmanifest", "rest_route"]): return wordpress
-  if p.anyOf([".aws", "credential", ".ssh", "id_rsa", "id_ed25519", ".npmrc", ".pypirc",
-              ".netrc", ".s3cfg", ".boto", "secret", "firebase", "terraform", "gcp", "stripe",
-              "serviceaccount", "service-account", "privatekey", "private-key", "keyfile",
-              ".key", ".pem", ".bash", ".zsh", ".claude", ".mcp", ".cursor", ".codex"]):
+  if p.anyOf([".aws", "aws.json", "aws.yml", "aws.yaml", "credential", ".ssh", "id_rsa",
+              "id_ed25519", ".npmrc", ".pypirc", ".netrc", ".s3cfg", ".boto", "rclone",
+              "secret", "firebase", "terraform", "gcp", "stripe", "serviceaccount",
+              "service-account", "service_account", "sa.json", "key.json", "privatekey",
+              "private-key", "keyfile", ".key", ".pem", ".bash", ".zsh", ".claude", ".mcp",
+              ".cursor", ".codex"]):
     return creds
   if p.anyOf([".sql", ".bak", ".backup", ".old", ".zip", ".tar", ".gz", ".tgz", ".rar",
-              ".7z", ".swp", "dump", "backup"]):
+              ".7z", ".swp", ".log", "dump", "backup"]):
     return backup
-  if p.anyOf(["passwd", "/bin/sh", "../", "%2e%2e", "jndi", "${", "shell", "cgi-bin",
-              "/cmd", "eval", ".asp", ".jsp", ".cgi"]):
+  if p.anyOf(["passwd", "/bin/sh", "../", "%2e%2e", "%5c", "jndi", "${", "shell", "cgi-bin",
+              "/cmd", "getcmd", "eval", ".sh", ".asp", ".jsp", ".cgi"]):
     return rce
   # admin and login pages before .php, so a login page like /administrator/index.php
   # gets the fake login that harvests credentials, not the generic php trap
   if p.anyOf(["admin", "login", "signin", "sign-in", "signup", "register", "dashboard",
-              "cpanel", "backoffice", "webmail", "/manager", "file-manager"]):
+              "cpanel", "backoffice", "webmail", "/manager", "file-manager", "console",
+              "portal", "panel", "secure", "account", "/auth", "reset-password",
+              "forgot-password"]):
     return adminPanel
   if p.anyOf([".php", "phpinfo", "phpmyadmin", "adminer", "_profiler", "_ignition",
               "artisan", "_debugbar", "livewire", "telescope"]):
@@ -127,11 +131,11 @@ proc classify*(path: string): Trap =
   if p.anyOf(["config", "appsettings", "settings", "application.yml", "application.properties",
               "docker", ".vscode", ".idea", "sftp", ".htaccess", ".htpasswd", "serverless",
               "vercel", "netlify", ".travis", "gradle", "package.json", "composer.json",
-              "manifest.json", ".vite", "values.yaml", ".toml"]):
+              "manifest.json", ".vite", "values.yaml", ".toml", ".ds_store"]):
     return configFile
-  if p.anyOf(["/api", "graphql", "swagger", "openapi", "/debug", "server-status", "/mcp",
-              "/sse", "/metrics", "/solr", "/vendor", "autodiscover", "/owa", "/hudson",
-              "/jenkins", "/nacos", "/druid"]):
+  if p.anyOf(["/api", "graphql", "swagger", "openapi", "/debug", "server-status",
+              "server-info", "/info", "/health", "/mcp", "/sse", "/metrics", "/solr",
+              "/vendor", "autodiscover", "/owa", "/hudson", "/jenkins", "/nacos", "/druid"]):
     return apiDebug
   if p.contains(".well-known/"): return wellKnown
 
