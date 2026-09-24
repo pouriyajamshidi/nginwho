@@ -80,17 +80,16 @@ sudo systemctl enable --now nginwho.service
 > If you have been a user since version 1, please check out [this section](#migrating-v1-database-to-v2) to migrate your database scheme to version 2.
 
 ```bash
-nginwho --logPath:/var/log/nginx/access.log --dbPath:/var/lib/nginwho/nginwho.db
+nginwho --processNginxLogs --logPath:/var/log/nginx/access.log --dbPath:/var/lib/nginwho/nginwho.db
 
 # If you want to omit a certain referrer from being logged (replace thegraynode.io with your domain):
-nginwho --logPath:/var/log/nginx/access.log \
+nginwho --processNginxLogs \
+        --logPath:/var/log/nginx/access.log \
         --dbPath:/var/lib/nginwho/nginwho.db \
         --omitReferrer:thegraynode.io
 
-# If you want to get real IP addresses of the visitors coming from Cloudflare:
-nginwho --logPath:/var/log/nginx/access.log \
-        --dbPath:/var/lib/nginwho/nginwho.db \
-        --showRealIps:true
+# If you only want to get real IP addresses of the visitors coming from Cloudflare:
+nginwho --showRealIps:true
 ```
 
 > Please note that you can mix these flags. They operate independently.
@@ -110,7 +109,7 @@ Here are the available flags:
   --showRealIps           : Show real IP of visitors by getting Cloudflare CIDRs to include in nginx config.
                             Self-updates every six hours (default: false)
   --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows Cloudflare CIDRs (default: false)
-  --processNginxLogs      : Process nginx logs (default: true)
+  --processNginxLogs      : Process nginx logs (default: false)
   --serve                 : Serve static files and write nginx style logs to '--logPath' (default: false)
   --root                  : Directory to serve files from (default: /var/www/html)
   --port                  : Port to serve on, IPv4 and IPv6 (default: 80)

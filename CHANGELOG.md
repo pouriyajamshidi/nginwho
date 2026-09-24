@@ -13,6 +13,7 @@ All notable changes to **nginwho** are listed here.
 
 ### Changed
 
+- Every feature is off unless you turn it on, including reading nginx logs. Add `--processNginxLogs` (or `process_logs = true` under `[nginx]` in the config file) to keep collecting logs. Before, `nginwho --trap` also read the nginx log and quit when the log was missing.
 - The database moved from `/var/log/nginwho.db` to `/var/lib/nginwho/nginwho.db`, where program data belongs on Linux. If `/var/log/nginwho.db` exists and the new one does not, nginwho keeps using the old one and warns you to move it. A `path` set in the config file or `--dbPath` is used as is.
 - Dates are saved in the `nginwho` table as unix seconds instead of in their own `dates` table. Nearly every log has its own date, so that table and its index were bigger than the logs themselves. A real 90.7 MB database went down to 54.9 MB.
 - Inserting logs is about 35% faster, and time window reports are as fast or faster.

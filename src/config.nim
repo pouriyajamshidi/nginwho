@@ -26,7 +26,7 @@ type
     omitReferrer*: string
     showRealIPs*: bool
     blockUntrustedCidrs*: bool
-    processNginxLogs*: bool = true
+    processNginxLogs*: bool
     serve*: bool
     root*: string = "/var/www/html"
     port*: int = 80

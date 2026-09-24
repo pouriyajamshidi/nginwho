@@ -29,7 +29,15 @@ suite "cli":
     check run("--version").output.strip().splitLines()[^1] == version
 
   test "exits with an error when told to do nothing":
-    check run("--processNginxLogs=false").exitCode == 1
+    # every feature is off by default. a missing config file keeps the defaults
+    check run("--config=" & quoteShell(tempDir / "none.conf")).exitCode == 1
+
+  test "report runs on its own":
+    let path = tempDir / "report.db"
+    open(path, "", "", "").close()
+    # stdin is empty, which report mode reads as quitting
+    check run("--config=" & quoteShell(tempDir / "none.conf") & " --report --dbPath=" &
+        quoteShell(path)).exitCode == 0
 
   test "report fails when the database is missing":
     let missing = tempDir / "missing_report.db"
@@ -53,7 +61,7 @@ suite "cli":
     check "Bad value 'abc' for port in [trap]" in output
 
   test "a database that can't be opened ends the program with an error":
-    let (output, exitCode) = run("--serve --root=" & quoteShell(tempDir) & " --port=18557" &
+    let (output, exitCode) = run("--processNginxLogs --serve --root=" & quoteShell(tempDir) & " --port=18557" &
         " --logPath=" & quoteShell(tempDir / "access.log") & " --dbPath=/nonexistent/dir/x.db")
     check exitCode == 1
     check "Could not open database /nonexistent/dir/x.db" in output

@@ -47,7 +47,7 @@ proc usage(errorCode: int = 0) =
   --showRealIps           : Show real IP of visitors by getting Cloudflare CIDRs to include in nginx config.
                             Self-updates every six hours (default: false)
   --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows Cloudflare CIDRs (default: false)
-  --processNginxLogs      : Process nginx logs (default: true)
+  --processNginxLogs      : Process nginx logs (default: false)
   --serve                 : Serve static files and write nginx style logs to '--logPath' (default: false)
   --root                  : Directory to serve files from (default: /var/www/html)
   --port                  : Port to serve on, IPv4 and IPv6 (default: 80)
@@ -69,6 +69,7 @@ proc usage(errorCode: int = 0) =
 
 proc validateArgs(args: Args) =
   if not args.processNginxLogs and
+  not args.report and
   not args.showRealIPs and
   not args.blockUntrustedCidrs and
   not args.serve and
