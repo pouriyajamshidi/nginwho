@@ -5,7 +5,7 @@ import std/[unittest, asyncdispatch, os]
 from std/asyncnet import newAsyncSocket, connect, send, recv, recvLine, close
 from std/net import Port
 from std/strutils import split, contains, startsWith
-from db_connector/db_sqlite import DbConn, getValue, sql
+from db_connector/db_sqlite import DbConn, getValue, getAllRows, sql
 
 from trap import classify, trap
 from types import TrapConfig, TrapHit
@@ -129,17 +129,18 @@ proc startTrap(port, dripMs: int): string =
 const
   slowPort = 18090 # a full fake .env takes over 15 seconds here
   fastPort = 18091
+  bombPort = 18092
 let
   slowDb = startTrap(slowPort, 20)
   fastDb = startTrap(fastPort, 0)
 
 
-proc get(path, ip: string): string =
-  ## Asks the fast trap for a path as `ip` and returns the body once the trap is done
+proc get(path, ip: string, port = fastPort): string =
+  ## Asks a trap for a path as `ip` and returns the body once the trap is done
   proc run(): Future[string] {.async.} =
     let socket = newAsyncSocket()
     defer: socket.close()
-    await socket.connect("127.0.0.1", Port(fastPort))
+    await socket.connect("127.0.0.1", Port(port))
     await socket.send("GET " & path & " HTTP/1.1\r\nHost: x\r\nX-Real-IP: " & ip & "\r\n\r\n")
     while true:
       let data = await socket.recv(4096)
@@ -190,3 +191,19 @@ suite "live trap":
     let key = get("/.ssh/id_rsa", "45.9.1.10")
     check get("/.ssh/id_rsa", "45.9.1.10") == key
     check get("/.ssh/id_rsa", "203.0.113.5") != key
+
+  test "the bomb comes after bomb_after hits, not on it":
+    # bomb_after is 2 here, so the first two hits are played with and the third is bombed
+    let bombDb = tempDir / ("trap_" & $bombPort & ".db")
+    asyncCheck trap(TrapConfig(enabled: true, port: bombPort, maxConnections: 10,
+        maxSeconds: 60, dripMinMs: 0, dripMaxMs: 0, bombs: true, bombAfter: 2), bombDb)
+    waitFor sleepAsync(200)
+
+    for _ in 1 .. 3:
+      discard get("/.env", "70.70.70.70", bombPort)
+    let tactics = getDbConnection(bombDb).getAllRows(
+        sql"SELECT tactic FROM trap_hits ORDER BY id")
+    check tactics.len == 3
+    check tactics[0][0] == "drip"
+    check tactics[1][0] == "drip"
+    check tactics[2][0] == "bomb"

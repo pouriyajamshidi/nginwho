@@ -406,7 +406,8 @@ proc isRepeatOffender(ip: string, cfg: TrapConfig): bool =
     hitsToday.clear()
 
   hitsToday.mgetOrPut(ip, 0).inc
-  return hitsToday[ip] >= cfg.bombAfter
+  # "after N hits": the first N get played with, the next one gets the bomb
+  return hitsToday[ip] > cfg.bombAfter
 
 
 proc handle(client: AsyncSocket, cfg: TrapConfig, db: DbConn) {.async.} =

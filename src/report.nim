@@ -71,7 +71,8 @@ proc fit(text: string, width: int): string =
   return text & " ".repeat(width - runeLen(text))
 
 
-proc formatTable*(columns: seq[string], rows: seq[Row], total: int): seq[string] =
+proc formatTable*(columns: seq[string], rows: seq[Row], total: int,
+    countHeader = "Requests"): seq[string] =
   ## Returns the rows as table lines, starting with the header.
   ## Every row has one value per column and then its count
   var widths: seq[int]
@@ -86,13 +87,13 @@ proc formatTable*(columns: seq[string], rows: seq[Row], total: int): seq[string]
     counts.add(parseInt(row[^1]))
 
   let topCount = max(counts & @[1])
-  let countWidth = max(len("Requests"), len(insertSep($topCount, ',')))
+  let countWidth = max(len(countHeader), len(insertSep($topCount, ',')))
   let numberWidth = len($len(rows))
 
   var header = align("#", numberWidth)
   for i, column in columns:
     header &= "  " & fit(column, widths[i])
-  result.add(header & "  " & align("Requests", countWidth) & "  " & align("%", 6))
+  result.add(header & "  " & align(countHeader, countWidth) & "  " & align("%", 6))
 
   for n, row in rows:
     var line = align($(n + 1), numberWidth)
@@ -188,7 +189,8 @@ proc showResults(db: DbConn, report: Report, num: uint, window: TimeWindow) =
     warn("  No records found")
     return
 
-  let lines = formatTable(report.columns, rows, total)
+  let countHeader = if report.isTrap: "Hits" else: "Requests"
+  let lines = formatTable(report.columns, rows, total, countHeader)
   stdout.styledWriteLine(styleBright, styleUnderscore, "  ", lines[0])
   for line in lines[1..^1]:
     # the bar is the last part of the line and has no spaces
