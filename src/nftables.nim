@@ -21,16 +21,16 @@ type
     IPv6 = "ip6"
 
   NftSet* = object
+    name*: string # the CDN, its Sets are <name>_IPv4 and <name>_IPv6
     ipv4*: JsonNode
     ipv6*: JsonNode
 
   NftAttrs* = object
     ## The parts of the ruleset nginwho still has to add
-    withCloudflareV4Set*: bool
-    withCloudflareV6Set*: bool
+    withV4Set*: bool
+    withV6Set*: bool
     withNginwhoChain*: bool
-    withNginwhoIPv4Policy*: bool
-    withNginwhoIPv6Policy*: bool
+    withNginwhoPolicies*: bool
     withInputChain*: bool
     withInputPolicy*: bool
 
@@ -38,8 +38,6 @@ type
 const
   getRulesetCmd = "nft -j list ruleset"
   rulesFile = "/run/nginwho.nft"
-  setNameV4 = "Cloudflare_IPv4"
-  setNameV6 = "Cloudflare_IPv6"
   nginwhoChain = "nginwho"
   inputChain = "input"
   logPrefixV4 = "NGINWHO_DROPPED_v4 "
@@ -96,6 +94,10 @@ nft 'add chain inet filter input { type filter hook input priority filter; polic
 
 
 """
+
+
+proc setNameV4(nftSet: NftSet): string = nftSet.name & "_IPv4"
+proc setNameV6(nftSet: NftSet): string = nftSet.name & "_IPv6"
 
 
 proc withMask(cidr: string): string =
@@ -302,24 +304,25 @@ proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
 
   var rules: JsonNode = %* {"nftables": []}
 
-  if nftAttrs.withCloudflareV4Set:
-    for command in createSet(nftSet.ipv4, setNameV4, SetType.IPv4):
+  if nftAttrs.withV4Set:
+    for command in createSet(nftSet.ipv4, nftSet.setNameV4, SetType.IPv4):
       rules["nftables"].add(command)
 
-  if nftAttrs.withCloudflareV6Set:
-    for command in createSet(nftSet.ipv6, setNameV6, SetType.IPv6):
+  if nftAttrs.withV6Set:
+    for command in createSet(nftSet.ipv6, nftSet.setNameV6, SetType.IPv6):
       rules["nftables"].add(command)
 
   if nftAttrs.withNginwhoChain:
     rules["nftables"].add(createNginwhoChain())
 
-  if nftAttrs.withNginwhoIPv4Policy:
+  if nftAttrs.withNginwhoPolicies:
+    # the rules of another CDN would drop this one's traffic, so the chain is emptied first.
+    # nft applies the file at once, so nothing gets through in between
+    rules["nftables"].add(%*{"flush": {"chain": {"family": "inet", "table": "filter", "name": nginwhoChain}}})
     rules["nftables"].add(createNginwhoIPPolicy(IPProtocol.IPv4,
-        setNameV4, logPrefixV4))
-
-  if nftAttrs.withNginwhoIPv6Policy:
+        nftSet.setNameV4, logPrefixV4))
     rules["nftables"].add(createNginwhoIPPolicy(IPProtocol.IPv6,
-        setNameV6, logPrefixV6))
+        nftSet.setNameV6, logPrefixV6))
 
   if nftAttrs.withInputChain:
     rules["nftables"].add(createInputChain())
@@ -396,6 +399,18 @@ proc nginwhoChainHasPolicy(nftOutput: JsonNode, setName: string): bool =
       return true
 
   warn(fmt"{nginwhoChain} chain does not have the required policy for Set {setName}")
+
+
+proc nginwhoChainIsCurrent(nftOutput: JsonNode, nftSet: NftSet): bool =
+  ## True when the chain only has the drop rules for this CDN's Sets
+  var rules = 0
+  for node in nftOutput:
+    if node.contains("rule") and node["rule"]["chain"].getStr() == nginwhoChain:
+      rules += 1
+
+  return rules == 2 and
+    nginwhoChainHasPolicy(nftOutput, nftSet.setNameV4) and
+    nginwhoChainHasPolicy(nftOutput, nftSet.setNameV6)
 
 
 proc nginwhoChainExists(nftOutput: JsonNode): bool =
@@ -512,11 +527,10 @@ proc changesRequired(nftAttrs: NftAttrs): bool =
 proc requiredChanges*(nftOutput: JsonNode, nftSet: NftSet): NftAttrs =
   ## Compares the current ruleset with what nginwho needs and returns the missing parts
   return NftAttrs(
-    withCloudflareV4Set: not setExists(nftOutput, setNameV4) or setChanged(nftOutput, nftSet.ipv4, setNameV4),
-    withCloudflareV6Set: not setExists(nftOutput, setNameV6) or setChanged(nftOutput, nftSet.ipv6, setNameV6),
+    withV4Set: not setExists(nftOutput, nftSet.setNameV4) or setChanged(nftOutput, nftSet.ipv4, nftSet.setNameV4),
+    withV6Set: not setExists(nftOutput, nftSet.setNameV6) or setChanged(nftOutput, nftSet.ipv6, nftSet.setNameV6),
     withNginwhoChain: not nginwhoChainExists(nftOutput),
-    withNginwhoIPv4Policy: not nginwhoChainHasPolicy(nftOutput, setNameV4),
-    withNginwhoIPv6Policy: not nginwhoChainHasPolicy(nftOutput, setNameV6),
+    withNginwhoPolicies: not nginwhoChainIsCurrent(nftOutput, nftSet),
     withInputChain: not inputChainExists(nftOutput),
     withInputPolicy: not inputChainHasPolicy(nftOutput),
   )

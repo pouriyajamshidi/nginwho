@@ -478,7 +478,7 @@ proc handle(client: AsyncSocket, cfg: TrapConfig, db: DbConn) {.async.} =
     if req.httpMethod == "":
       return
 
-    # nginx sits in front and knows the real IP thanks to Cloudflare's header
+    # nginx sits in front and knows the real IP thanks to the CDN's header
     var ip = req.header("X-Real-IP")
     if ip == "":
       ip = client.getPeerAddr()[0]

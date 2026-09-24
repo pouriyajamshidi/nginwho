@@ -1,12 +1,13 @@
 ## Reads /etc/nginwho/nginwho.conf. Command line flags win over it
 
 from std/parsecfg import loadConfig, Config, getSectionValue
-from std/strutils import parseInt, parseBool
+from std/strutils import parseInt, parseBool, parseEnum, toLowerAscii
 from std/strformat import fmt
 from std/os import fileExists
 from std/logging import info, error
 
 from trap import TrapConfig
+from cdn import Cdn
 
 
 const
@@ -24,6 +25,7 @@ type
     dbPath*: string = defaultDbPath
     interval*: int = 10_000 # milliseconds
     omitReferrer*: string
+    cdn*: Cdn = Cloudflare
     showRealIPs*: bool
     blockUntrustedCidrs*: bool
     processNginxLogs*: bool
@@ -50,6 +52,13 @@ proc parseInterval*(value: string): int =
   if seconds < 1:
     raise newException(ValueError, "must be at least 1")
   return seconds * 1000
+
+
+proc parseCdn*(value: string): Cdn =
+  try:
+    return parseEnum[Cdn](value.toLowerAscii())
+  except ValueError:
+    raise newException(ValueError, "must be cloudflare or fastly")
 
 
 proc atLeast(min: int): proc (value: string): int =
@@ -96,6 +105,7 @@ proc readConfigFile*(path: string, args: var Args) =
   args.logPath = config.getString("nginx", "log_path", args.logPath)
   args.interval = config.get("nginx", "interval", args.interval, parseInterval)
   args.omitReferrer = config.getString("nginx", "omit_referrer", args.omitReferrer)
+  args.cdn = config.get("nginx", "cdn", args.cdn, parseCdn)
   args.showRealIPs = config.get("nginx", "show_real_ips", args.showRealIPs, parseBool)
   args.blockUntrustedCidrs = config.get("nginx", "block_untrusted_cidrs", args.blockUntrustedCidrs, parseBool)
   args.processNginxLogs = config.get("nginx", "process_logs", args.processNginxLogs, parseBool)

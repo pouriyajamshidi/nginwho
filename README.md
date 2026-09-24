@@ -9,7 +9,7 @@
 **nginwho** is a lightweight, efficient and extremely fast program offering:
 
 1. [nginx log parser](#nginx-log-parser): Stores nginx logs into a **sqlite3** database for further analysis and actions
-2. [Restore Cloudflare](#restore-cloudflare-original-visitor-ip) original visitor IP: Continuously parses **Cloudflare CIDRs** (`IPv4` and `IPv6`) through their **API**s so that nginx can leverage it to restore the original IP address of visitors
+2. [Restore original visitor IP](#restore-original-visitor-ip) behind a CDN: Continuously parses **Cloudflare** or **Fastly CIDRs** (`IPv4` and `IPv6`) through their **API**s so that nginx can leverage it to restore the original IP address of visitors
 3. [Block untrusted](#block-untrusted-requests) requests using **nftables** to prevent HTTP and HTTPS requests coming from unknown IP addresses
 4. [Reporting](#reporting) on gathered data such as top visited URLs through an interactive menu
 
@@ -25,7 +25,7 @@ Table of contents:
   - [Flags](#flags)
   - [How it works](#how-it-works)
     - [nginx Log Parser](#nginx-log-parser)
-    - [Restore Cloudflare Original Visitor IP](#restore-cloudflare-original-visitor-ip)
+    - [Restore Original Visitor IP](#restore-original-visitor-ip)
     - [Block Untrusted Requests](#block-untrusted-requests)
     - [Reporting](#reporting)
     - [Migrating v1 database to v2](#migrating-v1-database-to-v2)
@@ -90,6 +90,9 @@ nginwho --processNginxLogs \
 
 # If you only want to get real IP addresses of the visitors coming from Cloudflare:
 nginwho --showRealIps:true
+
+# The same behind Fastly:
+nginwho --showRealIps:true --cdn:fastly
 ```
 
 > Please note that you can mix these flags. They operate independently.
@@ -106,9 +109,10 @@ Here are the available flags:
                             or /var/log/nginwho/access.log with '--serve')
   --interval              : Refresh interval in seconds (default: 10)
   --omitReferrer          : Omit a specific referrer from being logged (default: none)
-  --showRealIps           : Show real IP of visitors by getting Cloudflare CIDRs to include in nginx config.
+  --showRealIps           : Show real IP of visitors by getting the CDN's CIDRs to include in nginx config.
                             Self-updates every six hours (default: false)
-  --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows Cloudflare CIDRs (default: false)
+  --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows the CDN's CIDRs (default: false)
+  --cdn                   : The CDN in front of your site, cloudflare or fastly (default: cloudflare)
   --processNginxLogs      : Process nginx logs (default: false)
   --serve                 : Serve static files and write nginx style logs to '--logPath' (default: false)
   --root                  : Directory to serve files from (default: /var/www/html)
@@ -141,11 +145,11 @@ It only reads the lines added since the last read, picks up where it left off af
 > [!WARNING]
 > nginwho only supports the default nginx log format or any application that logs in the same format for now
 
-### Restore Cloudflare Original Visitor IP
+### Restore Original Visitor IP
 
-The second feature, `--showRealIps` flag fetches **Cloudflare CIDRs** (`IPv4` and `IPv6`) every _six hours_ through their **API**s and writes the result to a file named `nginwho` located in `/etc/nginx/`.
+The second feature, `--showRealIps` flag fetches the CDN's CIDRs (`IPv4` and `IPv6`) every _six hours_ through their **API**s and writes the result to a file named `nginwho` located in `/etc/nginx/`. The CDN is **Cloudflare** by default. Use `--cdn:fastly` (or `cdn = fastly` under `[nginx]` in the config file) for **Fastly**. Only one CDN can be used at a time.
 
-It is worthwhile to mention that **nginwho** leverages the `etag` field in Cloudflare's API response, so, if the newly fetched `etag` is the same as the current one, the `/etc/nginx/nginwho` file will not be overwritten.
+**nginwho** keeps a hash of the fetched CIDRs as an `etag` in the file, so if the CIDRs have not changed, the `/etc/nginx/nginwho` file will not be overwritten.
 
 If the `/etc/nginx/nginwho` file has changed or this is a fresh run, **nginwho** tests the **nginx** config (`nginx -t`) and if it passes, soft reloads **nginx** (`nginx -s reload`) right away. A soft reload does not drop open connections.
 
@@ -160,20 +164,31 @@ include /etc/nginx/nginwho;
 
 So that nginx knows how to restore original visitor IP addresses.
 
+> [!WARNING]
+> nginx takes the visitor IP from the `Fastly-Client-IP` header. Fastly keeps this header when a visitor sends it, so a visitor can fake their IP. To stop that, set it yourself in your Fastly VCL (`vcl_recv`):
+>
+> ```text
+> if (fastly.ff.visits_this_service == 0 && req.restarts == 0) {
+>   set req.http.Fastly-Client-IP = client.ip;
+> }
+> ```
+
 ### Block Untrusted Requests
 
-The third feature, `--blockUntrustedCidrs` flag gets Cloudflare CIDRs from Cloudflare's API every _six hours_, with or without the `--showRealIps` flag. If the API can't be reached, for example right after a boot without network, it tries again every minute.
+The third feature, `--blockUntrustedCidrs` flag gets the CDN's CIDRs from its API every _six hours_, with or without the `--showRealIps` flag. If the API can't be reached, for example right after a boot without network, it tries again every minute.
 
 The fetched CIDRs will be checked against your existing **nftables** rules and if necessary, the required rules will be created and added through _nftable's JSON API_.
 
 There will be a bunch of tests and pre-checks done before applying any policies. These checks include:
 
-1. Existence of Cloudflare IPv4 CIDRs nftables _Set_ (`Cloudflare_IPv4`)
-1. Existence of Cloudflare IPv6 CIDRs nftables _Set_ (`Cloudflare_IPv6`)
+1. Existence of the CDN's IPv4 CIDRs nftables _Set_ (`Cloudflare_IPv4` or `Fastly_IPv4`)
+1. Existence of the CDN's IPv6 CIDRs nftables _Set_ (`Cloudflare_IPv6` or `Fastly_IPv6`)
 1. Existence of nftables `nginwho` chain (`prerouting` hook)
 1. Existence of nftables `input` chain
 1. Existence of **drop** policy inside `nginwho` chain for untrusted IP addresses on port **80** and **443**
 1. Existence of **accept** policy inside `input` chain for trusted IP addresses on port **80** and **443**
+
+The `nginwho` chain belongs to **nginwho**. When you switch CDN, the old CDN's rules in it are replaced so they do not block the new one.
 
 **nginwho** only creates the necessary changes. Otherwise, no actions will be taken. For instance, if a CIDR gets added or removed, only that part of **nftables** configuration will be changed and the rest remain unchanged.
 

@@ -3,7 +3,7 @@ from std/options import isSome, isNone, get
 from std/strutils import contains
 
 from nginx import Log, parseLogEntry, readNewLines, offsetAfterLastInserted
-from cloudflare import Cidrs, getCurrentEtag, parseCidrsResponse, populateReverseProxyFile
+from cdn import Cdn, Cidrs, getCurrentEtag, parseCidrsResponse, populateReverseProxyFile
 
 let tempDir = getTempDir() / "nginwho_test_nginx"
 createDir(tempDir)
@@ -142,7 +142,7 @@ suite "offsetAfterLastInserted":
     check offsetAfterLastInserted(path, parseLogEntry(a, "")) == 0
 
 
-suite "cloudflare CIDRs file":
+suite "CDN CIDRs file":
   # shape of https://api.cloudflare.com/client/v4/ips
   let apiResponse = parseJson("""{
     "result": {
@@ -153,23 +153,58 @@ suite "cloudflare CIDRs file":
     "success": true, "errors": [], "messages": []
   }""")
 
+  # shape of https://api.fastly.com/public-ip-list
+  let fastlyResponse = parseJson("""{
+    "addresses": ["23.235.32.0/20", "151.101.0.0/16"],
+    "ipv6_addresses": ["2a04:4e40::/32", "2a04:4e42::/32"]
+  }""")
+
   test "parses the API response":
-    let cidrs = parseCidrsResponse(apiResponse)
+    let cidrs = parseCidrsResponse(Cloudflare, apiResponse)
     check cidrs.isSome
-    check cidrs.get.etag == "38f79d050aa027e3be3865e495dcc9bc"
+    check cidrs.get.etag != ""
     check cidrs.get.ipv4.len == 2
     check cidrs.get.ipv6.len == 2
 
+  test "parses the Fastly API response":
+    let cidrs = parseCidrsResponse(Fastly, fastlyResponse)
+    check cidrs.isSome
+    check cidrs.get.ipv4 == %*["23.235.32.0/20", "151.101.0.0/16"]
+    check cidrs.get.ipv6.len == 2
+
+  test "the etag only changes when the ranges or the CDN change":
+    # Fastly has no etag, so we make one. a new order alone must not reload nginx
+    let etag = parseCidrsResponse(Fastly, fastlyResponse).get.etag
+    let reordered = parseJson("""{
+      "addresses": ["151.101.0.0/16", "23.235.32.0/20"],
+      "ipv6_addresses": ["2a04:4e42::/32", "2a04:4e40::/32"]
+    }""")
+    let added = parseJson("""{
+      "addresses": ["23.235.32.0/20", "151.101.0.0/16", "199.232.0.0/16"],
+      "ipv6_addresses": ["2a04:4e40::/32", "2a04:4e42::/32"]
+    }""")
+    check parseCidrsResponse(Fastly, reordered).get.etag == etag
+    check parseCidrsResponse(Fastly, added).get.etag != etag
+
+    let sameRanges = parseJson("""{"success": true, "result": {
+      "ipv4_cidrs": ["23.235.32.0/20", "151.101.0.0/16"],
+      "ipv6_cidrs": ["2a04:4e40::/32", "2a04:4e42::/32"]}}""")
+    check parseCidrsResponse(Cloudflare, sameRanges).get.etag != etag
+
   test "rejects failed or incomplete responses":
-    check parseCidrsResponse(parseJson("""{"success": false, "result": {"ipv4_cidrs": [], "ipv6_cidrs": []}}""")).isNone
-    check parseCidrsResponse(parseJson("""{"success": true, "result": {"ipv4_cidrs": []}}""")).isNone
-    check parseCidrsResponse(parseJson("{}")).isNone
-    check parseCidrsResponse(parseJson("""{"success": true, "result": {"ipv4_cidrs": ["1.1.1.0/24"], "ipv6_cidrs": []}}""")).isNone
+    check parseCidrsResponse(Cloudflare, parseJson("""{"success": false, "result": {"ipv4_cidrs": [], "ipv6_cidrs": []}}""")).isNone
+    check parseCidrsResponse(Cloudflare, parseJson("""{"success": true, "result": {"ipv4_cidrs": []}}""")).isNone
+    check parseCidrsResponse(Cloudflare, parseJson("{}")).isNone
+    check parseCidrsResponse(Cloudflare, parseJson("""{"success": true, "result": {"ipv4_cidrs": ["1.1.1.0/24"], "ipv6_cidrs": []}}""")).isNone
+    check parseCidrsResponse(Fastly, parseJson("{}")).isNone
+    check parseCidrsResponse(Fastly, parseJson("""{"addresses": ["1.1.1.0/24"], "ipv6_addresses": []}""")).isNone
+    # a Cloudflare response is not a Fastly one
+    check parseCidrsResponse(Fastly, apiResponse).isNone
 
   test "written file gives back the same etag and CIDRs":
     # the etag decides if nginx gets reloaded, the CIDRs feed nftables
     let path = tempDir / "nginwho"
-    let cidrs = parseCidrsResponse(apiResponse).get
+    let cidrs = parseCidrsResponse(Cloudflare, apiResponse).get
     check populateReverseProxyFile(path, cidrs)
 
     check getCurrentEtag(path) == cidrs.etag
@@ -177,6 +212,19 @@ suite "cloudflare CIDRs file":
     let content = readFile(path)
     check "set_real_ip_from 173.245.48.0/20;" in content
     check "real_ip_header CF-Connecting-IP;" in content
+
+  test "the Fastly file trusts Fastly's header":
+    let path = tempDir / "nginwho_fastly"
+    let cidrs = parseCidrsResponse(Fastly, fastlyResponse).get
+    check populateReverseProxyFile(path, cidrs)
+
+    check getCurrentEtag(path) == cidrs.etag
+
+    let content = readFile(path)
+    check "# Fastly ranges" in content
+    check "set_real_ip_from 151.101.0.0/16;" in content
+    check "set_real_ip_from 2a04:4e42::/32;" in content
+    check "real_ip_header Fastly-Client-IP;" in content
 
   test "no etag when the file does not exist":
     check getCurrentEtag(tempDir / "missing") == ""

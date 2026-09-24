@@ -10,12 +10,15 @@ All notable changes to **nginwho** are listed here.
 - The trap also works without nginx. With `--serve`, nginwho's own server hands what it can't serve to the trap directly, and real files and typos are served as usual.
 - Every trapped request is saved in a new `trap_hits` table: who it was, what they wanted, what we did, how long we held them and any credentials they typed. The hit is written as soon as the trap starts, so a slow drip still shows up right away.
 - Report mode has four new trap reports: top attackers, what they wanted, top probed paths and credentials tried.
+- Fastly support. `--cdn:fastly` (or `cdn = fastly` under `[nginx]` in the config file) makes `--showRealIps` and `--blockUntrustedCidrs` use Fastly's ranges instead of Cloudflare's. nginx then reads the visitor IP from the `Fastly-Client-IP` header, see the README to stop visitors from faking it.
 - A config file at `/etc/nginwho/nginwho.conf` (`--config` to point elsewhere). Command line flags override it. A sample `nginwho.conf` is in the repository.
 
 ### Changed
 
 - Every feature is off unless you turn it on, including reading nginx logs. Add `--processNginxLogs` (or `process_logs = true` under `[nginx]` in the config file) to keep collecting logs. Before, `nginwho --trap` also read the nginx log and quit when the log was missing.
 - `--blockUntrustedCidrs` fetches Cloudflare's ranges itself. Before, without `--showRealIps` it read them once from `/etc/nginx/nginwho`, a file only `--showRealIps` writes. A failed fetch is retried after a minute instead of six hours.
+- The `etag` in `/etc/nginx/nginwho` is now a hash of the CIDRs, since Fastly's API has no etag. nginx is reloaded once after upgrading.
+- The `nginwho` nftables chain only keeps the drop rules for the current CDN. Any other rule in it is removed.
 - An nftables error is logged and no longer stops nginwho, so log collection, the trap and the server keep running.
 - The database moved from `/var/log/nginwho.db` to `/var/lib/nginwho/nginwho.db`, where program data belongs on Linux. If `/var/log/nginwho.db` exists and the new one does not, nginwho keeps using the old one and warns you to move it. A `path` set in the config file or `--dbPath` is used as is.
 - Dates are saved in the `nginwho` table as unix seconds instead of in their own `dates` table. Nearly every log has its own date, so that table and its index were bigger than the logs themselves. A real 90.7 MB database went down to 54.9 MB.

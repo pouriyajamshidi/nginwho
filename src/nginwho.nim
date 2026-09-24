@@ -9,14 +9,14 @@ from std/logging import addHandler, newConsoleLogger, info, error, warn, setLogF
 
 from nginx import Log, isStaticAsset, readChunkBytes, ensureNginxExists, ensureNginxLogExists,
     parseLogEntry, readNewLines, offsetAfterLastInserted
-from cloudflare import fetchAndProcessIPCidrs
+from cdn import Cdn, fetchAndProcessIPCidrs
 from nftables import ensureNftExists
 from database import getDbConnection, closeDbConnection,
     createTables, insertLogs, migrateV1ToV2, getLastRow
 from report import report
 from server import serve
 from trap import trap, trapHook
-from config import Args, readConfigFile, parsePort, parseInterval, defaultConfigFile,
+from config import Args, readConfigFile, parsePort, parseInterval, parseCdn, defaultConfigFile,
     defaultDbPath, oldDbPath, nginxLogPath, serveLogPath
 
 
@@ -44,9 +44,10 @@ proc usage(errorCode: int = 0) =
                             or /var/log/nginwho/access.log with '--serve')
   --interval              : Refresh interval in seconds (default: 10)
   --omitReferrer          : Omit a specific referrer from being logged (default: none)
-  --showRealIps           : Show real IP of visitors by getting Cloudflare CIDRs to include in nginx config.
+  --showRealIps           : Show real IP of visitors by getting the CDN's CIDRs to include in nginx config.
                             Self-updates every six hours (default: false)
-  --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows Cloudflare CIDRs (default: false)
+  --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows the CDN's CIDRs (default: false)
+  --cdn                   : The CDN in front of your site, cloudflare or fastly (default: cloudflare)
   --processNginxLogs      : Process nginx logs (default: false)
   --serve                 : Serve static files and write nginx style logs to '--logPath' (default: false)
   --root                  : Directory to serve files from (default: /var/www/html)
@@ -122,6 +123,7 @@ proc getArgs(): Args =
         of "dbPath": args.dbPath = p.val
         of "interval": args.interval = parseInterval(p.val)
         of "omitReferrer": args.omitReferrer = p.val
+        of "cdn": args.cdn = parseCdn(p.val)
         of "showRealIps": args.showRealIPs = p.val == "" or parseBool(p.val)
         of "blockUntrustedCidrs": args.blockUntrustedCidrs = p.val == "" or parseBool(p.val)
         of "processNginxLogs": args.processNginxLogs = p.val == "" or parseBool(p.val)
@@ -282,9 +284,12 @@ proc main() =
 
   if args.showRealIPs:
     warn("Do not forget to add `include /etc/nginx/nginwho;` in your nginx config file")
+    if args.cdn == Fastly:
+      warn("Fastly keeps a Fastly-Client-IP header sent by visitors, so they can fake their IP. " &
+          "Set it to client.ip in your Fastly VCL, see the README")
 
   if args.showRealIPs or args.blockUntrustedCidrs:
-    asyncCheck fetchAndProcessIPCidrs(args.showRealIPs, args.blockUntrustedCidrs)
+    asyncCheck fetchAndProcessIPCidrs(args.cdn, args.showRealIPs, args.blockUntrustedCidrs)
 
   runForever()
 

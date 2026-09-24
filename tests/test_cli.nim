@@ -45,7 +45,7 @@ suite "cli":
     check not fileExists(missing)
 
   test "bad flag values exit with an error instead of crashing":
-    for args in ["--interval=abc", "--interval=0", "--showRealIps=maybe"]:
+    for args in ["--interval=abc", "--interval=0", "--showRealIps=maybe", "--cdn=akamai"]:
       let (output, exitCode) = run(args)
       check exitCode == 1
       check "Bad value" in output
@@ -53,7 +53,8 @@ suite "cli":
   test "bad config values are reported and the defaults are kept":
     let conf = tempDir / "bad.conf"
     writeFile(conf, "[nginx]\ninterval = 0\n[server]\nport = 70000\n[trap]\nport = abc\n" &
-        "max_connections = 0\ndrip_min_ms = 900\ndrip_max_ms = 100\n")
+        "max_connections = 0\ndrip_min_ms = 900\ndrip_max_ms = 100\n" &
+        "[nginx]\ncdn = akamai\n")
     # --report with a missing database reads the config and then stops
     let (output, _) = run("--config=" & quoteShell(conf) & " --report --dbPath=" &
         quoteShell(tempDir / "missing_config.db"))
@@ -62,6 +63,7 @@ suite "cli":
     check "Bad value 'abc' for port in [trap]" in output
     check "Bad value '0' for max_connections in [trap]: must be at least 1" in output
     check "drip_min_ms (900) is above drip_max_ms (100) in [trap]" in output
+    check "Bad value 'akamai' for cdn in [nginx]: must be cloudflare or fastly" in output
 
   test "a database that can't be opened ends the program with an error":
     let (output, exitCode) = run("--processNginxLogs --serve --root=" & quoteShell(tempDir) & " --port=18557" &
