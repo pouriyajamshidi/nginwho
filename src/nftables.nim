@@ -9,6 +9,9 @@ from std/net import parseIpAddress, IpAddress, IpAddressFamily
 
 
 type
+  NftError* = object of CatchableError
+    ## nftables could not be read or changed. Only the blocking stops, the rest of nginwho keeps going
+
   SetType = enum
     IPv4 = "ipv4_addr"
     IPv6 = "ipv6_addr"
@@ -137,8 +140,7 @@ proc applyRules(fileName: string = rulesFile) =
 
   let res: int = execCmd(fmt"nft -j -f {fileName}")
   if res != 0:
-    error("Failed applying nftables rules - Are you root?")
-    quit(1)
+    raise newException(NftError, "Failed applying nftables rules - Are you root?")
   else:
     info("Successfully applied nftables rules")
 
@@ -455,8 +457,7 @@ proc createNftSetsFrom*(fileName: string): NftSet =
   info(fmt"Fetching NFT Sets from {fileName}")
 
   if not fileExists(fileName):
-    error(fmt"{fileName} does not exist")
-    quit(1)
+    raise newException(NftError, fmt"{fileName} does not exist, run with --showRealIps once to create it")
 
   var ipv4Cidrs: seq[string] = @[]
   var ipv6Cidrs: seq[string] = @[]
@@ -508,8 +509,7 @@ proc getCurrentRules(): JsonNode =
 
   # we can't decide which rules to add without the current ones
   if result.isNil:
-    error("Could not get current nftables rules - Are you root?")
-    quit(1)
+    raise newException(NftError, "Could not get current nftables rules - Are you root?")
 
 
 proc writeRulesAndApply(rules: JsonNode) =
@@ -560,15 +560,15 @@ proc runPrechecks(nftSet: NftSet): NftAttrs =
   let nftOutput: JsonNode = getCurrentRules()
 
   if not inetFilterExists(nftOutput):
-    error("nftables `inet` filter not found")
     info("Please create one manually using this sample:\n\n",
         fmt"{samplePolicy}")
-    quit(1)
+    raise newException(NftError, "nftables `inet` filter not found")
 
   return requiredChanges(nftOutput, nftSet)
 
 
 proc acceptOnly*(nftSet: NftSet) =
+  ## Raises NftError when the rules can't be checked or applied
   info(fmt"Using `{getRulesetCmd}` to construct nftables rules ")
 
   if nftSet.ipv4.len() == 0 and nftSet.ipv6.len() == 0:

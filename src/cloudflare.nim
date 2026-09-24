@@ -9,7 +9,7 @@ from std/os import fileExists
 from std/logging import info, error, warn
 
 from nginx import reloadNginx, dateFormat
-from nftables import acceptOnly, NftSet
+from nftables import acceptOnly, NftSet, NftError
 
 
 type
@@ -129,7 +129,11 @@ proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool = false) {.async.} =
 
       if blockUntrustedCidrs:
         warn("will block untrusted CIDRs using nftables")
-        acceptOnly(NftSet(ipv4: cidrs.ipv4, ipv6: cidrs.ipv6))
+        try:
+          acceptOnly(NftSet(ipv4: cidrs.ipv4, ipv6: cidrs.ipv6))
+        except NftError as e:
+          # a firewall problem must not stop the real IPs or anything else nginwho runs
+          error(e.msg)
 
       if currentEtag != cidrs.etag:
         # nginx reload is graceful and does not drop open connections

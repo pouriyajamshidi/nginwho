@@ -10,7 +10,7 @@ from std/logging import addHandler, newConsoleLogger, info, error, warn, setLogF
 from nginx import Log, isStaticAsset, readChunkBytes, ensureNginxExists, ensureNginxLogExists,
     parseLogEntry, readNewLines, offsetAfterLastInserted
 from cloudflare import fetchAndProcessIPCidrs, cidrFile
-from nftables import acceptOnly, ensureNftExists
+from nftables import acceptOnly, ensureNftExists, NftError
 from database import getDbConnection, closeDbConnection,
     createTables, insertLogs, migrateV1ToV2, getLastRow
 from report import report
@@ -240,6 +240,9 @@ proc runPreChecks(args: Args) =
       writeFile(args.logPath, "")
   elif args.processNginxLogs:
     ensureNginxLogExists(args.logPath)
+
+  # only --showRealIps runs nginx, to test and reload its config. reading its log needs no nginx
+  if args.showRealIPs:
     ensureNginxExists()
 
   if args.blockUntrustedCidrs:
@@ -264,6 +267,10 @@ proc main() =
 
   runPreChecks(args)
 
+  # a one time job, so a failure here is a setup problem and stops nginwho before anything starts
+  if args.blockUntrustedCidrs and not args.showRealIPs:
+    acceptOnly(cidrFile)
+
   if args.serve:
     asyncCheck serve(args.root, args.logPath, Port(args.port))
 
@@ -277,9 +284,6 @@ proc main() =
     warn("Do not forget to add `include /etc/nginx/nginwho;` in your nginx config file")
     asyncCheck fetchAndProcessIPCidrs(args.blockUntrustedCidrs)
 
-  if args.blockUntrustedCidrs and not args.showRealIPs:
-    acceptOnly(cidrFile)
-
   # blocking CIDRs from the nginx file alone runs once and has nothing to wait for
   if hasPendingOperations():
     runForever()
@@ -287,7 +291,7 @@ proc main() =
 when isMainModule:
   try:
     main()
-  except DbError, IOError, OSError:
-    # a database that can't be opened or read ends the program, even from an async task
+  except DbError, IOError, OSError, NftError:
+    # these end the program when they happen at start, or in an async task
     error(getCurrentExceptionMsg())
     quit(1)
