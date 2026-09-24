@@ -177,34 +177,38 @@ proc fill(text: string, values: Table[string, string]): string =
     result = result.replace(placeholder, value)
 
 
-proc fakeFile(trap: Trap, path: string, values: Table[string, string]):
-    tuple[body, contentType: string] =
-  ## The fake file a bot gets for the path it asked for
+proc fakeFile(trap: Trap, path: string, values: Table[string, string], rng: Rng):
+    tuple[body, contentType, canary: string] =
+  ## The fake file a bot gets for the path it asked for, and the fake secret in it
+  ## that we can trace back to them. A file without a secret has no canary
   let p = path.toLowerAscii
+  let awsKey = values["{{AWS_KEY}}"]
 
   case trap
   of envFile:
-    return (fill(envTemplate, values), "text/plain")
+    return (fill(envTemplate, values), "text/plain", awsKey)
   of creds:
     if p.endsWith(".pem") or p.contains("id_rsa") or p.contains("key"):
-      let keyRng = newRng(hash(path))
-      var key = "-----BEGIN RSA PRIVATE KEY-----\n"
-      for _ in 1 .. 25:
-        key.add(token(keyRng, 64, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/") & "\n")
-      return (key & "-----END RSA PRIVATE KEY-----\n", "text/plain")
-    return (fill(credentialsTemplate, values), "text/plain")
+      let alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/"
+      # the first line is enough to recognize the key
+      let firstLine = token(rng, 64, alphabet)
+      var key = "-----BEGIN RSA PRIVATE KEY-----\n" & firstLine & "\n"
+      for _ in 2 .. 25:
+        key.add(token(rng, 64, alphabet) & "\n")
+      return (key & "-----END RSA PRIVATE KEY-----\n", "text/plain", firstLine)
+    return (fill(credentialsTemplate, values), "text/plain", awsKey)
   of gitRepo:
     if p.endsWith("head"):
-      return ("ref: refs/heads/main\n", "text/plain")
-    return (fill(gitConfigTemplate, values), "text/plain")
+      return ("ref: refs/heads/main\n", "text/plain", "")
+    return (fill(gitConfigTemplate, values), "text/plain", values["{{TOKEN}}"])
   of phpFile:
-    return (fill(phpinfoTemplate, values), "text/html")
+    return (fill(phpinfoTemplate, values), "text/html", awsKey)
   of apiDebug:
-    return (fill(actuatorTemplate, values), "application/json")
+    return (fill(actuatorTemplate, values), "application/json", awsKey)
   of rce:
-    return (fill(passwdTemplate, values), "text/plain")
+    return (fill(passwdTemplate, values), "text/plain", "")
   of configFile, backup, wordpress, adminPanel, wellKnown, noTrap:
-    return (fill(configTemplate, values), "application/json")
+    return (fill(configTemplate, values), "application/json", awsKey)
 
 
 proc endlessChunk(trap: Trap, rng: Rng, index: int,
@@ -378,8 +382,8 @@ proc play(client: AsyncSocket, req: Request, trap: Trap, tactic: Tactic,
     if req.httpMethod != "HEAD":
       await client.dripEndless(trap, values, cfg, rng, deadline, played)
   of drip:
-    let (body, contentType) = fakeFile(trap, req.path, values)
-    played.detail = values["{{AWS_KEY}}"]
+    let (body, contentType, canary) = fakeFile(trap, req.path, values, rng)
+    played.detail = canary
     await client.send(responseHead(Http200, false, [
       ("Content-Type", contentType), ("Content-Length", $body.len)]))
     if req.httpMethod != "HEAD":

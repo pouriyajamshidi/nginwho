@@ -2,9 +2,10 @@
 ## and can be reported on
 
 import std/[unittest, asyncdispatch, os]
-from std/asyncnet import newAsyncSocket, connect, send, recvLine, close
+from std/asyncnet import newAsyncSocket, connect, send, recv, recvLine, close
 from std/net import Port
-from db_connector/db_sqlite import DbConn
+from std/strutils import split, contains, startsWith
+from db_connector/db_sqlite import DbConn, getValue, sql
 
 from trap import classify, trap
 from types import TrapConfig, TrapHit
@@ -112,22 +113,52 @@ suite "trap hits":
     check getTrappedCredentials(db, 10).len == 1
 
 
-# a live trap in this process. a full drip of the fake .env takes over 15 seconds here
+# live traps in this process, talked to over a real socket
 let tempDir = getTempDir() / "nginwho_test_trap"
-let dbPath = tempDir / "trap.db"
-const trapPort = 18090
-
 removeDir(tempDir)
 createDir(tempDir)
-asyncCheck trap(TrapConfig(enabled: true, port: trapPort, maxConnections: 10,
-    maxSeconds: 60, dripMinMs: 20, dripMaxMs: 20, bombs: true, bombAfter: 100), dbPath)
+
+
+proc startTrap(port, dripMs: int): string =
+  ## Runs a trap and returns the path of its database
+  result = tempDir / ("trap_" & $port & ".db")
+  asyncCheck trap(TrapConfig(enabled: true, port: port, maxConnections: 10,
+      maxSeconds: 60, dripMinMs: dripMs, dripMaxMs: dripMs, bombs: true, bombAfter: 100), result)
+
+
+const
+  slowPort = 18090 # a full fake .env takes over 15 seconds here
+  fastPort = 18091
+let
+  slowDb = startTrap(slowPort, 20)
+  fastDb = startTrap(fastPort, 0)
+
+
+proc get(path, ip: string): string =
+  ## Asks the fast trap for a path as `ip` and returns the body once the trap is done
+  proc run(): Future[string] {.async.} =
+    let socket = newAsyncSocket()
+    defer: socket.close()
+    await socket.connect("127.0.0.1", Port(fastPort))
+    await socket.send("GET " & path & " HTTP/1.1\r\nHost: x\r\nX-Real-IP: " & ip & "\r\n\r\n")
+    while true:
+      let data = await socket.recv(4096)
+      if data == "":
+        break
+      result.add(data)
+  return waitFor(run()).split("\r\n\r\n", maxsplit = 1)[1]
+
+
+proc lastCanary(): string =
+  ## The trap closes the connection after saving the hit, so it is there by now
+  getDbConnection(fastDb).getValue(sql"SELECT detail FROM trap_hits ORDER BY id DESC LIMIT 1")
 
 
 suite "live trap":
   test "a bot that hangs up ends its trap":
     proc hangUpEarly() {.async.} =
       let socket = newAsyncSocket()
-      await socket.connect("127.0.0.1", Port(trapPort))
+      await socket.connect("127.0.0.1", Port(slowPort))
       await socket.send("GET /.env HTTP/1.1\r\nHost: x\r\nX-Real-IP: 45.9.1.10\r\n\r\n")
       discard await socket.recvLine() # the status line, then leave
       socket.close()
@@ -135,7 +166,27 @@ suite "live trap":
     waitFor hangUpEarly()
     waitFor sleepAsync(1000) # a moment for the trap to notice
 
-    let totals = getTrapTotals(getDbConnection(dbPath))
+    let totals = getTrapTotals(getDbConnection(slowDb))
     check totals.hits == 1
     check totals.bytes > 0 # the row is only filled in once the trap has ended
     check totals.bytes < 50
+
+  test "the canary saved is the secret the bot got":
+    for path in ["/.env", "/.aws/credentials", "/config.json", "/.ssh/id_rsa"]:
+      let body = get(path, "45.9.1.10")
+      check lastCanary() != ""
+      check lastCanary() in body
+
+    check get("/.git/config", "45.9.1.10").contains(lastCanary())
+    check lastCanary().startsWith("ghp_")
+
+  test "a file without a secret saves no canary":
+    discard get("/.git/HEAD", "45.9.1.10")
+    check lastCanary() == ""
+    discard get("/etc/passwd", "45.9.1.10")
+    check lastCanary() == ""
+
+  test "the same bot sees the same key, another bot a different one":
+    let key = get("/.ssh/id_rsa", "45.9.1.10")
+    check get("/.ssh/id_rsa", "45.9.1.10") == key
+    check get("/.ssh/id_rsa", "203.0.113.5") != key
