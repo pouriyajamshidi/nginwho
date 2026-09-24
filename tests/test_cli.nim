@@ -52,13 +52,16 @@ suite "cli":
 
   test "bad config values are reported and the defaults are kept":
     let conf = tempDir / "bad.conf"
-    writeFile(conf, "[nginx]\ninterval = 0\n[server]\nport = 70000\n[trap]\nport = abc\n")
+    writeFile(conf, "[nginx]\ninterval = 0\n[server]\nport = 70000\n[trap]\nport = abc\n" &
+        "max_connections = 0\ndrip_min_ms = 900\ndrip_max_ms = 100\n")
     # --report with a missing database reads the config and then stops
     let (output, _) = run("--config=" & quoteShell(conf) & " --report --dbPath=" &
         quoteShell(tempDir / "missing_config.db"))
     check "Bad value '0' for interval in [nginx]: must be at least 1" in output
     check "Bad value '70000' for port in [server]: must be between 1 and 65535" in output
     check "Bad value 'abc' for port in [trap]" in output
+    check "Bad value '0' for max_connections in [trap]: must be at least 1" in output
+    check "drip_min_ms (900) is above drip_max_ms (100) in [trap]" in output
 
   test "a database that can't be opened ends the program with an error":
     let (output, exitCode) = run("--processNginxLogs --serve --root=" & quoteShell(tempDir) & " --port=18557" &

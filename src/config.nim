@@ -52,6 +52,14 @@ proc parseInterval*(value: string): int =
   return seconds * 1000
 
 
+proc atLeast(min: int): proc (value: string): int =
+  ## A parser for whole numbers that can't go below `min`
+  return proc (value: string): int =
+    result = parseInt(value)
+    if result < min:
+      raise newException(ValueError, fmt"must be at least {min}")
+
+
 proc getString(config: Config, section, key: string, fallback: string): string =
   let value = config.getSectionValue(section, key)
   return if value == "": fallback else: value
@@ -98,9 +106,16 @@ proc readConfigFile*(path: string, args: var Args) =
 
   args.trap.enabled = config.get("trap", "enabled", args.trap.enabled, parseBool)
   args.trap.port = config.get("trap", "port", args.trap.port, parsePort)
-  args.trap.maxConnections = config.get("trap", "max_connections", args.trap.maxConnections, parseInt)
-  args.trap.maxSeconds = config.get("trap", "max_seconds", args.trap.maxSeconds, parseInt)
-  args.trap.dripMinMs = config.get("trap", "drip_min_ms", args.trap.dripMinMs, parseInt)
-  args.trap.dripMaxMs = config.get("trap", "drip_max_ms", args.trap.dripMaxMs, parseInt)
+  args.trap.maxConnections = config.get("trap", "max_connections", args.trap.maxConnections, atLeast(1))
+  args.trap.maxSeconds = config.get("trap", "max_seconds", args.trap.maxSeconds, atLeast(1))
+  args.trap.dripMinMs = config.get("trap", "drip_min_ms", args.trap.dripMinMs, atLeast(0))
+  args.trap.dripMaxMs = config.get("trap", "drip_max_ms", args.trap.dripMaxMs, atLeast(0))
   args.trap.bombs = config.get("trap", "bombs", args.trap.bombs, parseBool)
-  args.trap.bombAfter = config.get("trap", "bomb_after", args.trap.bombAfter, parseInt)
+  args.trap.bombAfter = config.get("trap", "bomb_after", args.trap.bombAfter, atLeast(0))
+
+  # the pause between drips is picked from min to max, which can't be an empty range
+  if args.trap.dripMinMs > args.trap.dripMaxMs:
+    error(fmt"drip_min_ms ({args.trap.dripMinMs}) is above drip_max_ms ({args.trap.dripMaxMs}) " &
+        "in [trap]. Keeping the defaults for both")
+    args.trap.dripMinMs = TrapConfig().dripMinMs
+    args.trap.dripMaxMs = TrapConfig().dripMaxMs
