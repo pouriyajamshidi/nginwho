@@ -268,13 +268,19 @@ proc tacticFor(trap: Trap, path: string, repeatOffender: bool, cfg: TrapConfig):
     result = endless
 
 
+proc sendOrFail(client: AsyncSocket, data: string) {.async.} =
+  ## asyncnet quietly ignores a closed connection by default. A trap needs to know,
+  ## or it keeps playing to a bot that already left
+  await client.send(data, flags = {})
+
+
 proc dripBody(client: AsyncSocket, body: string, cfg: TrapConfig, rng: Rng,
     deadline: float, played: Played) {.async.} =
   ## Sends a fake file one byte at a time. They almost never get to the end
   for c in body:
     if epochTime() > deadline:
       break
-    await client.send($c)
+    await client.sendOrFail($c)
     played.bytes.inc
     await sleepAsync(rng.rand(cfg.dripMinMs .. cfg.dripMaxMs))
 
@@ -284,7 +290,7 @@ proc dripEndless(client: AsyncSocket, trap: Trap, values: Table[string, string],
   var index = 0
   while epochTime() < deadline:
     let chunk = endlessChunk(trap, rng, index, values)
-    await client.send(chunk)
+    await client.sendOrFail(chunk)
     played.bytes.inc(chunk.len)
     index.inc
     await sleepAsync(rng.rand(cfg.dripMinMs .. cfg.dripMaxMs))
@@ -295,7 +301,7 @@ proc sendBomb(client: AsyncSocket, deadline: float, played: Played) {.async.} =
   for _ in 1 .. TRAP_BOMB_MEMBERS:
     if epochTime() > deadline:
       break
-    await client.send(zerosGz)
+    await client.sendOrFail(zerosGz)
     played.bytes.inc(zerosGz.len)
 
 

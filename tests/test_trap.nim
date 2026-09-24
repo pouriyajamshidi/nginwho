@@ -1,11 +1,13 @@
 ## Tests the trap: which bad path maps to which target, and that hits are saved
 ## and can be reported on
 
-import std/unittest
+import std/[unittest, asyncdispatch, os]
+from std/asyncnet import newAsyncSocket, connect, send, recvLine, close
+from std/net import Port
 from db_connector/db_sqlite import DbConn
 
-from trap import classify
-from types import TrapHit
+from trap import classify, trap
+from types import TrapConfig, TrapHit
 from database import getDbConnection, createTables, insertTrapHit, finishTrapHit,
     getTopTrappedIPs, getTopTraps, getTopTrappedURIs, getTrappedCredentials, getTrapTotals
 
@@ -108,3 +110,32 @@ suite "trap hits":
       requestURI: "/.env", userAgent: "x", trap: "env", tactic: "drip"))
     db.finishTrapHit(id2, 10, 1, "")
     check getTrappedCredentials(db, 10).len == 1
+
+
+# a live trap in this process. a full drip of the fake .env takes over 15 seconds here
+let tempDir = getTempDir() / "nginwho_test_trap"
+let dbPath = tempDir / "trap.db"
+const trapPort = 18090
+
+removeDir(tempDir)
+createDir(tempDir)
+asyncCheck trap(TrapConfig(enabled: true, port: trapPort, maxConnections: 10,
+    maxSeconds: 60, dripMinMs: 20, dripMaxMs: 20, bombs: true, bombAfter: 100), dbPath)
+
+
+suite "live trap":
+  test "a bot that hangs up ends its trap":
+    proc hangUpEarly() {.async.} =
+      let socket = newAsyncSocket()
+      await socket.connect("127.0.0.1", Port(trapPort))
+      await socket.send("GET /.env HTTP/1.1\r\nHost: x\r\nX-Real-IP: 45.9.1.10\r\n\r\n")
+      discard await socket.recvLine() # the status line, then leave
+      socket.close()
+
+    waitFor hangUpEarly()
+    waitFor sleepAsync(1000) # a moment for the trap to notice
+
+    let totals = getTrapTotals(getDbConnection(dbPath))
+    check totals.hits == 1
+    check totals.bytes > 0 # the row is only filled in once the trap has ended
+    check totals.bytes < 50
