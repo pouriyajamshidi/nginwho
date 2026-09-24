@@ -226,7 +226,9 @@ real site read-only and still showing a normal 404 page for genuine typos:
 # a genuine missing page shows this. bots reach the trap through @trap instead
 error_page 404 /404.html;
 
-# blocked scrapers (403) and probe POSTs (405) are handed to the trap
+# blocked scrapers (403) and probe POSTs (405) are handed to the trap. if the trap
+# returns a 404 for one of these, they get nginx's plain 404 page instead of 404.html.
+# that is fine, they are not welcome here
 error_page 403 405 = @trap;
 
 location @trap {
