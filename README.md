@@ -80,16 +80,16 @@ sudo systemctl enable --now nginwho.service
 > If you have been a user since version 1, please check out [this section](#migrating-v1-database-to-v2) to migrate your database scheme to version 2.
 
 ```bash
-nginwho --logPath:/var/log/nginx/access.log --dbPath:/var/log/nginwho.db
+nginwho --logPath:/var/log/nginx/access.log --dbPath:/var/lib/nginwho/nginwho.db
 
 # If you want to omit a certain referrer from being logged (replace thegraynode.io with your domain):
 nginwho --logPath:/var/log/nginx/access.log \
-        --dbPath:/var/log/nginwho.db \
+        --dbPath:/var/lib/nginwho/nginwho.db \
         --omitReferrer:thegraynode.io
 
 # If you want to get real IP addresses of the visitors coming from Cloudflare:
 nginwho --logPath:/var/log/nginx/access.log \
-        --dbPath:/var/log/nginwho.db \
+        --dbPath:/var/lib/nginwho/nginwho.db \
         --showRealIps:true
 ```
 
@@ -102,8 +102,9 @@ Here are the available flags:
 ```text
   --help, -h              : Show help
   --version, -v           : Display version and quit
-  --dbPath                : Path to SQLite database to log reports (default: /var/log/nginwho.db)
-  --logPath               : Path to nginx access logs (default: /var/log/nginx/access.log)
+  --dbPath                : Path to SQLite database to log reports (default: /var/lib/nginwho/nginwho.db)
+  --logPath               : Path to nginx access logs (default: /var/log/nginx/access.log,
+                            or /var/log/nginwho/access.log with '--serve')
   --interval              : Refresh interval in seconds (default: 10)
   --omitReferrer          : Omit a specific referrer from being logged (default: none)
   --showRealIps           : Show real IP of visitors by getting Cloudflare CIDRs to include in nginx config.
@@ -123,7 +124,7 @@ Here are the available flags:
   --migrateV1ToV2Db       : Migrate V1 database to V2 and exit (default: false).
                             Use with '--v1DbPath' and '--v2DbPath' flags
   --v1DbPath              : Path and name of the V1 database (e.g: /var/log/nginwho_v1.db)
-  --v2DbPath              : Path and name of the V2 database (e.g: /var/log/nginwho.db)
+  --v2DbPath              : Path and name of the V2 database (e.g: /var/lib/nginwho/nginwho.db)
 
 ```
 
@@ -133,7 +134,7 @@ Let's see how nginwho works in a somewhat detailed yet short fashion.
 
 ### nginx Log Parser
 
-**nginwho** by default reads `nginx` logs from `/var/log/nginx/access.log` and stores the parsed results in a **sqlite3** database located in `/var/log/nginwho.db` unless overridden by the [available flags](#flags).
+**nginwho** by default reads `nginx` logs from `/var/log/nginx/access.log` and stores the parsed results in a **sqlite3** database located in `/var/lib/nginwho/nginwho.db` unless overridden by the [available flags](#flags).
 
 It only reads the lines added since the last read, picks up where it left off after a restart and handles log rotation. Requests for static files (`.js`, `.css` and `.woff2`) are not stored, so reports show fewer requests than the raw log.
 
@@ -192,7 +193,7 @@ Running **nginwho** with the `--report` flag will launch an interactive menu, pr
 The database file is only readable by the user that created it, so if nginwho runs as a service (root), use `sudo`:
 
 ```bash
-sudo nginwho --report --dbPath:/var/log/nginwho.db
+sudo nginwho --report --dbPath:/var/lib/nginwho/nginwho.db
 ```
 
 ### Trap mode

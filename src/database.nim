@@ -4,7 +4,7 @@ from db_connector/sqlite3 import PStmt, bind_text, step, reset, finalize,
     SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT
 from std/tables import initTable, mgetOrPut, pairs
 from std/strformat import fmt
-from std/os import fileExists, setFilePermissions, FilePermission
+from std/os import fileExists, setFilePermissions, FilePermission, createDir, parentDir
 from std/strutils import parseInt, contains, split, formatFloat, ffDecimal
 from std/times import format, epochTime
 from std/logging import info, warn, error
@@ -98,6 +98,9 @@ proc getDbConnection*(dbPath: string): DbConn =
   let isNewFile = dbPath != ":memory:" and not fileExists(dbPath)
 
   try:
+    # SQLite creates the file but not its folder, such as /var/lib/nginwho
+    if isNewFile and dbPath.parentDir != "":
+      createDir(dbPath.parentDir)
     let connection: DbConn = open(dbPath, "", "", "")
     # WAL lets --report read while the service writes
     connection.exec(sql"PRAGMA journal_mode = WAL")

@@ -11,6 +11,11 @@ ExecStart=/usr/local/bin/nginwho
 Restart=on-failure
 RestartSec=5
 
+# systemd creates /var/lib/nginwho for the database and /var/log/nginwho for the --serve log
+StateDirectory=nginwho
+StateDirectoryMode=0700
+LogsDirectory=nginwho
+
 # hardening. nginwho only writes its database, the nginx CIDRs file and the nftables rules file
 NoNewPrivileges=yes
 PrivateTmp=yes

@@ -9,11 +9,19 @@ from std/logging import info, error
 from trap import TrapConfig
 
 
+const
+  defaultConfigFile* = "/etc/nginwho/nginwho.conf"
+  defaultDbPath* = "/var/lib/nginwho/nginwho.db"
+  oldDbPath* = "/var/log/nginwho.db" # where versions before 2.5.0 kept it
+  nginxLogPath* = "/var/log/nginx/access.log"
+  serveLogPath* = "/var/log/nginwho/access.log"
+
+
 type
   Args* = object
     ## Settings from the config file and the command line. The values here are the defaults
-    logPath*: string = "/var/log/nginx/access.log"
-    dbPath*: string = "/var/log/nginwho.db"
+    logPath*: string # empty means nginxLogPath, or serveLogPath with --serve
+    dbPath*: string = defaultDbPath
     interval*: int = 10_000 # milliseconds
     omitReferrer*: string
     showRealIPs*: bool
@@ -28,8 +36,6 @@ type
     v2DbPath*: string
     trap*: TrapConfig
 
-
-const defaultConfigFile* = "/etc/nginwho/nginwho.conf"
 
 
 proc parsePort*(value: string): int =

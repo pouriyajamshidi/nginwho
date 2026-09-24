@@ -2,7 +2,7 @@ import std/asyncdispatch
 from std/strformat import fmt
 from std/strutils import parseBool, splitLines, startsWith, split, strip
 from db_connector/db_sqlite import DbConn, DbError
-from std/os import getFileInfo, FileInfo, FileId, dirExists, fileExists
+from std/os import getFileInfo, FileInfo, FileId, dirExists, fileExists, createDir, parentDir
 from std/net import Port
 from std/parseopt import CmdLineKind, initOptParser, next
 from std/logging import addHandler, newConsoleLogger, info, error, warn, setLogFilter, lvlError
@@ -16,7 +16,8 @@ from database import getDbConnection, closeDbConnection,
 from report import report
 from server import serve
 from trap import trap
-from config import Args, readConfigFile, defaultConfigFile, parsePort, parseInterval
+from config import Args, readConfigFile, parsePort, parseInterval, defaultConfigFile,
+    defaultDbPath, oldDbPath, nginxLogPath, serveLogPath
 
 
 proc nimbleVersion(): string =
@@ -38,8 +39,9 @@ proc usage(errorCode: int = 0) =
 
   --help, -h              : Show help
   --version, -v           : Display version and quit
-  --dbPath                : Path to SQLite database to log reports (default: /var/log/nginwho.db)
-  --logPath               : Path to nginx access logs (default: /var/log/nginx/access.log)
+  --dbPath                : Path to SQLite database to log reports (default: /var/lib/nginwho/nginwho.db)
+  --logPath               : Path to nginx access logs (default: /var/log/nginx/access.log,
+                            or /var/log/nginwho/access.log with '--serve')
   --interval              : Refresh interval in seconds (default: 10)
   --omitReferrer          : Omit a specific referrer from being logged (default: none)
   --showRealIps           : Show real IP of visitors by getting Cloudflare CIDRs to include in nginx config.
@@ -59,7 +61,7 @@ proc usage(errorCode: int = 0) =
   --migrateV1ToV2Db       : Migrate V1 database to V2 and exit (default: false).
                             Use with '--v1DbPath' and '--v2DbPath' flags
   --v1DbPath              : Path and name of the V1 database (e.g: /var/log/nginwho_v1.db)
-  --v2DbPath              : Path and name of the V2 database (e.g: /var/log/nginwho.db)
+  --v2DbPath              : Path and name of the V2 database (e.g: /var/lib/nginwho/nginwho.db)
 
   """
   quit(errorCode)
@@ -128,6 +130,15 @@ proc getArgs(): Args =
         error(fmt"Bad value '{p.val}' for --{p.key}: {e.msg}")
         usage(1)
     of cmdArgument: discard
+
+  # the server writes its own log, the nginx one belongs to nginx
+  if args.logPath == "":
+    args.logPath = if args.serve: serveLogPath else: nginxLogPath
+
+  # older versions kept the database in /var/log. keep using it until it is moved
+  if args.dbPath == defaultDbPath and not fileExists(defaultDbPath) and fileExists(oldDbPath):
+    warn(fmt"Using the old database at {oldDbPath}. Stop nginwho and move it to {defaultDbPath}")
+    args.dbPath = oldDbPath
 
   if args.migrateV1ToV2Db and (args.v1DbPath == "" or args.v2DbPath == ""):
     error("Migration needs '--v1DbPath' and '--v2DbPath' flags")
@@ -225,6 +236,7 @@ proc runPreChecks(args: Args) =
       quit(1)
     # the server creates the log, nginx is not needed
     if not fileExists(args.logPath):
+      createDir(args.logPath.parentDir)
       writeFile(args.logPath, "")
   elif args.processNginxLogs:
     ensureNginxLogExists(args.logPath)
@@ -275,7 +287,7 @@ proc main() =
 when isMainModule:
   try:
     main()
-  except DbError, IOError:
+  except DbError, IOError, OSError:
     # a database that can't be opened or read ends the program, even from an async task
     error(getCurrentExceptionMsg())
     quit(1)
