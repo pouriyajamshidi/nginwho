@@ -9,7 +9,12 @@ from std/strformat import fmt
 from std/mimetypes import newMimetypes, getMimetype
 from std/logging import info, error
 
-from consts import SERVER_MAX_LINE, SERVER_MAX_HEADERS, SERVER_HEAD_TIMEOUT, SERVER_CHUNK_BYTES
+
+const
+  maxLine = 8192
+  maxHeaders = 100
+  headTimeout* = 10_000 # milliseconds to send the headers, also the keep-alive timeout
+  chunkBytes = 64 * 1024
 
 
 type Request* = object
@@ -28,16 +33,16 @@ proc readRequest*(client: AsyncSocket): Future[Request] {.async.} =
   ## Reads the request line and headers. An empty `line` means the client left,
   ## an empty `httpMethod` means the request is broken
   result.headers = newHttpHeaders()
-  result.line = await client.recvLine(maxLength = SERVER_MAX_LINE)
-  if result.line in ["", "\r\n"] or result.line.len == SERVER_MAX_LINE:
+  result.line = await client.recvLine(maxLength = maxLine)
+  if result.line in ["", "\r\n"] or result.line.len == maxLine:
     return
 
-  for i in 0 .. SERVER_MAX_HEADERS:
-    let line = await client.recvLine(maxLength = SERVER_MAX_LINE)
+  for i in 0 .. maxHeaders:
+    let line = await client.recvLine(maxLength = maxLine)
     if line == "\r\n":
       break
     let colon = line.find(':')
-    if line == "" or line.len == SERVER_MAX_LINE or colon < 1 or i == SERVER_MAX_HEADERS:
+    if line == "" or line.len == maxLine or colon < 1 or i == maxHeaders:
       return
     result.headers.add(line[0 ..< colon].strip(), line[colon + 1 .. ^1].strip())
 
@@ -152,7 +157,7 @@ proc sendFile(client: AsyncSocket, req: Request, path: string, status: HttpCode,
   if req.httpMethod == "HEAD":
     return
 
-  var buffer = newString(SERVER_CHUNK_BYTES)
+  var buffer = newString(chunkBytes)
   while true:
     let n = file.readBuffer(buffer[0].addr, buffer.len)
     if n <= 0:
@@ -212,7 +217,7 @@ proc handleClient(client: AsyncSocket, root, logPath: string) {.async.} =
 
     while true:
       let reading = client.readRequest()
-      if not await reading.withTimeout(SERVER_HEAD_TIMEOUT):
+      if not await reading.withTimeout(headTimeout):
         return
       let req = reading.read()
       if req.line in ["", "\r\n"]:

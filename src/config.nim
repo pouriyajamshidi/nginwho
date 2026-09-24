@@ -6,7 +6,30 @@ from std/strformat import fmt
 from std/os import fileExists
 from std/logging import info, error
 
-from types import Args
+from trap import TrapConfig
+
+
+type
+  Args* = object
+    ## Settings from the config file and the command line. The values here are the defaults
+    logPath*: string = "/var/log/nginx/access.log"
+    dbPath*: string = "/var/log/nginwho.db"
+    interval*: int = 10_000 # milliseconds
+    omitReferrer*: string
+    showRealIPs*: bool
+    blockUntrustedCidrs*: bool
+    processNginxLogs*: bool = true
+    serve*: bool
+    root*: string = "/var/www/html"
+    port*: int = 80
+    report*: bool
+    migrateV1ToV2Db*: bool
+    v1DbPath*: string
+    v2DbPath*: string
+    trap*: TrapConfig
+
+
+const defaultConfigFile* = "/etc/nginwho/nginwho.conf"
 
 
 proc getString(config: Config, section, key: string, fallback: string): string =

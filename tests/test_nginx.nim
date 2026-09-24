@@ -2,9 +2,8 @@ import std/[unittest, os, json]
 from std/options import isSome, isNone, get
 from std/strutils import contains
 
-from types import Log, Logs, Cidrs
-from nginx import parseLogEntry, readNewLines, offsetAfterLastInserted, populateReverseProxyFile
-from cloudflare import getCurrentEtag, parseCidrsResponse
+from nginx import Log, parseLogEntry, readNewLines, offsetAfterLastInserted
+from cloudflare import Cidrs, getCurrentEtag, parseCidrsResponse, populateReverseProxyFile
 from nftables import createNftSetsFrom
 
 let tempDir = getTempDir() / "nginwho_test_nginx"

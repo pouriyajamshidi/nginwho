@@ -5,7 +5,7 @@ from std/osproc import execCmdEx
 from std/strutils import splitLines, strip, contains
 from db_connector/db_sqlite import Row, open, close, exec, getAllRows, sql
 
-from consts import VERSION
+from nginwho import version
 
 let tempDir = getTempDir() / "nginwho_test_cli"
 let binary = tempDir / "nginwho"
@@ -24,9 +24,9 @@ proc run(args: string): tuple[output: string, exitCode: int] =
 suite "cli":
   test "version matches nginwho.nimble":
     const nimble = staticRead("../nginwho.nimble")
-    check ("version       = \"" & VERSION & "\"") in nimble
+    check ("version       = \"" & version & "\"") in nimble
     # log lines are printed before the version
-    check run("--version").output.strip().splitLines()[^1] == VERSION
+    check run("--version").output.strip().splitLines()[^1] == version
 
   test "exits with an error when told to do nothing":
     check run("--processNginxLogs=false").exitCode == 1

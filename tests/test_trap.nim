@@ -7,9 +7,8 @@ from std/net import Port
 from std/strutils import split, contains, startsWith
 from db_connector/db_sqlite import DbConn, getValue, getAllRows, sql
 
-from trap import classify, trap
-from types import TrapConfig, TrapHit
-from database import getDbConnection, createTables, insertTrapHit, finishTrapHit,
+from trap import TrapConfig, classify, trap
+from database import TrapHit, getDbConnection, createTables, insertTrapHit, finishTrapHit,
     getTopTrappedIPs, getTopTraps, getTopTrappedURIs, getTrappedCredentials, getTrapTotals
 
 

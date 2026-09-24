@@ -17,13 +17,22 @@ from std/uri import decodeUrl
 from std/logging import info, error
 from db_connector/db_sqlite import DbConn
 
-from consts import DATE_FORMAT, SERVER_HEAD_TIMEOUT, TRAP_BOMB_MEMBERS, TRAP_MAX_BODY_BYTES
-from types import TrapConfig, TrapHit
-from server import Request, readRequest, readBody, header, responseHead
-from database import getDbConnection, createTables, insertTrapHit, finishTrapHit
+from nginx import dateFormat
+from server import Request, readRequest, readBody, header, responseHead, headTimeout
+from database import TrapHit, getDbConnection, createTables, insertTrapHit, finishTrapHit
 
 
 type
+  TrapConfig* = object
+    enabled*: bool
+    port*: int = 7777
+    maxConnections*: int = 200
+    maxSeconds*: int = 900
+    dripMinMs*: int = 500
+    dripMaxMs*: int = 700
+    bombs*: bool = true
+    bombAfter*: int = 3 # trapped hits from one IP in a day before it gets a bomb
+
   Trap = enum
     ## What the bot was after
     noTrap = "none"
@@ -60,6 +69,9 @@ const
   # 1 MiB of zeros gzipped. gzip members can be glued together, so sending this
   # file over and over unpacks into one huge stream on their side
   zerosGz = staticRead("traps/zeros.gz")
+
+  bombMembers = 10_000 # 1 MiB of zeros each, about 10 GB unpacked
+  maxBodyBytes = 8192 # of a fake login POST
 
   apps = ["acme", "northwind", "helios", "lumen", "vertex", "cobalt", "meridian", "quanta"]
   users = ["admin", "deploy", "jenkins", "svc-backup", "mgarcia", "twong", "pkoch"]
@@ -306,7 +318,7 @@ proc dripEndless(client: AsyncSocket, trap: Trap, values: Table[string, string],
 
 proc sendBomb(client: AsyncSocket, deadline: float, played: Played) {.async.} =
   ## About 10 MB on the wire, about 10 GB once they unpack it
-  for _ in 1 .. TRAP_BOMB_MEMBERS:
+  for _ in 1 .. bombMembers:
     if epochTime() > deadline:
       break
     await client.sendOrFail(zerosGz)
@@ -336,7 +348,7 @@ proc playLogin(client: AsyncSocket, req: Request, values: Table[string, string],
   var page = values
 
   if req.httpMethod == "POST":
-    let body = await client.readBody(req, TRAP_MAX_BODY_BYTES)
+    let body = await client.readBody(req, maxBodyBytes)
     played.detail = submittedCredentials(body)
     # a real check would be quick. this one thinks about it for a while
     await sleepAsync(rng.rand(10_000 .. 30_000))
@@ -419,7 +431,7 @@ proc handle(client: AsyncSocket, cfg: TrapConfig, db: DbConn) {.async.} =
 
   try:
     let reading = client.readRequest()
-    if not await reading.withTimeout(SERVER_HEAD_TIMEOUT):
+    if not await reading.withTimeout(headTimeout):
       return
     let req = reading.read()
     if req.httpMethod == "":
@@ -445,7 +457,7 @@ proc handle(client: AsyncSocket, cfg: TrapConfig, db: DbConn) {.async.} =
     # the hit is saved before the trap starts, so we know who tried what right away.
     # a slow drip can hold a bot that already hung up for a long time before a send fails
     let id = db.insertTrapHit(TrapHit(
-      date: now().format(DATE_FORMAT),
+      date: now().format(dateFormat),
       remoteIP: ip,
       httpMethod: req.httpMethod,
       requestURI: req.path & req.query,

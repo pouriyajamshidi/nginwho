@@ -1,44 +1,38 @@
-from std/times import getTime, format
+from std/times import parse, format
 from std/strutils import splitWhitespace, replace, endsWith, startsWith, strip, contains, join, rfind, splitLines
-from std/json import JsonNode, getStr, items
 from std/os import findExe, fileExists
 from std/osproc import execCmd
 from std/strformat import fmt
 from std/logging import info, error, warn, fatal
 
-from types import Cidrs, Log, Logs
-from utils import convertDateFormat
-from consts import NGINX_CMD, NGINX_TEST_CMD, NGINX_RELOAD_CMD,
-    DATE_FORMAT, READ_CHUNK_BYTES, NGINX_SET_REAL_IP_FROM, NGINX_REAL_IP_HEADER, NGINX_CF_REAL_IP_HEADER
+
+type Log* = object
+  date*: string
+  remoteIP*: string
+  httpMethod*: string
+  requestURI*: string
+  statusCode*: string
+  responseSize*: string
+  referrer*: string
+  userAgent*: string
+  nonDefault*: string
+  remoteUser*: string
+  authenticatedUser*: string
 
 
-proc populateReverseProxyFile*(filePath: string, cidrs: Cidrs): bool =
-  info(fmt"Populating CIDRs file in {filePath}")
+const
+  dateFormat* = "yyyy-MM-dd HH:mm:ss" # how dates are saved in the database
+  readChunkBytes* = 1024 * 1024
 
-  let now: string = getTime().format(DATE_FORMAT)
 
-  try:
-    let file: File = open(filePath, fmWrite)
-    defer: file.close()
+proc convertDateFormat*(nginxDate: string): string =
+  parse(nginxDate, "d-MMM-yyyy:HH:mm:ss").format(dateFormat)
 
-    file.write("# Cloudflare ranges\n")
-    file.write("# Last update: ", now, "\n")
-    file.write("# Last etag: ", cidrs.etag, "\n\n")
-    file.write("# IPv4 CIDRs\n")
 
-    for cidr in cidrs.ipv4:
-      file.write(NGINX_SET_REAL_IP_FROM, " ", cidr.getStr(), ";", "\n")
-
-    file.write("\n# IPv6 CIDRs\n")
-
-    for cidr in cidrs.ipv6:
-      file.write(NGINX_SET_REAL_IP_FROM, " ", cidr.getStr(), ";", "\n")
-
-    file.write("\n\n", NGINX_REAL_IP_HEADER, " ", NGINX_CF_REAL_IP_HEADER, "\n")
-    return true
-  except:
-    error(fmt"Could not open {filePath}")
-    return false
+proc isStaticAsset*(requestURI: string): bool =
+  ## Fonts, scripts and styles are not stored, they only add noise
+  # TODO: Decide whether to exclude these or not
+  requestURI.endsWith(".woff2") or requestURI.endsWith(".js") or requestURI.endsWith(".css")
 
 
 proc ensureNginxLogExists*(logPath: string) =
@@ -51,7 +45,7 @@ proc ensureNginxLogExists*(logPath: string) =
 proc ensureNginxExists*() =
   info("Ensuring nginx command exists")
 
-  let result: string = findExe(NGINX_CMD)
+  let result: string = findExe("nginx")
   if result == "":
     error("nginx command not found")
     quit(1)
@@ -60,7 +54,7 @@ proc ensureNginxExists*() =
 proc testNginxConfig(): int =
   info("Testing nginx configuration")
 
-  return execCmd(command = NGINX_TEST_CMD)
+  return execCmd("nginx -t")
 
 
 proc reloadNginx*() =
@@ -72,7 +66,7 @@ proc reloadNginx*() =
     return
 
 
-  let result: int = execCmd(command = NGINX_RELOAD_CMD)
+  let result: int = execCmd("nginx -s reload")
   if result != 0:
     error("nginx process reload failed")
   else:
@@ -129,7 +123,7 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
   return log
 
 
-proc readNewLines*(path: string, offset: var int64, maxBytes = READ_CHUNK_BYTES): seq[string] =
+proc readNewLines*(path: string, offset: var int64, maxBytes = readChunkBytes): seq[string] =
   ## Reads the complete lines added to the file since `offset`, up to `maxBytes`, and moves `offset` forward
   let file = open(path)
   defer: file.close()

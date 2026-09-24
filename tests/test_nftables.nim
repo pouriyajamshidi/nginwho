@@ -2,9 +2,7 @@ import std/[unittest, json, os]
 from std/osproc import execCmdEx
 from std/strutils import splitLines, startsWith, join, find
 
-from types import NftSet, NftAttrs
-from consts import NFT_SAMPLE_POLICY
-from nftables import createRules, requiredChanges, inetFilterExists
+from nftables import NftSet, NftAttrs, samplePolicy, createRules, requiredChanges, inetFilterExists
 
 const allChanges = NftAttrs(withCloudflareV4Set: true, withCloudflareV6Set: true,
     withNginwhoChain: true, withNginwhoIPv4Policy: true, withNginwhoIPv6Policy: true,
@@ -101,8 +99,8 @@ suite "nftables":
     if not canRunNft():
       skip()
     else:
-      let start = NFT_SAMPLE_POLICY.find("#!/usr/sbin/nft -f")
-      let conf = NFT_SAMPLE_POLICY[start ..< NFT_SAMPLE_POLICY.find("####", start)]
+      let start = samplePolicy.find("#!/usr/sbin/nft -f")
+      let conf = samplePolicy[start ..< samplePolicy.find("####", start)]
       writeFile(tempDir / "nftables.conf", conf)
 
       let setup = "nft -f " & quoteShell(tempDir / "nftables.conf")
@@ -119,7 +117,7 @@ suite "nftables":
       skip()
     else:
       var commands: seq[string]
-      for line in NFT_SAMPLE_POLICY[NFT_SAMPLE_POLICY.find("2) Using") .. ^1].splitLines():
+      for line in samplePolicy[samplePolicy.find("2) Using") .. ^1].splitLines():
         if line.startsWith("nft "):
           commands.add(line)
       check commands.len > 0

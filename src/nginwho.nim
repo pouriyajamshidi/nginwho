@@ -1,30 +1,34 @@
 import std/asyncdispatch
 from std/strformat import fmt
-from std/strutils import parseInt, parseBool
+from std/strutils import parseInt, parseBool, splitLines, startsWith, split, strip
 from db_connector/db_sqlite import DbConn
 from std/os import getFileInfo, FileInfo, FileId, dirExists, fileExists
-
+from std/net import Port
 from std/parseopt import CmdLineKind, initOptParser, next
 from std/logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
     warn, fatal, setLogFilter, lvlError
 
-from consts import VERSION, NGINWHO_DB_FILE, NGINWHO_CONFIG_FILE, MAX_INSERT_ATTEMPTS,
-    READ_CHUNK_BYTES, TEN_SECONDS, SERVER_DEFAULT_ROOT, SERVER_DEFAULT_PORT, NGINX_CIDR_FILE,
-    NGINX_DEFAULT_LOG_PATH, TRAP_DEFAULT_PORT, TRAP_MAX_CONNECTIONS, TRAP_MAX_SECONDS,
-    TRAP_DRIP_MIN_MS, TRAP_DRIP_MAX_MS, TRAP_BOMB_AFTER
-from types import Args, Log, Logs, TrapConfig
-from utils import isStaticAsset
-from nginx import ensureNginxExists, ensureNginxLogExists, parseLogEntry,
-    readNewLines, offsetAfterLastInserted
-from cloudflare import fetchAndProcessIPCidrs
+from nginx import Log, isStaticAsset, readChunkBytes, ensureNginxExists, ensureNginxLogExists,
+    parseLogEntry, readNewLines, offsetAfterLastInserted
+from cloudflare import fetchAndProcessIPCidrs, cidrFile
 from nftables import acceptOnly, ensureNftExists
 from database import getDbConnection, closeDbConnection,
     createTables, insertLogs, migrateV1ToV2, getLastRow
 from report import report
 from server import serve
 from trap import trap
-from config import readConfigFile
-from std/net import Port
+from config import Args, readConfigFile, defaultConfigFile
+
+
+proc nimbleVersion(): string =
+  ## Reads the version from nginwho.nimble at compile time
+  for line in staticRead("../nginwho.nimble").splitLines:
+    if line.startsWith("version"):
+      return line.split('=')[1].strip.strip(chars = {'"'})
+
+const
+  version* = nimbleVersion()
+  maxInsertAttempts = 3
 
 var logger: ConsoleLogger = newConsoleLogger(
     fmtStr = "[$date -- $time] - $levelname: ")
@@ -76,35 +80,11 @@ proc validateArgs(args: Args) =
 
 
 proc getArgs(): Args =
-  var args: Args = (
-      logPath: NGINX_DEFAULT_LOG_PATH,
-      dbPath: NGINWHO_DB_FILE,
-      interval: TEN_SECONDS,
-      omitReferrer: "",
-      showRealIPs: false,
-      blockUntrustedCidrs: false,
-      processNginxLogs: true,
-      serve: false,
-      root: SERVER_DEFAULT_ROOT,
-      port: SERVER_DEFAULT_PORT,
-      report: false,
-      migrateV1ToV2Db: false,
-      v1DbPath: "",
-      v2DbPath: "",
-      trap: TrapConfig(
-        enabled: false,
-        port: TRAP_DEFAULT_PORT,
-        maxConnections: TRAP_MAX_CONNECTIONS,
-        maxSeconds: TRAP_MAX_SECONDS,
-        dripMinMs: TRAP_DRIP_MIN_MS,
-        dripMaxMs: TRAP_DRIP_MAX_MS,
-        bombs: true,
-        bombAfter: TRAP_BOMB_AFTER,
-      ),
-    )
+  # Args() and not `var args: Args`, only the constructor fills in the defaults
+  var args = Args()
 
   # the config file comes first so that command line flags can win over it
-  var configPath = NGINWHO_CONFIG_FILE
+  var configPath = defaultConfigFile
   var configParser = initOptParser()
   while true:
     configParser.next()
@@ -134,7 +114,7 @@ proc getArgs(): Args =
           args.trap.port = port
         of "help", "h": usage()
         of "version", "v":
-          echo VERSION
+          echo version
           quit(0)
 
         of "v1DbPath": args.v1DbPath = p.val
@@ -198,7 +178,7 @@ proc processAndRecordLogs(args: Args) {.async.} =
       continue
 
     var
-      logs: Logs
+      logs: seq[Log]
       lines: seq[string]
       previousOffset: int64
 
@@ -241,15 +221,15 @@ proc processAndRecordLogs(args: Args) {.async.} =
     else:
       failedInserts += 1
       # read the same lines again next time, but don't get stuck on logs that can never be saved
-      if failedInserts < MAX_INSERT_ATTEMPTS:
+      if failedInserts < maxInsertAttempts:
         warn(fmt"Will retry these logs in {args.interval div 1000} seconds")
         offset = previousOffset
       else:
-        error(fmt"Dropping {len(logs)} logs after {MAX_INSERT_ATTEMPTS} failed inserts")
+        error(fmt"Dropping {len(logs)} logs after {maxInsertAttempts} failed inserts")
         failedInserts = 0
 
     # a big log is read in chunks, keep going without waiting until it is caught up
-    let moreToRead = failedInserts == 0 and fileInfo.size - previousOffset > READ_CHUNK_BYTES
+    let moreToRead = failedInserts == 0 and fileInfo.size - previousOffset > readChunkBytes
     await sleepAsync(if moreToRead: 0 else: args.interval)
 
 
@@ -298,7 +278,7 @@ proc main() =
     asyncCheck fetchAndProcessIPCidrs(args.blockUntrustedCidrs)
 
   if args.blockUntrustedCidrs and not args.showRealIPs:
-    acceptOnly(NGINX_CIDR_FILE)
+    acceptOnly(cidrFile)
 
   # blocking CIDRs from the nginx file alone runs once and has nothing to wait for
   if hasPendingOperations():

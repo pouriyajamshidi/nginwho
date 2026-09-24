@@ -10,8 +10,22 @@ from std/sequtils import any
 from std/times import format, epochTime
 from std/logging import info, warn, error
 
-from types import Log, Logs, TrapHit
-from utils import convertDateFormat, isStaticAsset
+from nginx import Log, convertDateFormat, isStaticAsset
+
+
+type
+  TrapHit* = object
+    ## A row of the trap_hits table
+    date*: string
+    remoteIP*: string
+    httpMethod*: string
+    requestURI*: string
+    userAgent*: string
+    trap*: string   # what they were looking for
+    tactic*: string # what we did to them
+    bytesSent*: int
+    seconds*: int
+    detail*: string # the fake secret we handed out, or the credentials they tried
 
 
 const
@@ -558,7 +572,7 @@ proc migrateV1ToV2*(v1DbName, v2DbName: string) =
   const migrationBatchSize = 100_000
 
   var
-    logs: Logs
+    logs: seq[Log]
     lastRowId = 0
 
   # page with rowid instead of OFFSET so each batch does not scan all the previous rows

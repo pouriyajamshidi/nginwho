@@ -6,12 +6,93 @@ from std/algorithm import sorted
 from std/logging import info, error, warn, fatal
 from std/osproc import execProcess, execCmd
 from std/net import parseIpAddress, IpAddress, IpAddressFamily
-from types import SetType, IPProtocol, NftSet, NftAttrs
 
-from consts import NFT_GET_RULESET_CMD, NFT_SET_NAME_CF_IPv4, NFT_SET_NAME_CF_IPv6, NFT_KEY_NAME,
-    NFT_CHAIN_NGINWHO_NAME, NFT_CHAIN_INPUT_NAME, NFT_CIDR_RULES_FILE, NFT_LOG_PREFIXV4, NFT_LOG_PREFIXV6,
-    NFT_SAMPLE_POLICY, NGINX_CIDR_FILE, NGINX_SET_REAL_IP_FROM
 
+type
+  SetType = enum
+    IPv4 = "ipv4_addr"
+    IPv6 = "ipv6_addr"
+
+  IPProtocol = enum
+    IPv4 = "ip"
+    IPv6 = "ip6"
+
+  NftSet* = object
+    ipv4*: JsonNode
+    ipv6*: JsonNode
+
+  NftAttrs* = object
+    ## The parts of the ruleset nginwho still has to add
+    withCloudflareV4Set*: bool
+    withCloudflareV6Set*: bool
+    withNginwhoChain*: bool
+    withNginwhoIPv4Policy*: bool
+    withNginwhoIPv6Policy*: bool
+    withInputChain*: bool
+    withInputPolicy*: bool
+
+
+const
+  getRulesetCmd = "nft -j list ruleset"
+  rulesFile = "/run/nginwho.nft"
+  setNameV4 = "Cloudflare_IPv4"
+  setNameV6 = "Cloudflare_IPv6"
+  nginwhoChain = "nginwho"
+  inputChain = "input"
+  logPrefixV4 = "NGINWHO_DROPPED_v4 "
+  logPrefixV6 = "NGINWHO_DROPPED_v6 "
+
+  samplePolicy* = """
+##########################################
+#      Pick either option 1 or 2         #
+##########################################
+
+
+1) Using /etc/nftables.conf:
+
+#!/usr/sbin/nft -f
+
+flush ruleset
+
+table inet filter {
+  chain input {
+    type filter hook input priority filter; policy drop;
+    log prefix "NFTABLES_DROPPED "
+    ip saddr 127.0.0.1 counter accept
+    ct state established,related accept
+    tcp dport 22 counter accept
+  }
+
+  chain forward {
+    type filter hook forward priority filter; policy drop;
+  }
+
+  chain output {
+    type filter hook output priority filter; policy accept;
+  }
+}
+
+
+#####################################################################
+#####################################################################
+#####################################################################
+
+
+2) Using the `nft` command (might require `sudo`):
+
+nft add table inet filter
+nft 'add chain inet filter input { type filter hook input priority filter; policy accept; }'
+nft add rule inet filter input ct state established,related accept
+nft add rule inet filter input ip saddr 127.0.0.1 accept
+nft add rule inet filter input tcp dport 22 accept
+nft 'add rule inet filter input tcp dport { 80, 443 } counter accept'
+nft 'add chain inet filter forward { type filter hook forward priority filter; policy drop; }'
+nft 'add chain inet filter output { type filter hook output priority filter; policy accept; }'
+# switch the input policy to drop only after the accept rules are in place
+nft 'add chain inet filter input { type filter hook input priority filter; policy drop; }'
+
+
+"""
 
 
 proc withMask(cidr: string): string =
@@ -51,7 +132,7 @@ proc validCidrs(cidrs: JsonNode): seq[string] =
     result.add(withPrefix)
 
 
-proc applyRules(fileName: string = NFT_CIDR_RULES_FILE) =
+proc applyRules(fileName: string = rulesFile) =
   info("Applying nftables rules")
 
   let res: int = execCmd(fmt"nft -j -f {filename}")
@@ -62,7 +143,7 @@ proc applyRules(fileName: string = NFT_CIDR_RULES_FILE) =
     info("Successfully applied nftables rules")
 
 
-proc writeRules(fileName: string = NFT_CIDR_RULES_FILE, rules: JsonNode): bool =
+proc writeRules(fileName: string = rulesFile, rules: JsonNode): bool =
   info(fmt"Writing nginwho rules to {fileName}")
 
   try:
@@ -220,29 +301,29 @@ proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
   var rules: JsonNode = %* {"nftables": []}
 
   if nftAttrs.withCloudflareV4Set:
-    for command in createSet(nftSet.ipv4, NFT_SET_NAME_CF_IPv4, SetType.IPv4):
-      rules[NFT_KEY_NAME].add(command)
+    for command in createSet(nftSet.ipv4, setNameV4, SetType.IPv4):
+      rules["nftables"].add(command)
 
   if nftAttrs.withCloudflareV6Set:
-    for command in createSet(nftSet.ipv6, NFT_SET_NAME_CF_IPv6, SetType.IPv6):
-      rules[NFT_KEY_NAME].add(command)
+    for command in createSet(nftSet.ipv6, setNameV6, SetType.IPv6):
+      rules["nftables"].add(command)
 
   if nftAttrs.withNginwhoChain:
-    rules[NFT_KEY_NAME].add(createNginwhoChain())
+    rules["nftables"].add(createNginwhoChain())
 
   if nftAttrs.withNginwhoIPv4Policy:
-    rules[NFT_KEY_NAME].add(createNginwhoIPPolicy(IPProtocol.IPv4,
-        NFT_SET_NAME_CF_IPv4, NFT_LOG_PREFIXV4))
+    rules["nftables"].add(createNginwhoIPPolicy(IPProtocol.IPv4,
+        setNameV4, logPrefixV4))
 
   if nftAttrs.withNginwhoIPv6Policy:
-    rules[NFT_KEY_NAME].add(createNginwhoIPPolicy(IPProtocol.IPv6,
-        NFT_SET_NAME_CF_IPv6, NFT_LOG_PREFIXV6))
+    rules["nftables"].add(createNginwhoIPPolicy(IPProtocol.IPv6,
+        setNameV6, logPrefixV6))
 
   if nftAttrs.withInputChain:
-    rules[NFT_KEY_NAME].add(createInputChain())
+    rules["nftables"].add(createInputChain())
 
   if nftAttrs.withInputPolicy:
-    rules[NFT_KEY_NAME].add(createInputChainPolicy())
+    rules["nftables"].add(createInputChainPolicy())
 
   info(fmt"Successfully created nftables rules")
 
@@ -257,7 +338,7 @@ proc inputChainHasPolicy(nftOutput: JsonNode): bool =
       continue
 
     let chainName = nftOutput[element]["rule"]["chain"].getStr()
-    if chainName != NFT_CHAIN_INPUT_NAME:
+    if chainName != inputChain:
       continue
 
     let expression = nftOutput[element]["rule"]["expr"]
@@ -276,7 +357,7 @@ proc inputChainHasPolicy(nftOutput: JsonNode): bool =
     except:
       continue
 
-  warn(fmt"{NFT_CHAIN_INPUT_NAME} chain does not have the required policy")
+  warn(fmt"{inputChain} chain does not have the required policy")
 
 
 proc inputChainExists(nftOutput: JsonNode): bool =
@@ -284,11 +365,11 @@ proc inputChainExists(nftOutput: JsonNode): bool =
 
   for element in 0..nftOutput.len() - 1:
     if nftOutput[element].contains("chain"):
-      if nftOutput[element]["chain"]["name"].getStr() == NFT_CHAIN_INPUT_NAME:
-        info(fmt"Found nftables {NFT_CHAIN_INPUT_NAME} chain")
+      if nftOutput[element]["chain"]["name"].getStr() == inputChain:
+        info(fmt"Found nftables {inputChain} chain")
         return true
 
-  warn(fmt"{NFT_CHAIN_INPUT_NAME} does not exist")
+  warn(fmt"{inputChain} does not exist")
 
 
 proc nginwhoChainHasPolicy(nftOutput: JsonNode, setName: string): bool =
@@ -299,7 +380,7 @@ proc nginwhoChainHasPolicy(nftOutput: JsonNode, setName: string): bool =
       continue
 
     let chainName = nftOutput[element]["rule"]["chain"].getStr()
-    if chainName != NFT_CHAIN_NGINWHO_NAME:
+    if chainName != nginwhoChain:
       continue
 
     let expression = nftOutput[element]["rule"]["expr"]
@@ -319,7 +400,7 @@ proc nginwhoChainHasPolicy(nftOutput: JsonNode, setName: string): bool =
     except:
       continue
 
-  warn(fmt"{NFT_CHAIN_NGINWHO_NAME} chain does not have the required policy for Set {setName}")
+  warn(fmt"{nginwhoChain} chain does not have the required policy for Set {setName}")
 
 
 proc nginwhoChainExists(nftOutput: JsonNode): bool =
@@ -327,11 +408,11 @@ proc nginwhoChainExists(nftOutput: JsonNode): bool =
 
   for element in 0..nftOutput.len() - 1:
     if nftOutput[element].contains("chain"):
-      if nftOutput[element]["chain"]["name"].getStr() == NFT_CHAIN_NGINWHO_NAME:
-        info(fmt"Found nftables {NFT_CHAIN_NGINWHO_NAME} chain")
+      if nftOutput[element]["chain"]["name"].getStr() == nginwhoChain:
+        info(fmt"Found nftables {nginwhoChain} chain")
         return true
 
-  warn(fmt"Chain {NFT_CHAIN_NGINWHO_NAME} does not exist")
+  warn(fmt"Chain {nginwhoChain} does not exist")
 
 
 proc setChanged(nftOutput: JsonNode, newCidrs: JsonNode,
@@ -377,7 +458,7 @@ proc setExists(nftOutput: JsonNode, setName: string): bool =
   warn(fmt"Set {setName} does not exist")
 
 
-proc createNftSetsFrom*(fileName: string = NGINX_CIDR_FILE): NftSet =
+proc createNftSetsFrom*(fileName: string): NftSet =
   info(fmt"Fetching NFT Sets from {fileName}")
 
   if not fileExists(fileName):
@@ -392,7 +473,7 @@ proc createNftSetsFrom*(fileName: string = NGINX_CIDR_FILE): NftSet =
       continue
 
     let splitLine = line.splitWhitespace()
-    if splitLine.len() != 2 or splitLine[0] != NGINX_SET_REAL_IP_FROM:
+    if splitLine.len() != 2 or splitLine[0] != "set_real_ip_from":
       continue
 
     let cidr = withMask(splitLine[1].replace(";", ""))
@@ -425,10 +506,10 @@ proc inetFilterExists*(nftOutput: JsonNode): bool =
 
 
 proc getCurrentRules(): JsonNode =
-  info(fmt"Getting current nftables rules using `{NFT_GET_RULESET_CMD}`")
+  info(fmt"Getting current nftables rules using `{getRulesetCmd}`")
 
   try:
-    result = parseJson(execProcess(NFT_GET_RULESET_CMD)){NFT_KEY_NAME}
+    result = parseJson(execProcess(getRulesetCmd)){"nftables"}
   except Exception as e:
     error(fmt"Failed parsing JSON: {e.msg}")
 
@@ -471,23 +552,23 @@ proc requiredChanges*(nftOutput: JsonNode, nftSet: NftSet): NftAttrs =
   ## Compares the current ruleset with what nginwho needs and returns the missing parts
   var nftAttrs: NftAttrs
 
-  if setExists(nftOutput, NFT_SET_NAME_CF_IPv4):
+  if setExists(nftOutput, setNameV4):
     nftAttrs.withCloudflareV4Set = if setChanged(nftOutput, nftSet.ipv4,
-        NFT_SET_NAME_CF_IPv4): true else: false
+        setNameV4): true else: false
   else:
     nftAttrs.withCloudflareV4Set = true
 
-  if setExists(nftOutput, NFT_SET_NAME_CF_IPv6):
+  if setExists(nftOutput, setNameV6):
     nftAttrs.withCloudflareV6Set = if setChanged(nftOutput, nftSet.ipv6,
-        NFT_SET_NAME_CF_IPv6): true else: false
+        setNameV6): true else: false
   else:
     nftAttrs.withCloudflareV6Set = true
 
   nftAttrs.withNginwhoChain = if nginwhoChainExists(nftOutput): false else: true
   nftAttrs.withNginwhoIPv4Policy = if nginwhoChainHasPolicy(nftOutput,
-      NFT_SET_NAME_CF_IPv4): false else: true
+      setNameV4): false else: true
   nftAttrs.withNginwhoIPv6Policy = if nginwhoChainHasPolicy(nftOutput,
-      NFT_SET_NAME_CF_IPv6): false else: true
+      setNameV6): false else: true
 
   nftAttrs.withInputChain = if inputChainExists(nftOutput): false else: true
   nftAttrs.withInputPolicy = if inputChainHasPolicy(nftOutput): false else: true
@@ -503,14 +584,14 @@ proc runPrechecks(nftSet: NftSet): NftAttrs =
   if not inetFilterExists(nftOutput):
     error("nftables `inet` filter not found")
     info("Please create one manually using this sample:\n\n",
-        fmt"{NFT_SAMPLE_POLICY}")
+        fmt"{samplePolicy}")
     quit(1)
 
   return requiredChanges(nftOutput, nftSet)
 
 
 proc acceptOnly*(nftSet: NftSet) =
-  info(fmt"Using `{NFT_GET_RULESET_CMD}` to construct nftables rules ")
+  info(fmt"Using `{getRulesetCmd}` to construct nftables rules ")
 
   if nftSet.ipv4.len() == 0 and nftSet.ipv6.len() == 0:
     warn("Received empty NFT Sets")

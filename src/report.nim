@@ -7,7 +7,7 @@ from std/unicode import runeLen, runeSubStr
 from std/os import fileExists
 from db_connector/db_sqlite import DbConn, Row
 
-from consts import DATE_FORMAT
+from nginx import dateFormat
 from database import getDbConnection, closeDbConnection, createTables, hasOldSchema,
     getTopIPs, getTopURIs, getTopUnsuccessfulRequests, getTopReferres, getNonDefaults,
     getTotalRequests, getTotalNonDefaults,
@@ -61,7 +61,7 @@ proc since(window: TimeWindow): string =
   ## Returns the date the time window starts at, in the same format and local time as the saved logs
   if window.duration == DurationZero:
     return ""
-  return (now() - window.duration).format(DATE_FORMAT)
+  return (now() - window.duration).format(dateFormat)
 
 
 proc fit(text: string, width: int): string =

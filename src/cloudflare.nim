@@ -3,15 +3,27 @@ from std/httpclient import AsyncHttpClient, AsyncResponse, newAsyncHttpClient, c
 from std/strformat import fmt
 from std/options import Option, none, some, isSome, get
 from std/strutils import startsWith, split
+from std/times import getTime, format
 
 from std/os import fileExists
-from std/logging import info, error, warn, fatal
+from std/logging import info, error, warn
 
-from consts import CLOUDFLARE_CIDR_API_URL, TEN_SECONDS, SIX_HOURS, NGINX_CIDR_FILE
-from nginx import reloadNginx, populateReverseProxyFile
-from nftables import acceptOnly
-from types import Cidrs, NftSet
+from nginx import reloadNginx, dateFormat
+from nftables import acceptOnly, NftSet
 
+
+type
+  Cidrs* = object
+    ipv4*: JsonNode
+    ipv6*: JsonNode
+    etag*: string
+
+
+const
+  cidrFile* = "/etc/nginx/nginwho" # nginx includes this to trust Cloudflare's real IP header
+  apiUrl = "https://api.cloudflare.com/client/v4/ips"
+  timeoutMs = 10_000
+  refreshMs = 6 * 60 * 60 * 1000
 
 
 proc parseCidrsResponse*(jsonResponse: JsonNode): Option[Cidrs] =
@@ -42,27 +54,56 @@ proc getCloudflareCIDRs(): Future[Option[Cidrs]] {.async.} =
   var jsonResponse: JsonNode
 
   try:
-    let request: Future[AsyncResponse] = client.get(CLOUDFLARE_CIDR_API_URL)
+    let request: Future[AsyncResponse] = client.get(apiUrl)
 
-    if not await request.withTimeout(TEN_SECONDS):
-      error(fmt"Call to {CLOUDFLARE_CIDR_API_URL} timed out")
+    if not await request.withTimeout(timeoutMs):
+      error(fmt"Call to {apiUrl} timed out")
       return none(Cidrs)
 
     let response: AsyncResponse = request.read()
 
     if response.code != Http200:
-      error(fmt"Call to {CLOUDFLARE_CIDR_API_URL} failed")
+      error(fmt"Call to {apiUrl} failed")
       return none(Cidrs)
 
     jsonResponse = parseJson(await response.body)
   except CatchableError as e:
-    error(fmt"Call to {CLOUDFLARE_CIDR_API_URL} failed: {e.msg}")
+    error(fmt"Call to {apiUrl} failed: {e.msg}")
     return none(Cidrs)
 
   return parseCidrsResponse(jsonResponse)
 
 
-proc getCurrentEtag*(configFile: string = NGINX_CIDR_FILE): string =
+proc populateReverseProxyFile*(filePath: string, cidrs: Cidrs): bool =
+  info(fmt"Populating CIDRs file in {filePath}")
+
+  let now: string = getTime().format(dateFormat)
+
+  try:
+    let file: File = open(filePath, fmWrite)
+    defer: file.close()
+
+    file.write("# Cloudflare ranges\n")
+    file.write("# Last update: ", now, "\n")
+    file.write("# Last etag: ", cidrs.etag, "\n\n")
+    file.write("# IPv4 CIDRs\n")
+
+    for cidr in cidrs.ipv4:
+      file.write("set_real_ip_from ", cidr.getStr(), ";\n")
+
+    file.write("\n# IPv6 CIDRs\n")
+
+    for cidr in cidrs.ipv6:
+      file.write("set_real_ip_from ", cidr.getStr(), ";\n")
+
+    file.write("\n\nreal_ip_header CF-Connecting-IP;\n")
+    return true
+  except:
+    error(fmt"Could not open {filePath}")
+    return false
+
+
+proc getCurrentEtag*(configFile: string = cidrFile): string =
   info("Getting current Cloudflare CIDRs ETAG")
 
   if not fileExists(configFile):
@@ -93,11 +134,11 @@ proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool = false) {.async.} =
 
       if currentEtag != cidrs.etag:
         # nginx reload is graceful and does not drop open connections
-        if populateReverseProxyFile(NGINX_CIDR_FILE, cidrs):
+        if populateReverseProxyFile(cidrFile, cidrs):
           reloadNginx()
       else:
         info(fmt"etag has not changed {currentEtag}")
     of false:
       error("Failed fetching CIDRs")
 
-    await sleepAsync(SIX_HOURS)
+    await sleepAsync(refreshMs)

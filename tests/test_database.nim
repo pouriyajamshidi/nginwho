@@ -2,8 +2,7 @@ import std/[unittest, times, os]
 from std/strutils import parseInt
 from db_connector/db_sqlite import DbConn, Row, open, close, exec, getAllRows, getValue, sql
 
-from types import Log, Logs
-from nginx import parseLogEntry, readNewLines, offsetAfterLastInserted
+from nginx import Log, parseLogEntry, readNewLines, offsetAfterLastInserted
 from database import getDbConnection, closeDbConnection, createTables, insertLogs, getLastRow, getTopIPs, getTopURIs,
     getTopReferres, getTopUnsuccessfulRequests, getNonDefaults, getTotalRequests,
     getTotalNonDefaults, hasOldSchema
@@ -93,7 +92,7 @@ suite "database":
 """)
 
     proc readAndInsert(offset: var int64) =
-      var logs: Logs
+      var logs: seq[Log]
       for line in readNewLines(path, offset):
         logs.add(parseLogEntry(line, ""))
       insertLogs(db, logs)
