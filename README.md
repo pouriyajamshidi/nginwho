@@ -212,8 +212,10 @@ nginx forwards its `403`s and `404`s to nginwho, which decides what to do based 
   never lets anyone in and records the username and password that was typed.
 - **Endless bodies and mazes.** Backup and API probes get a body that never ends, and `.git`
   probes get a maze of fake folders that link to more fake folders.
-- **Gzip bombs.** Repeat offenders and probes for archives get a small download that unpacks
-  into gigabytes.
+- **Gzip bombs.** Repeat offenders and probes for archives get about 10 MB on the wire that
+  unpacks into about 10 GB. Clients that decode a gzip stream as they read it (Go's
+  `net/http`, Python `requests`) get the whole 10 GB; `curl --compressed` stops after the
+  first megabyte, and archive downloads land as a 10 MB file that only bites if it is opened.
 
 Everything is saved in the `trap_hits` table and shows up under the `Trap:` entries in report
 mode: who probed you, what they were after, how long you held them and what they typed into
