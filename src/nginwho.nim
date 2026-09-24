@@ -1,6 +1,6 @@
 import std/asyncdispatch
 from std/strformat import fmt
-from std/strutils import parseInt, parseBool, splitLines, startsWith, split, strip
+from std/strutils import parseBool, splitLines, startsWith, split, strip
 from db_connector/db_sqlite import DbConn, DbError
 from std/os import getFileInfo, FileInfo, FileId, dirExists, fileExists
 from std/net import Port
@@ -16,7 +16,7 @@ from database import getDbConnection, closeDbConnection,
 from report import report
 from server import serve
 from trap import trap
-from config import Args, readConfigFile, defaultConfigFile
+from config import Args, readConfigFile, defaultConfigFile, parsePort, parseInterval
 
 
 proc nimbleVersion(): string =
@@ -76,12 +76,6 @@ proc validateArgs(args: Args) =
     usage(1)
 
 
-proc parsePort(value: string): int =
-  result = parseInt(value)
-  if result < 1 or result > 65535:
-    raise newException(ValueError, "must be between 1 and 65535")
-
-
 proc getArgs(): Args =
   # Args() and not `var args: Args`, only the constructor fills in the defaults
   var args = Args()
@@ -122,11 +116,7 @@ proc getArgs(): Args =
 
         of "logPath": args.logPath = p.val
         of "dbPath": args.dbPath = p.val
-        of "interval":
-          let seconds = parseInt(p.val)
-          if seconds < 1:
-            raise newException(ValueError, "must be at least 1")
-          args.interval = seconds * 1000 # convert seconds to milliseconds
+        of "interval": args.interval = parseInterval(p.val)
         of "omitReferrer": args.omitReferrer = p.val
         of "showRealIps": args.showRealIPs = p.val == "" or parseBool(p.val)
         of "blockUntrustedCidrs": args.blockUntrustedCidrs = p.val == "" or parseBool(p.val)

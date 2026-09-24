@@ -42,6 +42,16 @@ suite "cli":
       check exitCode == 1
       check "Bad value" in output
 
+  test "bad config values are reported and the defaults are kept":
+    let conf = tempDir / "bad.conf"
+    writeFile(conf, "[nginx]\ninterval = 0\n[server]\nport = 70000\n[trap]\nport = abc\n")
+    # --report with a missing database reads the config and then stops
+    let (output, _) = run("--config=" & quoteShell(conf) & " --report --dbPath=" &
+        quoteShell(tempDir / "missing_config.db"))
+    check "Bad value '0' for interval in [nginx]: must be at least 1" in output
+    check "Bad value '70000' for port in [server]: must be between 1 and 65535" in output
+    check "Bad value 'abc' for port in [trap]" in output
+
   test "a database that can't be opened ends the program with an error":
     let (output, exitCode) = run("--serve --root=" & quoteShell(tempDir) & " --port=18557" &
         " --logPath=" & quoteShell(tempDir / "access.log") & " --dbPath=/nonexistent/dir/x.db")
