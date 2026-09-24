@@ -6,7 +6,6 @@ from std/tables import initTable, mgetOrPut, pairs
 from std/strformat import fmt
 from std/os import fileExists, setFilePermissions, FilePermission
 from std/strutils import parseInt, contains, split, formatFloat, ffDecimal
-from std/sequtils import any
 from std/times import format, epochTime
 from std/logging import info, warn, error
 
@@ -340,8 +339,8 @@ proc getLastRow*(db: DbConn): Log =
 
   let row = db.getRow(selectStatement)
 
-  let hasResult = any(row, proc (s: string): bool = s != "")
-  if not hasResult:
+  # every row has a date, so an empty one means there are no rows
+  if row[0] == "":
     info("No rows in database yet")
     return
 

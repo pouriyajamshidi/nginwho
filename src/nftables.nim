@@ -135,7 +135,7 @@ proc validCidrs(cidrs: JsonNode): seq[string] =
 proc applyRules(fileName: string = rulesFile) =
   info("Applying nftables rules")
 
-  let res: int = execCmd(fmt"nft -j -f {filename}")
+  let res: int = execCmd(fmt"nft -j -f {fileName}")
   if res != 0:
     error("Failed applying nftables rules - Are you root?")
     quit(1)
@@ -150,7 +150,7 @@ proc writeRules(fileName: string = rulesFile, rules: JsonNode): bool =
     writeFile(fileName, rules.pretty())
     info(fmt"Successfully wrote nginwho rules to {fileName}")
     return true
-  except Exception as e:
+  except IOError as e:
     error(fmt"Failed writing nginwho rules to {fileName}: {e.msg}")
     return false
 
@@ -333,29 +333,25 @@ proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
 proc inputChainHasPolicy(nftOutput: JsonNode): bool =
   info("Checking nftables input chain for existing policy")
 
-  for element in 0..nftOutput.len() - 1:
-    if not nftOutput[element].contains("rule"):
+  for node in nftOutput:
+    if not node.contains("rule"):
       continue
 
-    let chainName = nftOutput[element]["rule"]["chain"].getStr()
+    let chainName = node["rule"]["chain"].getStr()
     if chainName != inputChain:
       continue
 
-    let expression = nftOutput[element]["rule"]["expr"]
+    let expression = node["rule"]["expr"]
     if expression.len() < 3:
       continue
 
-    try:
-      let rightNode = expression[0]["match"]["right"]
-      if rightNode.kind == JObject and rightNode.contains("set"):
-        let service = expression[0]["match"]["right"]["set"].getElems()
-        if service.len() == 2 and
-          service[0].getInt() == 80 and
-          service[1].getInt() == 443:
-          info("input chain already has the required policy")
-          return true
-    except:
-      continue
+    # {} gives nil instead of raising when a rule has another shape
+    let service = expression[0]{"match", "right", "set"}.getElems()
+    if service.len() == 2 and
+      service[0].getInt() == 80 and
+      service[1].getInt() == 443:
+      info("input chain already has the required policy")
+      return true
 
   warn(fmt"{inputChain} chain does not have the required policy")
 
@@ -363,9 +359,9 @@ proc inputChainHasPolicy(nftOutput: JsonNode): bool =
 proc inputChainExists(nftOutput: JsonNode): bool =
   info("Checking nftables input chain existence")
 
-  for element in 0..nftOutput.len() - 1:
-    if nftOutput[element].contains("chain"):
-      if nftOutput[element]["chain"]["name"].getStr() == inputChain:
+  for node in nftOutput:
+    if node.contains("chain"):
+      if node["chain"]["name"].getStr() == inputChain:
         info(fmt"Found nftables {inputChain} chain")
         return true
 
@@ -375,30 +371,27 @@ proc inputChainExists(nftOutput: JsonNode): bool =
 proc nginwhoChainHasPolicy(nftOutput: JsonNode, setName: string): bool =
   info(fmt"Checking nftables nginwho chain for existing policy on Set `{setName}`")
 
-  for element in 0..nftOutput.len() - 1:
-    if not nftOutput[element].contains("rule"):
+  for node in nftOutput:
+    if not node.contains("rule"):
       continue
 
-    let chainName = nftOutput[element]["rule"]["chain"].getStr()
+    let chainName = node["rule"]["chain"].getStr()
     if chainName != nginwhoChain:
       continue
 
-    let expression = nftOutput[element]["rule"]["expr"]
+    let expression = node["rule"]["expr"]
     if expression.len() < 4:
       continue
 
-    try:
-      let destination = expression[0]["match"]["right"].getStr()
-      let service = expression[1]["match"]["right"]["set"].getElems()
+    let destination = expression[0]{"match", "right"}.getStr()
+    let service = expression[1]{"match", "right", "set"}.getElems()
 
-      if destination == fmt"@{setName}" and
-        service.len() == 2 and
-        service[0].getInt() == 80 and
-        service[1].getInt() == 443:
-        info(fmt"nginwho chain already has the required policy for Set {setName}")
-        return true
-    except:
-      continue
+    if destination == fmt"@{setName}" and
+      service.len() == 2 and
+      service[0].getInt() == 80 and
+      service[1].getInt() == 443:
+      info(fmt"nginwho chain already has the required policy for Set {setName}")
+      return true
 
   warn(fmt"{nginwhoChain} chain does not have the required policy for Set {setName}")
 
@@ -406,9 +399,9 @@ proc nginwhoChainHasPolicy(nftOutput: JsonNode, setName: string): bool =
 proc nginwhoChainExists(nftOutput: JsonNode): bool =
   info("Checking nftables nginwho chain existence")
 
-  for element in 0..nftOutput.len() - 1:
-    if nftOutput[element].contains("chain"):
-      if nftOutput[element]["chain"]["name"].getStr() == nginwhoChain:
+  for node in nftOutput:
+    if node.contains("chain"):
+      if node["chain"]["name"].getStr() == nginwhoChain:
         info(fmt"Found nftables {nginwhoChain} chain")
         return true
 
@@ -421,11 +414,11 @@ proc setChanged(nftOutput: JsonNode, newCidrs: JsonNode,
 
   var currentSets = newSeq[string]()
 
-  for element in 0..nftOutput.len() - 1:
-    if not nftOutput[element].contains("set"):
+  for node in nftOutput:
+    if not node.contains("set"):
       continue
-    if nftOutput[element]["set"]["name"].getStr() == setName:
-      for elem in nftOutput[element]["set"]["elem"]:
+    if node["set"]["name"].getStr() == setName:
+      for elem in node["set"]["elem"]:
         # nft lists single addresses like 1.2.3.4/32 as a plain string
         if elem.kind == JString:
           currentSets.add(withMask(elem.getStr()))
@@ -448,10 +441,10 @@ proc setChanged(nftOutput: JsonNode, newCidrs: JsonNode,
 proc setExists(nftOutput: JsonNode, setName: string): bool =
   info(fmt"Checking nftables {setName} Set existence")
 
-  for element in 0..nftOutput.len() - 1:
-    if nftOutput[element].contains("set"):
-      if nftOutput[element]["set"]["family"].getStr() == "inet" and
-      nftOutput[element]["set"]["name"].getStr() == setName:
+  for node in nftOutput:
+    if node.contains("set"):
+      if node["set"]["family"].getStr() == "inet" and
+      node["set"]["name"].getStr() == setName:
         info(fmt"Found nftables {setName} Set")
         return true
 
@@ -493,15 +486,15 @@ proc inetFilterExists*(nftOutput: JsonNode): bool =
   info("Checking nftables `inet filter` table existence")
 
   try:
-    for idx in 0..nftOutput.len() - 1:
-      if nftOutput[idx].contains("table"):
-        let tableFamily: string = nftOutput[idx]["table"]["family"].getStr()
+    for node in nftOutput:
+      if node.contains("table"):
+        let tableFamily: string = node["table"]["family"].getStr()
         # if tableFamily notin ["inet", "ip"]:
         if tableFamily != "inet":
           continue
         info(fmt"Found table inet filter family: `{tableFamily}`")
         return true
-  except Exception as e:
+  except KeyError as e:
     error(fmt"Failed checking `inet` table existence: {e.msg}")
 
 
@@ -510,7 +503,7 @@ proc getCurrentRules(): JsonNode =
 
   try:
     result = parseJson(execProcess(getRulesetCmd)){"nftables"}
-  except Exception as e:
+  except CatchableError as e:
     error(fmt"Failed parsing JSON: {e.msg}")
 
   # we can't decide which rules to add without the current ones
@@ -528,9 +521,7 @@ proc writeRulesAndApply(rules: JsonNode) =
 proc ensureNftExists*() =
   info("Checking existence of nftables")
 
-  let result: string = findExe("nft")
-
-  if result == "":
+  if findExe("nft") == "":
     fatal("nftables command not found")
     quit(1)
 
@@ -539,7 +530,7 @@ proc changesRequired(nftAttrs: NftAttrs): bool =
   info("Checking if there are any nftables changes required")
 
   for _, value in nftAttrs.fieldPairs():
-    if value == true:
+    if value:
       info("nftables requires changes")
       return true
 
@@ -552,28 +543,15 @@ proc requiredChanges*(nftOutput: JsonNode, nftSet: NftSet): NftAttrs =
   ## Compares the current ruleset with what nginwho needs and returns the missing parts
   var nftAttrs: NftAttrs
 
-  if setExists(nftOutput, setNameV4):
-    nftAttrs.withCloudflareV4Set = if setChanged(nftOutput, nftSet.ipv4,
-        setNameV4): true else: false
-  else:
-    nftAttrs.withCloudflareV4Set = true
-
-  if setExists(nftOutput, setNameV6):
-    nftAttrs.withCloudflareV6Set = if setChanged(nftOutput, nftSet.ipv6,
-        setNameV6): true else: false
-  else:
-    nftAttrs.withCloudflareV6Set = true
-
-  nftAttrs.withNginwhoChain = if nginwhoChainExists(nftOutput): false else: true
-  nftAttrs.withNginwhoIPv4Policy = if nginwhoChainHasPolicy(nftOutput,
-      setNameV4): false else: true
-  nftAttrs.withNginwhoIPv6Policy = if nginwhoChainHasPolicy(nftOutput,
-      setNameV6): false else: true
-
-  nftAttrs.withInputChain = if inputChainExists(nftOutput): false else: true
-  nftAttrs.withInputPolicy = if inputChainHasPolicy(nftOutput): false else: true
-
-  return nftAttrs
+  return NftAttrs(
+    withCloudflareV4Set: not setExists(nftOutput, setNameV4) or setChanged(nftOutput, nftSet.ipv4, setNameV4),
+    withCloudflareV6Set: not setExists(nftOutput, setNameV6) or setChanged(nftOutput, nftSet.ipv6, setNameV6),
+    withNginwhoChain: not nginwhoChainExists(nftOutput),
+    withNginwhoIPv4Policy: not nginwhoChainHasPolicy(nftOutput, setNameV4),
+    withNginwhoIPv6Policy: not nginwhoChainHasPolicy(nftOutput, setNameV6),
+    withInputChain: not inputChainExists(nftOutput),
+    withInputPolicy: not inputChainHasPolicy(nftOutput),
+  )
 
 
 proc runPrechecks(nftSet: NftSet): NftAttrs =

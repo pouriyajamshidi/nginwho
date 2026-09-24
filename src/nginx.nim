@@ -3,7 +3,7 @@ from std/strutils import splitWhitespace, replace, endsWith, startsWith, strip, 
 from std/os import findExe, fileExists
 from std/osproc import execCmd
 from std/strformat import fmt
-from std/logging import info, error, warn, fatal
+from std/logging import info, error
 
 
 type Log* = object
@@ -45,8 +45,7 @@ proc ensureNginxLogExists*(logPath: string) =
 proc ensureNginxExists*() =
   info("Ensuring nginx command exists")
 
-  let result: string = findExe("nginx")
-  if result == "":
+  if findExe("nginx") == "":
     error("nginx command not found")
     quit(1)
 
@@ -60,14 +59,11 @@ proc testNginxConfig(): int =
 proc reloadNginx*() =
   info("Attempting to soft-reload nginx")
 
-  let testResult: int = testNginxConfig()
-  if testResult != 0:
+  if testNginxConfig() != 0:
     error("nginx configuration test failed... Aborting reload")
     return
 
-
-  let result: int = execCmd("nginx -s reload")
-  if result != 0:
+  if execCmd("nginx -s reload") != 0:
     error("nginx process reload failed")
   else:
     info("nginx process reloaded successfully")
@@ -85,7 +81,7 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
     try:
       log.date = convertDateFormat(matches[3].replace("\"", "").replace("[",
           "").replace("/", "-"))
-    except Exception as e:
+    except ValueError as e:
       error(fmt"Failed parsing log date: {e.msg}")
       log.nonDefault = logLine
       return log

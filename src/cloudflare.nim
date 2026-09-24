@@ -30,7 +30,7 @@ proc parseCidrsResponse*(jsonResponse: JsonNode): Option[Cidrs] =
   let etag: string = jsonResponse{"result", "etag"}.getStr()
 
   let apiSuccess: bool = jsonResponse{"success"}.getBool()
-  if apiSuccess != true:
+  if not apiSuccess:
     warn(fmt"API `success` is not true: {apiSuccess}")
     return none(Cidrs)
 
@@ -98,8 +98,8 @@ proc populateReverseProxyFile*(filePath: string, cidrs: Cidrs): bool =
 
     file.write("\n\nreal_ip_header CF-Connecting-IP;\n")
     return true
-  except:
-    error(fmt"Could not open {filePath}")
+  except IOError as e:
+    error(fmt"Could not write {filePath}: {e.msg}")
     return false
 
 
@@ -124,8 +124,7 @@ proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool = false) {.async.} =
     let currentEtag: string = getCurrentEtag()
     let cfCIDRs: Option[Cidrs] = await getCloudflareCIDRs()
 
-    case cfCIDRs.isSome:
-    of true:
+    if cfCIDRs.isSome:
       let cidrs: Cidrs = cfCIDRs.get()
 
       if blockUntrustedCidrs:
@@ -138,7 +137,7 @@ proc fetchAndProcessIPCidrs*(blockUntrustedCidrs: bool = false) {.async.} =
           reloadNginx()
       else:
         info(fmt"etag has not changed {currentEtag}")
-    of false:
+    else:
       error("Failed fetching CIDRs")
 
     await sleepAsync(refreshMs)

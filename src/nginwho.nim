@@ -5,8 +5,7 @@ from db_connector/db_sqlite import DbConn
 from std/os import getFileInfo, FileInfo, FileId, dirExists, fileExists
 from std/net import Port
 from std/parseopt import CmdLineKind, initOptParser, next
-from std/logging import addHandler, newConsoleLogger, ConsoleLogger, info, error,
-    warn, fatal, setLogFilter, lvlError
+from std/logging import addHandler, newConsoleLogger, info, error, warn, setLogFilter, lvlError
 
 from nginx import Log, isStaticAsset, readChunkBytes, ensureNginxExists, ensureNginxLogExists,
     parseLogEntry, readNewLines, offsetAfterLastInserted
@@ -30,9 +29,7 @@ const
   version* = nimbleVersion()
   maxInsertAttempts = 3
 
-var logger: ConsoleLogger = newConsoleLogger(
-    fmtStr = "[$date -- $time] - $levelname: ")
-addHandler(logger)
+addHandler(newConsoleLogger(fmtStr = "[$date -- $time] - $levelname: "))
 
 
 
@@ -79,6 +76,12 @@ proc validateArgs(args: Args) =
     usage(1)
 
 
+proc parsePort(value: string): int =
+  result = parseInt(value)
+  if result < 1 or result > 65535:
+    raise newException(ValueError, "must be between 1 and 65535")
+
+
 proc getArgs(): Args =
   # Args() and not `var args: Args`, only the constructor fills in the defaults
   var args = Args()
@@ -107,11 +110,7 @@ proc getArgs(): Args =
         of "report": args.report = true
         of "config": discard # already read
         of "trap": args.trap.enabled = p.val == "" or parseBool(p.val)
-        of "trapPort":
-          let port = parseInt(p.val)
-          if port < 1 or port > 65535:
-            raise newException(ValueError, "must be between 1 and 65535")
-          args.trap.port = port
+        of "trapPort": args.trap.port = parsePort(p.val)
         of "help", "h": usage()
         of "version", "v":
           echo version
@@ -134,11 +133,7 @@ proc getArgs(): Args =
         of "processNginxLogs": args.processNginxLogs = p.val == "" or parseBool(p.val)
         of "serve": args.serve = p.val == "" or parseBool(p.val)
         of "root": args.root = p.val
-        of "port":
-          let port = parseInt(p.val)
-          if port < 1 or port > 65535:
-            raise newException(ValueError, "must be between 1 and 65535")
-          args.port = port
+        of "port": args.port = parsePort(p.val)
       except ValueError as e:
         error(fmt"Bad value '{p.val}' for --{p.key}: {e.msg}")
         usage(1)
