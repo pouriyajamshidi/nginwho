@@ -347,6 +347,13 @@ folder and the certificate to yours, and leave out the parts for features you do
 # at the top of the file it is in nginx's http block, so every server below uses it
 include /etc/nginx/nginwho;
 
+# the trap saves the bots it catches. the requests it lets go come back as a 404,
+# and those are logged like any visit, blocked scrapers too
+map $status $trap_let_go {
+    404     1;
+    default 0;
+}
+
 # plain HTTP goes to HTTPS
 server {
     listen 80;
@@ -386,7 +393,8 @@ server {
         error_page 404 /404.html;
         error_page 502 504 =404 /404.html; # if nginwho is down, act like a normal site
         gzip off;                          # compressing again breaks the gzip bomb
-        access_log off;                    # the trap saves its own record in trap_hits
+        # only what the trap lets go. what it catches is saved in trap_hits instead
+        access_log /var/log/nginx/access.log combined if=$trap_let_go;
     }
 
     location / {
@@ -420,7 +428,8 @@ What each part is for:
 | ------------------------------------- | --------------------------------------------------------------------------- |
 | `include /etc/nginx/nginwho`          | [Real visitor IPs behind a CDN](#real-visitor-ips-behind-a-cdn)             |
 | `access_log ... combined`             | [Saving your logs](#saving-your-logs)                                       |
-| `error_page`, `@trap` and `try_files` | [The trap](#the-trap)                                                       |
+| `error_page`, `@trap`, `try_files`    | [The trap](#the-trap)                                                       |
+| The `map` and `@trap`'s `access_log`  | Logging the bots the trap lets go, like blocked scrapers on normal pages    |
 | The `$http_user_agent` line           | [Trapping bots by their name](#trapping-bots-by-their-name)                 |
 | The `stub_status` server              | The [Grafana dashboard](#see-it-on-grafana), optional                       |
 
@@ -614,6 +623,10 @@ The trap listens on `127.0.0.1:7777`. nginx sends it the requests it would answe
 404 or 405. For a path that isn't a known probe, the trap says 404 and nginx shows your normal
 404 page, so real visitors never notice anything. If nginwho is not running, nginx acts like a
 normal site and shows the 404 page.
+
+nginx logs the requests the trap lets go, like a scraper you blocked asking for a normal page,
+so they show up in your reports like any visit. The bots the trap catches are saved in
+`trap_hits` instead, so nothing is counted twice.
 
 The lines that do this are in [The nginx config](#the-nginx-config).
 
