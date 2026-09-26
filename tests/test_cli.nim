@@ -54,7 +54,7 @@ suite "cli":
     let conf = tempDir / "bad.conf"
     writeFile(conf, "[nginx]\ninterval = 0\n[server]\nport = 70000\n[trap]\nport = abc\n" &
         "max_connections = 0\ndrip_min_ms = 900\ndrip_max_ms = 100\n" &
-        "[nginx]\ncdn = akamai\n")
+        "[nginx]\ncdn = akamai\n[trap.agents]\nDeepSeek = slow\n")
     # --report with a missing database reads the config and then stops
     let (output, _) = run("--config=" & quoteShell(conf) & " --report --dbPath=" &
         quoteShell(tempDir / "missing_config.db"))
@@ -64,6 +64,7 @@ suite "cli":
     check "Bad value '0' for max_connections in [trap]: must be at least 1" in output
     check "drip_min_ms (900) is above drip_max_ms (100) in [trap]" in output
     check "Bad value 'akamai' for cdn in [nginx]: must be cloudflare or fastly" in output
+    check "Bad value 'slow' for DeepSeek in [trap.agents]: must be drip, endless, maze, login or bomb" in output
 
   test "a database that can't be opened ends the program with an error":
     let (output, exitCode) = run("--processNginxLogs --serve --root=" & quoteShell(tempDir) & " --port=18557" &

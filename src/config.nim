@@ -4,9 +4,11 @@ from std/parsecfg import loadConfig, Config, getSectionValue
 from std/strutils import parseInt, parseBool, parseEnum, toLowerAscii
 from std/strformat import fmt
 from std/os import fileExists
+from std/tables import hasKey, `[]`, pairs
+from std/options import some, none
 from std/logging import info, error
 
-from trap import TrapConfig
+from trap import TrapConfig, Agent, Tactic
 from cdn import Cdn
 
 
@@ -59,6 +61,13 @@ proc parseCdn*(value: string): Cdn =
     return parseEnum[Cdn](value.toLowerAscii())
   except ValueError:
     raise newException(ValueError, "must be cloudflare or fastly")
+
+
+proc parseTactic*(value: string): Tactic =
+  try:
+    return parseEnum[Tactic](value.toLowerAscii())
+  except ValueError:
+    raise newException(ValueError, "must be drip, endless, maze, login or bomb")
 
 
 proc atLeast(min: int): proc (value: string): int =
@@ -138,3 +147,15 @@ proc readConfigFile*(path: string, args: var Args) =
         "in [trap]. Keeping the defaults for both")
     args.trap.dripMinMs = TrapConfig().dripMinMs
     args.trap.dripMaxMs = TrapConfig().dripMaxMs
+
+  # user agents to always trap. a name on its own gets the default: what any bot
+  # gets for that path, and a drip for a normal page
+  if config.hasKey("trap.agents"):
+    for name, value in config["trap.agents"].pairs:
+      var agent: Agent = (name.toLowerAscii(), none(Tactic))
+      if value != "":
+        try:
+          agent.tactic = some(parseTactic(value))
+        except ValueError as e:
+          error(fmt"Bad value '{value}' for {name} in [trap.agents]: {e.msg}. Keeping the default")
+      args.trap.agents.add(agent)

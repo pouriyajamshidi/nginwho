@@ -5,9 +5,10 @@ import std/[unittest, asyncdispatch, os]
 from std/asyncnet import newAsyncSocket, connect, send, recv, recvLine, close
 from std/net import Port
 from std/strutils import split, contains, startsWith
+from std/options import some, none, isNone, get
 from db_connector/db_sqlite import DbConn, getValue, getAllRows, sql
 
-from trap import TrapConfig, classify, trap
+from trap import TrapConfig, Tactic, classify, trap, findAgent
 from database import TrapHit, getDbConnection, createTables, insertTrapHit, finishTrapHit,
     getTopTrappedIPs, getTopTraps, getTopTrappedURIs, getTrappedCredentials, getTrapTotals
 
@@ -149,13 +150,14 @@ let
   fastDb = startTrap(fastPort, 0)
 
 
-proc get(path, ip: string, port = fastPort): string =
+proc get(path, ip: string, port = fastPort, userAgent = "curl"): string =
   ## Asks a trap for a path as `ip` and returns the body once the trap is done
   proc run(): Future[string] {.async.} =
     let socket = newAsyncSocket()
     defer: socket.close()
     await socket.connect("127.0.0.1", Port(port))
-    await socket.send("GET " & path & " HTTP/1.1\r\nHost: x\r\nX-Real-IP: " & ip & "\r\n\r\n")
+    await socket.send("GET " & path & " HTTP/1.1\r\nHost: x\r\nX-Real-IP: " & ip &
+        "\r\nUser-Agent: " & userAgent & "\r\n\r\n")
     while true:
       let data = await socket.recv(4096)
       if data == "":
@@ -221,3 +223,34 @@ suite "live trap":
     check tactics[0][0] == "drip"
     check tactics[1][0] == "drip"
     check tactics[2][0] == "bomb"
+
+  test "listed user agents are trapped whatever they ask for":
+    const agentPort = 18094
+    let agentDb = tempDir / ("trap_" & $agentPort & ".db")
+    asyncCheck trap(TrapConfig(enabled: true, port: agentPort, maxConnections: 10,
+        maxSeconds: 60, dripMinMs: 0, dripMaxMs: 0, bombs: true, bombAfter: 100,
+        agents: @[("deepseek", some(maze)), ("gptbot", none(Tactic))]), agentDb)
+    waitFor sleepAsync(200)
+
+    # a set tactic wins, even over the one the path would get
+    discard get("/posts/hello", "80.0.0.1", agentPort, "Mozilla/5.0 (compatible; DeepSeekBot)")
+    discard get("/.env", "80.0.0.1", agentPort, "DeepSeekBot")
+    # no tactic set: the default, what any bot gets for the path and a drip for a page
+    discard get("/posts/hello", "80.0.0.2", agentPort, "GPTBot/1.2")
+    discard get("/wp-login.php", "80.0.0.2", agentPort, "GPTBot/1.2")
+    # anyone else asking for a normal page is not trapped
+    check get("/posts/hello", "80.0.0.3", agentPort, "Mozilla/5.0") == "404 Not Found\n"
+
+    let hits = getDbConnection(agentDb).getAllRows(
+        sql"SELECT request_uri, trap, tactic FROM trap_hits ORDER BY id")
+    check hits.len == 4
+    check hits[0] == @["/posts/hello", "agent", "maze"]
+    check hits[1] == @["/.env", "env", "maze"]
+    check hits[2] == @["/posts/hello", "agent", "drip"]
+    check hits[3] == @["/wp-login.php", "wordpress", "login"]
+
+  test "user agents are matched anywhere in the header, case ignored":
+    let cfg = TrapConfig(agents: @[("deepseek", some(drip)), ("bot", some(bomb))])
+    check findAgent("Mozilla/5.0 (DEEPSEEKBOT)", cfg).get.name == "deepseek"
+    check findAgent("SomeBot", cfg).get.tactic == some(bomb)
+    check findAgent("Mozilla/5.0", cfg).isNone

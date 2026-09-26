@@ -1,5 +1,6 @@
 ## Plays with bots that probe for files we do not have.
 ## nginx hands its 403s and 404s to this server, the rest is up to us.
+## User agents listed under [trap.agents] are trapped whatever they ask for.
 ## Every hit is saved in the `trap_hits` table with what we did about it
 
 import std/asyncdispatch
@@ -16,6 +17,7 @@ from std/strutils import toLowerAscii, contains, endsWith, startsWith, replace,
 from std/strformat import fmt
 from std/times import epochTime, now, format
 from std/uri import decodeUrl
+from std/options import Option, some, none, isSome, isNone, get
 from std/logging import info, error
 from db_connector/db_sqlite import DbConn
 
@@ -26,6 +28,20 @@ from database import TrapHit, getDbConnection, createTables, insertTrapHit, fini
 
 
 type
+  Tactic* = enum
+    ## What we do about it
+    drip = "drip"       # a fake file, one byte at a time
+    endless = "endless" # a body that never ends
+    maze = "maze"       # fake folder listings that lead to more folders
+    login = "login"     # a fake login that never lets them in
+    bomb = "bomb"       # a gzip bomb
+
+  Agent* = tuple
+    ## A user agent to always trap. `name` is lowercase and matched anywhere in the
+    ## User-Agent header. Without a tactic it gets what any bot gets for that path
+    name: string
+    tactic: Option[Tactic]
+
   TrapConfig* = object
     enabled*: bool
     port*: int = 7777
@@ -35,6 +51,7 @@ type
     dripMaxMs*: int = 700
     bombs*: bool = true
     bombAfter*: int = 3 # trapped hits from one IP in a day before it gets a bomb
+    agents*: seq[Agent] # first match wins
 
   Trap = enum
     ## What the bot was after
@@ -50,14 +67,7 @@ type
     apiDebug = "api"
     rce = "rce"
     wellKnown = "well-known"
-
-  Tactic = enum
-    ## What we do about it
-    drip = "drip"       # a fake file, one byte at a time
-    endless = "endless" # a body that never ends
-    maze = "maze"       # fake folder listings that lead to more folders
-    login = "login"     # a fake login that never lets them in
-    bomb = "bomb"       # a gzip bomb
+    listedAgent = "agent" # a listed user agent asking for a normal page
 
 
 const
@@ -238,7 +248,7 @@ proc fakeFile(trap: Trap, path: string, values: Table[string, string], rng: Rng)
     return (fill(actuatorTemplate, values), "application/json", awsKey)
   of rce:
     return (fill(passwdTemplate, values), "text/plain", "")
-  of configFile, backup, wordpress, adminPanel, wellKnown, noTrap:
+  of configFile, backup, wordpress, adminPanel, wellKnown, listedAgent, noTrap:
     return (fill(configTemplate, values), "application/json", awsKey)
 
 
@@ -276,31 +286,38 @@ proc mazePage(rng: Rng, path: string): string =
   result.add("</pre><hr></body></html>\n")
 
 
+proc tacticForPath(trap: Trap, p: string): Tactic =
+  ## What a bot gets for a path, `p` is lowercase
+  case trap
+  of wordpress:
+    if p.anyOf(["login", "wp-admin"]): login
+    elif p.contains("xmlrpc"): endless
+    else: drip
+  of adminPanel: login
+  of backup:
+    if p.anyOf([".gz", ".zip", ".tar", ".7z", ".rar", ".tgz"]): bomb else: endless
+  of phpFile:
+    if p.anyOf(["phpinfo", "info.php"]): drip else: bomb
+  of gitRepo:
+    if p.endsWith("/config") or p.endsWith("head"): drip else: maze
+  of apiDebug:
+    if p.anyOf(["actuator", "env", "config"]): drip else: endless
+  else: drip
+
+
 proc tacticFor(trap: Trap, path: string, repeatOffender: bool,
-    cfg: TrapConfig): Tactic =
+    cfg: TrapConfig, chosen = none(Tactic)): Tactic =
+  ## `chosen` is the tactic set for a listed user agent, which always wins
   let p = path.toLowerAscii
 
-  result =
-    case trap
-    of wordpress:
-      if p.anyOf(["login", "wp-admin"]): login
-      elif p.contains("xmlrpc"): endless
-      else: drip
-    of adminPanel: login
-    of backup:
-      if p.anyOf([".gz", ".zip", ".tar", ".7z", ".rar",
-          ".tgz"]): bomb else: endless
-    of phpFile:
-      if p.anyOf(["phpinfo", "info.php"]): drip else: bomb
-    of gitRepo:
-      if p.endsWith("/config") or p.endsWith("head"): drip else: maze
-    of apiDebug:
-      if p.anyOf(["actuator", "env", "config"]): drip else: endless
-    else: drip
+  if chosen.isSome:
+    result = chosen.get
+  else:
+    result = tacticForPath(trap, p)
+    # someone who keeps coming back has earned a bomb
+    if repeatOffender and result != login:
+      result = bomb
 
-  # someone who keeps coming back has earned a bomb
-  if repeatOffender and result != login:
-    result = bomb
   if result == bomb and not cfg.bombs:
     result = endless
 
@@ -445,15 +462,30 @@ proc isRepeatOffender(ip: string, cfg: TrapConfig): bool =
   return hitsToday[ip] > cfg.bombAfter
 
 
-proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
-    db: DbConn): Future[bool] {.async.} =
-  ## Plays with the bot when the request is a probe. Returns false when it is not one
-  ## or the trap is full, so the caller answers as usual
-  let trap = classify(req.path)
-  if trap == noTrap or active >= cfg.maxConnections:
-    return false
+proc findAgent*(userAgent: string, cfg: TrapConfig): Option[Agent] =
+  ## The first listed user agent found in the User-Agent header
+  let ua = userAgent.toLowerAscii
+  for agent in cfg.agents:
+    if ua.contains(agent.name):
+      return some(agent)
 
-  let tactic = tacticFor(trap, req.path, isRepeatOffender(ip, cfg), cfg)
+
+proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
+    db: DbConn, miss: bool): Future[bool] {.async.} =
+  ## Plays with the bot when the request is a probe we could not serve (`miss`), or
+  ## comes from a listed user agent. Returns false when it is neither or the trap is
+  ## full, so the caller answers as usual
+  let agent = findAgent(req.header("User-Agent"), cfg)
+  var trap = classify(req.path)
+  if agent.isNone and (trap == noTrap or not miss):
+    return false
+  if active >= cfg.maxConnections:
+    return false
+  if trap == noTrap:
+    trap = listedAgent
+
+  let chosen = if agent.isSome: agent.get.tactic else: none(Tactic)
+  let tactic = tacticFor(trap, req.path, isRepeatOffender(ip, cfg), cfg, chosen)
   info(fmt"Trapping {ip} in the {tactic} for {req.path} ({trap})")
 
   # the same bot asking for the same file twice sees the same fake content
@@ -502,7 +534,8 @@ proc handle(client: AsyncSocket, cfg: TrapConfig, db: DbConn) {.async.} =
     if ip == "":
       ip = client.getPeerAddr()[0]
 
-    if not await client.trapRequest(req, ip, cfg, db):
+    # nginx only sends what it could not serve, or blocked
+    if not await client.trapRequest(req, ip, cfg, db, miss = true):
       await client.sendNotFound()
   except CatchableError:
     # a failure before the trap even starts, nothing to record
@@ -510,11 +543,12 @@ proc handle(client: AsyncSocket, cfg: TrapConfig, db: DbConn) {.async.} =
 
 
 proc trapHook*(cfg: TrapConfig, dbPath: string): TrapHook =
-  ## For --serve, where no nginx sits in front: the server hands its misses to the trap itself
+  ## For --serve, where no nginx sits in front: the server hands its requests to the trap itself
   let db = getDbConnection(dbPath)
   createTables(db)
-  return proc (client: AsyncSocket, req: Request, remoteIP: string): Future[bool] =
-    client.trapRequest(req, remoteIP, cfg, db)
+  return proc (client: AsyncSocket, req: Request, remoteIP: string,
+      miss: bool): Future[bool] =
+    client.trapRequest(req, remoteIP, cfg, db, miss)
 
 
 proc trap*(cfg: TrapConfig, dbPath: string, address = "127.0.0.1") {.async.} =

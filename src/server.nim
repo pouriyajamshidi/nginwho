@@ -29,9 +29,10 @@ type
     headers*: HttpHeaders
 
   TrapHook* = proc (client: AsyncSocket, req: Request,
-      remoteIP: string): Future[bool]
-    ## Gets the requests the server can't serve, like nginx's error_page to the trap.
-    ## Returns false when it does not take one, and the server answers as usual
+      remoteIP: string, miss: bool): Future[bool]
+    ## Sees every request first. `miss` is true when the server can't serve it, like
+    ## nginx's error_page to the trap. Returns false when it does not take one, and
+    ## the server answers as usual
 
 
 let mimes = newMimetypes()
@@ -239,10 +240,11 @@ proc handleClient(client: AsyncSocket, root, logPath: string,
       if req.line in ["", "\r\n"]:
         return
 
-      # what would be a 404 or 405 goes to the trap first. the trap keeps its own record
-      if trapHook != nil and req.httpMethod != "" and
-          (req.httpMethod notin ["GET", "HEAD"] or resolve(root, req.path) == ""):
-        if await trapHook(client, req, remoteIP):
+      # the trap gets a look first: what would be a 404 or 405, and listed user agents.
+      # it keeps its own record
+      if trapHook != nil and req.httpMethod != "":
+        let miss = req.httpMethod notin ["GET", "HEAD"] or resolve(root, req.path) == ""
+        if await trapHook(client, req, remoteIP, miss):
           return
 
       # a request body is never read, so the connection can't be reused after one

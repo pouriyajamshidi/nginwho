@@ -9,7 +9,9 @@ from db_connector/db_sqlite import getValue, sql
 
 from server import serve, accessLogLine
 from nginx import parseLogEntry
-from trap import TrapConfig, trapHook
+from std/options import none
+
+from trap import TrapConfig, Tactic, trapHook
 from database import getDbConnection
 
 let tempDir = getTempDir() / "nginwho_test_server"
@@ -31,7 +33,8 @@ const trapPort = Port(18093)
 let trapLogPath = tempDir / "trap_access.log"
 let trapDb = tempDir / "trap.db"
 asyncCheck serve(root, trapLogPath, trapPort, "127.0.0.1", trapHook(TrapConfig(enabled: true,
-    maxConnections: 10, maxSeconds: 60, dripMinMs: 0, dripMaxMs: 0, bombs: true, bombAfter: 100), trapDb))
+    maxConnections: 10, maxSeconds: 60, dripMinMs: 0, dripMaxMs: 0, bombs: true, bombAfter: 100,
+    agents: @[("deepseek", none(Tactic))]), trapDb))
 
 
 proc request(raw: string, port = port): string =
@@ -129,3 +132,9 @@ suite "server with the trap":
     # like nginx's access_log off for the trap, it keeps its own record
     check "/.env" notin readFile(trapLogPath)
     check "/typo" in readFile(trapLogPath)
+
+  test "a listed user agent is trapped even on a real page":
+    let page = get("/", "User-Agent: DeepSeekBot\r\n", port = trapPort)
+    check page.startsWith("HTTP/1.1 200")
+    check page.body != "home"
+    check get("/", "User-Agent: Mozilla/5.0\r\n", port = trapPort).body == "home"

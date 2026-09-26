@@ -232,6 +232,22 @@ nginx forwards its `403`s and `404`s to nginwho, which decides what to do based 
   `net/http`, Python `requests`) get the whole 10 GB; `curl --compressed` stops after the
   first megabyte, and archive downloads land as a 10 MB file that only bites if it is opened.
 
+You can also trap some bots by their user agent, whatever they ask for, and pick what they
+get. List them under `[trap.agents]` in the config file. A name matches anywhere in the
+`User-Agent` header, case ignored, and the first match wins. The behavior can be `drip`,
+`endless`, `maze`, `login` or `bomb`. A name on its own gets the default: what any bot gets
+for that path, and a slow drip for a normal page.
+
+```ini
+[trap.agents]
+deepseek = drip
+gptbot = maze
+bytespider
+```
+
+Behind nginx, a bot only reaches the trap if nginx blocks it, so block the same user agents
+with a `403` as shown below. With `--serve` there is nothing else to do.
+
 Everything is saved in the `trap_hits` table and shows up under the `Trap:` entries in report
 mode: who probed you, what they were after, how long you held them and what they typed into
 the fake logins.
@@ -264,7 +280,8 @@ location @trap {
 
 location / {
     if ($request_method !~ ^(GET|HEAD)$) { return 405; }
-    # ... your user agent and referer blocks return 403 here ...
+    # ... your user agent and referer blocks return 403 here, for example:
+    # if ($http_user_agent ~* (deepseek|gptbot|bytespider)) { return 403; }
 
     # a missing file goes to the trap. known probe paths get trapped,
     # a genuine typo gets the 404 page through @trap
