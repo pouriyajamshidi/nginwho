@@ -1,7 +1,7 @@
 import std/unittest
 from std/strutils import repeat, startsWith
 
-from report import formatTable
+from report import formatTable, formatTotals
 
 
 suite "report table":
@@ -25,3 +25,15 @@ suite "report table":
   test "escape codes saved by bots do not reach the terminal":
     let lines = formatTable(@["Tried"], @[@["a\x1b[2Jb", "1"]], 1)
     check lines[1].startsWith("1  a\\x1B[2Jb")
+
+  test "totals line up and only show dates when there are some":
+    let lines = formatTotals(@[
+      ("Requests", 12345, "2024-11-01 08:30:00", "2026-09-26 23:59:59"),
+      ("Non-default logs", 2, "", ""),
+      ("Trap hits", 0, "", ""),
+    ])
+    check lines == @[
+      "Requests          12,345  2024-11-01 08:30:00 to 2026-09-26 23:59:59",
+      "Non-default logs       2",
+      "Trap hits              0",
+    ]

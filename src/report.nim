@@ -2,8 +2,8 @@ import std/times
 from std/terminal import setForegroundColor, resetAttributes, styledWrite,
     styledWriteLine, styleBright, styleUnderscore, fgYellow, fgCyan, fgRed, fgGreen
 from std/strformat import fmt
-from std/strutils import parseInt, repeat, strip, insertSep, align, formatFloat,
-    ffDecimal, rfind, toHex
+from std/strutils import parseInt, repeat, strip, insertSep, align, alignLeft,
+    formatFloat, ffDecimal, rfind, toHex
 from std/unicode import runeLen, runeSubStr
 from std/os import fileExists
 from db_connector/db_sqlite import DbConn, Row
@@ -11,8 +11,8 @@ from db_connector/db_sqlite import DbConn, Row
 from nginx import dateFormat
 from database import getDbConnection, closeDbConnection, createTables,
     hasOldSchema, getTopIPs, getTopURIs, getTopUnsuccessfulRequests,
-        getTopReferres, getNonDefaults,
-    getTotalRequests, getTotalNonDefaults,
+        getTopReferres, getTopUserAgents, getNonDefaults,
+    getTotalRequests, getTotalNonDefaults, getSpan,
     getTopTrappedIPs, getTopTraps, getTopTrappedURIs, getTrappedCredentials, getTrapTotals
 
 
@@ -37,6 +37,8 @@ let reports = [
   Report(name: "Top unsuccessful requests", columns: @["Status", "URI",
       "User agent"], query: getTopUnsuccessfulRequests),
   Report(name: "Top referrers", columns: @["Referrer"], query: getTopReferres),
+  Report(name: "Top user agents", columns: @["User agent"],
+      query: getTopUserAgents),
   # non-default logs are saved without a date
   Report(name: "Top non-defaults", columns: @["Log line"],
       query: getNonDefaults, allTimeOnly: true),
@@ -124,6 +126,22 @@ proc formatTable*(columns: seq[string], rows: seq[Row], total: int,
         "  " & align(percent.formatFloat(ffDecimal, 1) & "%", 6) & "  " & bar)
 
 
+proc formatTotals*(totals: seq[tuple[name: string, count: int, first,
+    last: string]]): seq[string] =
+  ## Returns one line per total, with the dates of the first and last entry when there are any
+  var nameWidth, countWidth: int
+  for total in totals:
+    nameWidth = max(nameWidth, len(total.name))
+    countWidth = max(countWidth, len(insertSep($total.count, ',')))
+
+  for total in totals:
+    var line = alignLeft(total.name, nameWidth) & "  " & align(insertSep(
+        $total.count, ','), countWidth)
+    if total.first != "":
+      line &= fmt"  {total.first} to {total.last}"
+    result.add(line)
+
+
 proc warn(message: string) =
   stdout.styledWriteLine(fgRed, message)
 
@@ -171,6 +189,7 @@ proc showMenu(window: TimeWindow) =
     let note = if report.allTimeOnly: " (all time)" else: ""
     lines.add(fmt"{i + 1}) {report.name}{note}")
 
+  lines.add("t) Database totals (all time)")
   lines.add(fmt"w) Change time window (now: {window.name})")
   lines.add("q) Quit")
   printMenu(lines)
@@ -218,6 +237,23 @@ proc showResults(db: DbConn, report: Report, num: uint, window: TimeWindow) =
     stdout.styledWriteLine("  ", line[0 ..< barStart], fgGreen, line[barStart..^1])
 
 
+proc showTotals(db: DbConn) =
+  let requests = getSpan(db, "nginwho")
+  let trapHits = getSpan(db, "trap_hits")
+  # non-default logs are saved without a date
+  let lines = formatTotals(@[
+    ("Requests", requests.count, requests.first, requests.last),
+    ("Non-default logs", getTotalNonDefaults(db), "", ""),
+    ("Trap hits", trapHits.count, trapHits.first, trapHits.last),
+  ])
+
+  echo()
+  stdout.styledWriteLine(fgGreen, styleBright, "Database totals, all time")
+  echo()
+  for line in lines:
+    echo("  ", line)
+
+
 proc report*(dbPath: string) =
   ## Raises IOError when the database is missing
   # opening a missing database creates an empty one and every query fails
@@ -244,6 +280,10 @@ proc report*(dbPath: string) =
 
     if choice == "w":
       window = chooseTimeWindow(window)
+      continue
+
+    if choice == "t":
+      showTotals(db)
       continue
 
     let option = try: parseInt(choice) except ValueError: 0

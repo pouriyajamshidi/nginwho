@@ -632,16 +632,26 @@ This opens a menu. Pick a report by its number and say how many rows you want:
   2) Top URIs
   3) Top unsuccessful requests
   4) Top referrers
-  5) Top non-defaults (all time)
-  6) Trap: top attackers
-  7) Trap: what they wanted
-  8) Trap: top probed paths
-  9) Trap: credentials tried
+  5) Top user agents
+  6) Top non-defaults (all time)
+  7) Trap: top attackers
+  8) Trap: what they wanted
+  9) Trap: top probed paths
+  10) Trap: credentials tried
+  t) Database totals (all time)
   w) Change time window (now: last 30 days)
   q) Quit
 ```
 
 Reports cover the last 30 days. Press `w` to switch to the last 24 hours, 7 days or all time.
+Press `t` to see how much is saved in the database and from when:
+
+```text
+  Requests          245,108  2024-11-01 08:30:12 to 2026-09-26 13:34:58
+  Non-default logs       37
+  Trap hits           9,412  2026-09-20 11:02:45 to 2026-09-26 13:34:46
+```
+
 The trap reports show how long each bot was held. For example, "what they wanted":
 
 ```text

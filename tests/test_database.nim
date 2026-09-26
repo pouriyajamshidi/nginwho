@@ -3,9 +3,9 @@ from std/strutils import parseInt
 from db_connector/db_sqlite import DbConn, Row, open, close, exec, getAllRows, getValue, sql
 
 from nginx import Log, parseLogEntry, readNewLines, offsetAfterLastInserted
-from database import getDbConnection, closeDbConnection, createTables, insertLogs, getLastRow, getTopIPs, getTopURIs,
-    getTopReferres, getTopUnsuccessfulRequests, getNonDefaults, getTotalRequests,
-    getTotalNonDefaults, hasOldSchema
+from database import TrapHit, getDbConnection, closeDbConnection, createTables, insertLogs, getLastRow, getTopIPs,
+    getTopURIs, getTopReferres, getTopUserAgents, getTopUnsuccessfulRequests, getNonDefaults, getTotalRequests,
+    getTotalNonDefaults, getSpan, hasOldSchema, insertTrapHit
 
 
 proc newDb(): DbConn =
@@ -141,6 +141,9 @@ suite "database":
         log(referrer = "https://y.com")])
     check db.getTopReferres(1) == @[@["https://y.com", "2"]]
 
+    insertLogs(db, @[log(userAgent = "bot/1.0"), log(userAgent = "bot/1.0")])
+    check db.getTopUserAgents(2) == @[@["curl/8.0", "9"], @["bot/1.0", "2"]]
+
   test "top unsuccessful requests only has recent failed GET requests":
     let db = newDb()
     let today = now().utc.format("yyyy-MM-dd HH:mm:ss")
@@ -184,8 +187,22 @@ suite "database":
     check db.getTopIPs(10, since) == @[@["2.2.2.2", "2"], @["1.1.1.1", "1"]]
     check db.getTopURIs(10, since) == @[@["/new", "3"]]
     check db.getTopReferres(10, since) == @[@["https://new.com", "1"]]
+    check db.getTopUserAgents(10, since) == @[@["curl/8.0", "3"]]
     check db.getTotalRequests() == 6
     check db.getTotalRequests(since) == 3
+
+  test "totals count every row and give the first and last date":
+    let db = newDb()
+    check db.getSpan("nginwho") == (0, "", "")
+    check db.getSpan("trap_hits") == (0, "", "")
+
+    insertLogs(db, @[log(date = "2026-09-13 10:00:00"), log(date = "2024-11-01 08:30:00"),
+        log(date = "2026-09-26 23:59:59")])
+    discard db.insertTrapHit(TrapHit(date: "2026-09-20 12:00:00", remoteIP: "9.9.9.9",
+        httpMethod: "GET", requestURI: "/.env", userAgent: "bot", trap: "env", tactic: "drip"))
+
+    check db.getSpan("nginwho") == (3, "2024-11-01 08:30:00", "2026-09-26 23:59:59")
+    check db.getSpan("trap_hits") == (1, "2026-09-20 12:00:00", "2026-09-20 12:00:00")
 
   test "the date index exists":
     check newDb().getValue(sql"SELECT 1 FROM sqlite_master WHERE name = 'idx_nginwho_date'") == "1"

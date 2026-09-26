@@ -165,6 +165,11 @@ proc getTopReferres*(db: DbConn, num: uint, since = ""): seq[Row] =
   return topValues(db, "referrer", num, since)
 
 
+proc getTopUserAgents*(db: DbConn, num: uint, since = ""): seq[Row] =
+  info(fmt"Getting top {num} user agents")
+  return topValues(db, "user_agent", num, since)
+
+
 proc getTopUnsuccessfulRequests*(db: DbConn, num: uint, since = ""): seq[Row] =
   info(fmt"Getting top {num} unsuccessful requests")
 
@@ -207,6 +212,15 @@ proc getTotalRequests*(db: DbConn, since = ""): int =
 
 proc getTotalNonDefaults*(db: DbConn): int =
   return parseInt(db.getValue(sql"SELECT IFNULL(SUM(count), 0) FROM non_defaults"))
+
+
+proc getSpan*(db: DbConn, table: string): tuple[count: int, first, last: string] =
+  ## How many rows the nginwho or trap_hits table has, and the dates of the first and last one.
+  ## The dates are empty when the table is
+  let row = db.getRow(sql(fmt"""
+    SELECT COUNT(*), IFNULL(datetime(MIN(date), 'unixepoch'), ''), IFNULL(datetime(MAX(date), 'unixepoch'), '')
+    FROM {table}"""))
+  return (parseInt(row[0]), row[1], row[2])
 
 
 proc hasOldSchema*(db: DbConn): bool =
