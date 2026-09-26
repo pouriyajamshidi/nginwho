@@ -106,7 +106,7 @@ proc formatTable*(columns: seq[string], rows: seq[Row], total: int,
     let percent = if total > 0: counts[n] / total * 100 else: 0.0
     let bar = "█".repeat(max(1, counts[n] * barWidth div topCount))
     result.add(line & "  " & align(insertSep($counts[n], ','), countWidth) &
-        "  " &align(percent.formatFloat(ffDecimal, 1) & "%", 6) & "  " & bar)
+        "  " & align(percent.formatFloat(ffDecimal, 1) & "%", 6) & "  " & bar)
 
 
 proc warn(message: string) =
