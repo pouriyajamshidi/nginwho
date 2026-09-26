@@ -61,6 +61,8 @@ The dashboard in `dashboard.json` shows:
   time, and how the database grows
 - **Logs**: the access log, live
 
+![Top visitors, pages, user agents and referrers](images/who-and-what.png)
+
 ![Where visitors come from](images/where-from.png)
 
 ![What the trap caught](images/trap.png)

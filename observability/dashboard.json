@@ -824,7 +824,24 @@
           }
         }
       ],
-      "id": 20
+      "id": 20,
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hits"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "type": "table",
@@ -880,7 +897,24 @@
           }
         }
       ],
-      "id": 21
+      "id": 21,
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hits"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "type": "table",
@@ -936,7 +970,24 @@
           }
         }
       ],
-      "id": 22
+      "id": 22,
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hits"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "type": "table",
@@ -992,7 +1043,24 @@
           }
         }
       ],
-      "id": 23
+      "id": 23,
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hits"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "type": "table",
@@ -1048,7 +1116,24 @@
           }
         }
       ],
-      "id": 24
+      "id": 24,
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hits"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "type": "table",
@@ -1104,7 +1189,24 @@
           }
         }
       ],
-      "id": 25
+      "id": 25,
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hits"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "type": "row",
@@ -1266,7 +1368,24 @@
           }
         }
       ],
-      "id": 28
+      "id": 28,
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hits"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "type": "table",
@@ -1323,7 +1442,24 @@
           }
         }
       ],
-      "id": 29
+      "id": 29,
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hits"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "type": "timeseries",
@@ -1473,7 +1609,24 @@
           }
         }
       ],
-      "id": 34
+      "id": 34,
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hits"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "type": "table",
@@ -1529,7 +1682,24 @@
           }
         }
       ],
-      "id": 35
+      "id": 35,
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hits"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "type": "table",
@@ -1586,7 +1756,24 @@
           }
         }
       ],
-      "id": 36
+      "id": 36,
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hits"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "type": "table",
@@ -1643,7 +1830,24 @@
           }
         }
       ],
-      "id": 37
+      "id": 37,
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hits"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "type": "logs",
