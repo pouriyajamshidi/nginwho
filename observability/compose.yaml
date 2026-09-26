@@ -1,0 +1,137 @@
+# Try the whole setup on your machine: nginx, nginwho, Grafana Alloy with config.alloy,
+# and a local Loki, Prometheus and Grafana standing in for Grafana Cloud.
+# A script sends fake visitors and bots. Everything lives in docker volumes.
+#
+#   start:  docker compose up -d --build
+#   look:   http://localhost:3000
+#   remove: docker compose down -v --rmi local
+#
+# nginx, nginwho, the nginx exporter and Alloy share one network, like one real server,
+# so the trap on 127.0.0.1:7777 and the exporter on localhost:9113 work as they do there
+
+name: nginwho-observability
+
+# both nginwho services run the same image, built from this repo
+x-build: &build
+  context: ..
+  dockerfile: observability/test/Dockerfile
+
+x-varlog: &varlog
+  type: volume
+  source: varlog
+  target: /var/log
+  # start empty, the images' own /var/log would hide the files we care about
+  volume:
+    nocopy: true
+
+services:
+  nginx:
+    image: nginx:1.31.6-alpine
+    command: ["/bin/sh", "-c", "mkdir -p /var/log/nginx && exec nginx -g 'daemon off;'"]
+    volumes:
+      - ./test/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./test/site:/usr/share/nginx/html:ro
+      - *varlog
+    ports:
+      - "8081:80"
+      - "12345:12345" # Alloy's page
+
+  nginwho:
+    build: *build
+    image: nginwho-observability
+    network_mode: service:nginx
+    depends_on: [nginx]
+    init: true
+    restart: on-failure
+    # nginwho logs to stdout. on a real server that ends up in /var/log/syslog, so do the same
+    command: ["/bin/sh", "-c", "nginwho 2>&1 | while IFS= read -r line; do echo \"$$(date '+%b %e %T') web nginwho[1]: $$line\"; done | tee -a /var/log/syslog"]
+    volumes:
+      - ./test/nginwho.conf:/etc/nginwho/nginwho.conf:ro
+      - nginwho-db:/var/lib/nginwho
+      - *varlog
+
+  nginwho-serve:
+    build: *build
+    image: nginwho-observability
+    depends_on: [nginwho]
+    init: true
+    restart: on-failure
+    command: ["/bin/sh", "-c", "nginwho 2>&1 | while IFS= read -r line; do echo \"$$(date '+%b %e %T') web nginwho[2]: $$line\"; done | tee -a /var/log/syslog"]
+    volumes:
+      - ./test/nginwho-serve.conf:/etc/nginwho/nginwho.conf:ro
+      - ./test/site:/var/www/html:ro
+      - nginwho-serve-db:/var/lib/nginwho
+      - *varlog
+    ports:
+      - "8082:80"
+
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:1.5.0
+    network_mode: service:nginx
+    depends_on: [nginx]
+    command: ["--nginx.scrape-uri=http://127.0.0.1:8080/stub_status"]
+
+  # what ip66-update does on a real server
+  geoip:
+    image: curlimages/curl:8.22.0
+    user: root
+    command: ["-fsSL", "-o", "/var/lib/alloy/ip66.mmdb", "https://downloads.ip66.dev/db/ip66.mmdb"]
+    volumes:
+      - alloy:/var/lib/alloy
+
+  alloy:
+    image: grafana/alloy:v1.19.2
+    network_mode: service:nginx
+    depends_on:
+      geoip:
+        condition: service_completed_successfully
+      nginwho:
+        condition: service_started
+    # the local Loki and Prometheus take the place of Grafana Cloud. they ask for no login
+    environment:
+      GCLOUD_HOSTED_LOGS_URL: http://loki:3100/loki/api/v1/push
+      GCLOUD_HOSTED_LOGS_ID: test
+      GCLOUD_HOSTED_METRICS_URL: http://prometheus:9090/api/v1/write
+      GCLOUD_HOSTED_METRICS_ID: test
+      GCLOUD_RW_API_KEY: test
+    command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy/data", "--server.http.listen-addr=0.0.0.0:12345"]
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - alloy:/var/lib/alloy
+      - nginwho-db:/var/lib/nginwho:ro
+      - <<: *varlog
+        read_only: true
+
+  loki:
+    image: grafana/loki:3.7.8
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--web.enable-remote-write-receiver"]
+
+  grafana:
+    image: grafana/grafana:13.2.1
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/dashboard.json
+    volumes:
+      - ./test/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./test/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./dashboard.json:/var/lib/grafana/dashboards/dashboard.json:ro
+    ports:
+      - "3000:3000"
+
+  traffic:
+    image: curlimages/curl:8.22.0
+    depends_on: [alloy, nginwho-serve]
+    entrypoint: ["/bin/sh", "/traffic.sh"]
+    volumes:
+      - ./test/traffic.sh:/traffic.sh:ro
+
+volumes:
+  varlog:
+  nginwho-db:
+  nginwho-serve-db:
+  alloy:

@@ -1,0 +1,5 @@
+# the build only needs these from the repo
+*
+!src
+!nginwho.nimble
+!config.nims
