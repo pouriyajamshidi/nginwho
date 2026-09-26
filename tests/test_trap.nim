@@ -4,7 +4,7 @@
 import std/[unittest, asyncdispatch, os]
 from std/asyncnet import newAsyncSocket, connect, send, recv, recvLine, close
 from std/net import Port
-from std/strutils import split, contains, startsWith
+from std/strutils import split, contains, startsWith, repeat
 from std/options import some, none, isNone, get
 from db_connector/db_sqlite import DbConn, getValue, getAllRows, sql
 
@@ -262,3 +262,11 @@ suite "live trap":
     check findAgent("Mozilla/5.0 (DEEPSEEKBOT)", cfg).get.name == "deepseek"
     check findAgent("SomeBot", cfg).get.tactic == some(bomb)
     check findAgent("Mozilla/5.0", cfg).isNone
+
+  test "long values are cut and a flood from one IP stops being saved":
+    discard get("/wp-login.php", "90.0.0.1", userAgent = "x".repeat(5000))
+    let db = getDbConnection(fastDb)
+    check db.getValue(sql"SELECT length(user_agent) FROM trap_hits WHERE remote_ip = '90.0.0.1'") == "1024"
+    for _ in 2 .. 1001:
+      discard get("/wp-login.php", "90.0.0.1")
+    check db.getValue(sql"SELECT COUNT(*) FROM trap_hits WHERE remote_ip = '90.0.0.1'") == "1000"

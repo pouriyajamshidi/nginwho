@@ -453,7 +453,8 @@ The five kinds of answer:
 - **Fake secrets are recorded.** The fake key a bot got is saved with its visit, and so is
   anything typed into a fake login. If that key shows up somewhere later, you know who took it.
 - **Limits keep your server safe.** At most 200 bots are held at once, each for at most 15
-  minutes. A bot that hangs up frees its place right away.
+  minutes. A bot that hangs up frees its place right away. After 1000 hits in a day, an IP is
+  still trapped but no longer saved, so a flood can't fill your disk.
 
 Gzip bombs only hurt clients that unpack as they read. Go's `net/http` and Python's
 `requests`, which most scanners are built on, get the full 10 GB. `curl --compressed` stops
@@ -552,8 +553,12 @@ port = 80
 - Only `GET` and `HEAD` are answered, anything else gets a 405.
 - A path that tries to leave `root` with `../` gets a 400. With the trap on, it is trapped
   instead, whether the file exists or not.
+- Dot files like `.git` and `.env` are never served, only `.well-known`.
 - At most 400 visitors are served at once, and a visitor that stops reading is dropped after
   30 seconds. Trapped bots don't count toward the 400.
+- One IP can have at most 32 connections open, so it can't take all 400 places. An IPv6 user
+  is counted by their /64. The CDN's own addresses have no limit, as long as `show_real_ips`
+  or `block_untrusted_cidrs` is on so nginwho knows them.
 
 The server speaks plain HTTP only, so HTTPS has to come from a CDN in front of it. Behind a
 CDN, every request comes from the CDN's address. Turn on `show_real_ips` under `[nginx]` and

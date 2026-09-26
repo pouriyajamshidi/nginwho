@@ -91,6 +91,10 @@ const
       "meridian", "quanta"]
   users = ["admin", "deploy", "jenkins", "svc-backup", "mgarcia", "twong", "pkoch"]
 
+  # a flood of hits would fill the disk. past these they are still trapped, just not saved
+  maxSavedHits = 1000 # per IP per day
+  maxSavedBytes = 1024 # of the URI, user agent and detail
+
 var
   active = 0                           # trapped connections right now
   hitsToday = initTable[string, int]() # how often we saw an IP today
@@ -452,16 +456,15 @@ proc sendNotFound(client: AsyncSocket) {.async.} =
   await client.sendTimed(body)
 
 
-proc isRepeatOffender(ip: string, cfg: TrapConfig): bool =
-  ## Counts hits per IP per day. Yesterday's counts are dropped
+proc countHit(ip: string): int =
+  ## How often we saw an IP today, this hit included. Yesterday's counts are dropped
   let day = now().format("yyyy-MM-dd")
   if day != today:
     today = day
     hitsToday.clear()
 
   hitsToday.mgetOrPut(ip, 0).inc
-  # "after N hits": the first N get played with, the next one gets the bomb
-  return hitsToday[ip] > cfg.bombAfter
+  return hitsToday[ip]
 
 
 proc findAgent*(userAgent: string, cfg: TrapConfig): Option[Agent] =
@@ -486,9 +489,13 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
   if trap == noTrap:
     trap = listedAgent
 
+  let hits = countHit(ip)
+  let save = hits <= maxSavedHits
   let chosen = if agent.isSome: agent.get.tactic else: none(Tactic)
-  let tactic = tacticFor(trap, req.path, isRepeatOffender(ip, cfg), cfg, chosen)
-  info(fmt"Trapping {ip} in the {tactic} for {req.path} ({trap})")
+  # "after N hits": the first N get played with, the next one gets the bomb
+  let tactic = tacticFor(trap, req.path, hits > cfg.bombAfter, cfg, chosen)
+  if save:
+    info(fmt"Trapping {ip} in the {tactic} for {req.path} ({trap})")
 
   # the same bot asking for the same file twice sees the same fake content
   let rng = newRng(hash(ip & req.path))
@@ -496,12 +503,12 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
 
   # the hit is saved before the trap starts, so we know who tried what right away.
   # a slow drip can hold a bot that already hung up for a long time before a send fails
-  let id = db.insertTrapHit(TrapHit(
+  let id = if not save: -1'i64 else: db.insertTrapHit(TrapHit(
     date: now().format(dateFormat),
     remoteIP: ip,
     httpMethod: req.httpMethod,
-    requestURI: req.path & req.query,
-    userAgent: req.header("User-Agent"),
+    requestURI: substr(req.path & req.query, 0, maxSavedBytes - 1),
+    userAgent: substr(req.header("User-Agent"), 0, maxSavedBytes - 1),
     trap: $trap,
     tactic: $tactic,
   ))
@@ -516,7 +523,8 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
   finally:
     active.dec
     # fill in what we ended up sending and how long we held them
-    db.finishTrapHit(id, played.bytes, int(epochTime() - started), played.detail)
+    db.finishTrapHit(id, played.bytes, int(epochTime() - started),
+        substr(played.detail, 0, maxSavedBytes - 1))
   return true
 
 

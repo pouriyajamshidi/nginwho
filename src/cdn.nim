@@ -42,7 +42,8 @@ const
   refreshMs = 6 * 60 * 60 * 1000
   retryMs = 60 * 1000
 
-# the ranges fetched last. --serve trusts the CDN's real IP header only from these
+# the ranges fetched last. --serve trusts the CDN's real IP header only from these,
+# and does not limit how many connections they open
 var trustedRanges: seq[tuple[network: IpAddress, bits: int]]
 
 
@@ -169,7 +170,7 @@ proc samePrefix(a, b: openArray[uint8], bits: int): bool =
   return true
 
 
-proc fromCdn(ip: string): bool =
+proc fromCdn*(ip: string): bool =
   ## Whether `ip` is in the CDN's ranges. False until the ranges are fetched
   if not isIpAddress(ip):
     return false
@@ -206,8 +207,8 @@ proc getCurrentEtag*(configFile: string = cidrFile): string =
 
 proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
     blockUntrustedCidrs, serve: bool) {.async.} =
-  ## Fetches the CDN's ranges every six hours. `showRealIPs` writes them for nginx, or
-  ## with `serve` lets our own server trust the CDN's real IP header.
+  ## Fetches the CDN's ranges every six hours. `showRealIPs` writes them for nginx.
+  ## With `serve` our own server knows the CDN by them.
   ## `blockUntrustedCidrs` lets only them through nftables. Each works without the other
   info(fmt"Fetching and processing {cdn.name} CIDRs")
 
@@ -228,7 +229,7 @@ proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
         # a firewall problem must not stop the real IPs or anything else nginwho runs
         error(e.msg)
 
-    if showRealIPs and serve:
+    if serve:
       trustRanges(cidrs)
     elif showRealIPs:
       let currentEtag: string = getCurrentEtag()

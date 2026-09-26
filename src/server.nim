@@ -10,6 +10,7 @@ from std/uri import decodeUrl
 from std/strformat import fmt
 from std/mimetypes import newMimetypes, getMimetype
 from std/logging import info, error
+from std/tables import Table, getOrDefault, mgetOrPut, `[]`, del
 
 
 const
@@ -21,6 +22,8 @@ const
   # visitors at once. each takes up to two open files, the socket and the file sent.
   # trapped bots don't count, the trap has its own limit
   maxVisitors = 400
+  # so one IP can't take all the places. a CDN's own addresses have no limit
+  maxPerIP = 32
   # all headers together, like nginx
   maxHeaderBytes = 32 * 1024
   # could fake a log line or mess with a terminal. a tab is fine
@@ -45,9 +48,14 @@ type
   RealIP* = proc (peer: string, req: Request): string
     ## The visitor's IP, when a CDN in front puts it in a header
 
+  FromCdn* = proc (ip: string): bool
+    ## Whether a connection comes from the CDN in front
+
 
 let mimes = newMimetypes()
-var visitors = 0 # being served right now, by any server in this process
+var
+  visitors = 0                 # being served right now, by any server in this process
+  openFrom: Table[string, int] # connections open right now, per IP
 
 
 proc brokenLine(line: string): bool =
@@ -272,8 +280,19 @@ proc respond(client: AsyncSocket, req: Request, root: string, keepAlive: bool):
   return (Http404, await client.sendText(req, Http404, keepAlive))
 
 
+proc ipKey(ip: string): string =
+  ## An IPv6 user usually gets a whole /64, so they are counted by it
+  try:
+    let address = parseIpAddress(ip)
+    if address.family == IpAddressFamily.IPv6:
+      return $address.address_v6[0 ..< 8]
+  except ValueError:
+    discard
+  return ip
+
+
 proc handleClient(client: AsyncSocket, root, logPath: string,
-    trapHook: TrapHook, realIP: RealIP) {.async.} =
+    trapHook: TrapHook, realIP: RealIP, fromCdn: FromCdn) {.async.} =
   inc visitors
   defer:
     dec visitors
@@ -282,6 +301,17 @@ proc handleClient(client: AsyncSocket, root, logPath: string,
   try:
     var peer = client.getPeerAddr()[0]
     peer.removePrefix("::ffff:") # IPv4 clients on an IPv6 socket
+
+    let key = if fromCdn != nil and fromCdn(peer): "" else: ipKey(peer)
+    if key != "":
+      if openFrom.getOrDefault(key) >= maxPerIP:
+        return
+      inc openFrom.mgetOrPut(key, 0)
+    defer:
+      if key != "":
+        dec openFrom[key]
+        if openFrom[key] == 0:
+          openFrom.del(key)
 
     while true:
       let reading = client.readRequest()
@@ -328,7 +358,8 @@ proc handleClient(client: AsyncSocket, root, logPath: string,
 
 
 proc serve*(root, logPath: string, port: Port, address = "::",
-    trapHook: TrapHook = nil, realIP: RealIP = nil) {.async.} =
+    trapHook: TrapHook = nil, realIP: RealIP = nil,
+        fromCdn: FromCdn = nil) {.async.} =
   let server = newAsyncSocket(if ':' in address: Domain.AF_INET6 else: Domain.AF_INET)
   server.setSockOpt(OptReuseAddr, true)
   try:
@@ -346,7 +377,7 @@ proc serve*(root, logPath: string, port: Port, address = "::",
       if visitors >= maxVisitors:
         client.close()
       else:
-        asyncCheck handleClient(client, root, logPath, trapHook, realIP)
+        asyncCheck handleClient(client, root, logPath, trapHook, realIP, fromCdn)
     except CatchableError as e:
       # like running out of open files. wait a bit instead of spinning on it
       error(fmt"Could not accept a connection: {e.msg}")

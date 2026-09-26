@@ -12,7 +12,7 @@ from std/logging import addHandler, newConsoleLogger, info, error, warn,
 
 from nginx import Log, isStaticAsset, readChunkBytes, ensureNginxExists,
     ensureNginxLogExists, parseLogEntry, readNewLines, offsetAfterLastInserted
-from cdn import Cdn, fetchAndProcessIPCidrs, visitorIP, realIpHeaders
+from cdn import Cdn, fetchAndProcessIPCidrs, visitorIP, realIpHeaders, fromCdn
 from nftables import ensureNftExists
 from database import getDbConnection, closeDbConnection,
     createTables, insertLogs, migrateV1ToV2, getLastRow
@@ -298,7 +298,7 @@ proc main() =
           visitorIP(peer, req.header(realIpHeaders[cdn]))
       else: nil
     asyncCheck serve(args.root, args.logPath, Port(args.port), trapHook = hook,
-        realIP = realIP)
+        realIP = realIP, fromCdn = fromCdn)
 
   if args.trap.enabled and not args.serve:
     asyncCheck trap(args.trap, args.dbPath)

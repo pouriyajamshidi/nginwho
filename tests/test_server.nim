@@ -9,7 +9,7 @@ from std/strutils import split, splitLines, startsWith, endsWith, strip, contain
 from db_connector/db_sqlite import getValue, sql
 
 from server import serve, accessLogLine, Request, header
-from cdn import visitorIP, trustRanges, parseCidrsResponse, Fastly
+from cdn import visitorIP, trustRanges, parseCidrsResponse, Fastly, fromCdn
 from nginx import parseLogEntry
 from std/options import none, get
 from std/json import parseJson
@@ -66,6 +66,24 @@ proc body(response: string): string =
   response.split("\r\n\r\n", maxsplit = 1)[1]
 
 
+proc openIdle(count: int, port: Port): seq[AsyncSocket] =
+  ## Connections that send nothing, like a slow client holding its place
+  proc run(): Future[seq[AsyncSocket]] {.async.} =
+    for _ in 1 .. count:
+      let socket = newAsyncSocket()
+      await socket.connect("127.0.0.1", port)
+      result.add(socket)
+  result = waitFor run()
+  # let the server take them in
+  waitFor sleepAsync(100)
+
+
+proc closeAll(sockets: seq[AsyncSocket]) =
+  for socket in sockets:
+    socket.close()
+  waitFor sleepAsync(100)
+
+
 suite "server":
   test "serves index.html for the root":
     let response = get("/")
@@ -116,6 +134,12 @@ suite "server":
     check get("/a%1b[2Jb").startsWith("HTTP/1.1 400")
     check get("/a%0aINFO:%20fake").startsWith("HTTP/1.1 400")
     check request("GET / HTTP/1.1\r\nUser-Agent: a\x1b[2Jb\r\n\r\n").startsWith("HTTP/1.1 400")
+
+  test "one IP can't take all the places":
+    let idle = openIdle(32, port)
+    check get("/") == ""
+    closeAll(idle)
+    check get("/").startsWith("HTTP/1.1 200")
 
   test "never serves dot files but .well-known":
     check get("/.env").startsWith("HTTP/1.1 404")
@@ -175,10 +199,15 @@ trustRanges(parseCidrsResponse(Fastly, parseJson(
     """{"addresses": ["127.0.0.0/8"], "ipv6_addresses": ["2a04:4e40::/32"]}""")).get)
 asyncCheck serve(root, cdnLogPath, cdnPort, "127.0.0.1",
     realIP = proc (peer: string, req: Request): string =
-  visitorIP(peer, req.header("Fastly-Client-IP")))
+  visitorIP(peer, req.header("Fastly-Client-IP")), fromCdn = fromCdn)
 
 
 suite "server behind a CDN":
   test "logs the visitor's IP from the CDN's header":
     discard get("/", "Fastly-Client-IP: 203.0.113.7\r\n", port = cdnPort)
     check readFile(cdnLogPath).startsWith("203.0.113.7 - - [")
+
+  test "the CDN's own addresses have no limit per IP":
+    let idle = openIdle(32, cdnPort)
+    check get("/", port = cdnPort).startsWith("HTTP/1.1 200")
+    closeAll(idle)
