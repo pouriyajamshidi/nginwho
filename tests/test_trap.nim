@@ -252,6 +252,11 @@ suite "live trap":
     check hits[2] == @["/posts/hello", "agent", "drip"]
     check hits[3] == @["/wp-login.php", "wordpress", "login"]
 
+    # the maze shows the path, a script in it must not run on our site
+    let maze = get("/%3Cscript%3Ex%3C/script%3E/", "80.0.0.4", agentPort, "DeepSeekBot")
+    check "<script>" notin maze
+    check "&lt;script&gt;" in maze
+
   test "user agents are matched anywhere in the header, case ignored":
     let cfg = TrapConfig(agents: @[("deepseek", some(drip)), ("bot", some(bomb))])
     check findAgent("Mozilla/5.0 (DEEPSEEKBOT)", cfg).get.name == "deepseek"

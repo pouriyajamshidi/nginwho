@@ -3,7 +3,8 @@
 import std/[unittest, asyncdispatch, os]
 from std/asyncnet import AsyncSocket, newAsyncSocket, connect, send, recv, close
 from std/net import Port
-from std/strutils import split, splitLines, startsWith, endsWith, strip, contains, count
+from std/strutils import split, splitLines, startsWith, endsWith, strip, contains, count,
+    repeat
 
 from db_connector/db_sqlite import getValue, sql
 
@@ -27,6 +28,9 @@ writeFile(root / "index.html", "home")
 writeFile(root / "posts" / "hello" / "index.html", "hello")
 writeFile(root / "404.html", "custom 404")
 writeFile(root / "style.css", "body{}")
+writeFile(root / ".env", "SECRET=1")
+createDir(root / ".well-known")
+writeFile(root / ".well-known" / "security.txt", "contact")
 
 asyncCheck serve(root, logPath, port, "127.0.0.1")
 
@@ -102,6 +106,20 @@ suite "server":
   test "rejects broken requests":
     check request("hello\r\n\r\n").startsWith("HTTP/1.1 400")
     check request("GET / HTTP/1.1\r\nno colon\r\n\r\n").startsWith("HTTP/1.1 400")
+    # the rest of a too long line must not be read as a header of its own
+    check request("GET / HTTP/1.1\r\nX: " & "a".repeat(8200) & "\r\nY: 1\r\n\r\n").startsWith("HTTP/1.1 400")
+    var headers = ""
+    for i in 1 .. 10:
+      headers.add("X" & $i & ": " & "a".repeat(4000) & "\r\n")
+    check request("GET / HTTP/1.1\r\n" & headers & "\r\n").startsWith("HTTP/1.1 400")
+    # escape codes and line breaks could fake a log line or mess with a terminal
+    check get("/a%1b[2Jb").startsWith("HTTP/1.1 400")
+    check get("/a%0aINFO:%20fake").startsWith("HTTP/1.1 400")
+    check request("GET / HTTP/1.1\r\nUser-Agent: a\x1b[2Jb\r\n\r\n").startsWith("HTTP/1.1 400")
+
+  test "never serves dot files but .well-known":
+    check get("/.env").startsWith("HTTP/1.1 404")
+    check get("/.well-known/security.txt").body == "contact"
 
   test "writes logs the nginx parser understands":
     discard get("/posts/hello/", "Referer: https://example.com/\r\nUser-Agent: Mozilla/5.0 (X11)\r\n")

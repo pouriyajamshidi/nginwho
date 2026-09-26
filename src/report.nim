@@ -3,7 +3,7 @@ from std/terminal import setForegroundColor, resetAttributes, styledWrite,
     styledWriteLine, styleBright, styleUnderscore, fgYellow, fgCyan, fgRed, fgGreen
 from std/strformat import fmt
 from std/strutils import parseInt, repeat, strip, insertSep, align, formatFloat,
-    ffDecimal, rfind
+    ffDecimal, rfind, toHex
 from std/unicode import runeLen, runeSubStr
 from std/os import fileExists
 from db_connector/db_sqlite import DbConn, Row
@@ -67,6 +67,16 @@ proc since(window: TimeWindow): string =
   return (now() - window.duration).format(dateFormat)
 
 
+proc printable(text: string): string =
+  ## Bots choose what gets saved, like the passwords they try. Escape codes in it
+  ## must not reach the terminal
+  for c in text:
+    if c < ' ' or c == '\x7f':
+      result.add("\\x" & toHex(ord(c), 2))
+    else:
+      result.add(c)
+
+
 proc fit(text: string, width: int): string =
   ## Cuts `text` to `width` characters and pads it to exactly that width
   if runeLen(text) > width:
@@ -78,6 +88,11 @@ proc formatTable*(columns: seq[string], rows: seq[Row], total: int,
     countHeader = "Requests"): seq[string] =
   ## Returns the rows as table lines, starting with the header.
   ## Every row has one value per column and then its count
+  var rows = rows
+  for row in rows.mitems:
+    for value in row.mitems:
+      value = printable(value)
+
   var widths: seq[int]
   for i, column in columns:
     var width = runeLen(column)

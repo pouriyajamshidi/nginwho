@@ -17,6 +17,7 @@ from std/strutils import toLowerAscii, contains, endsWith, startsWith, replace,
 from std/strformat import fmt
 from std/times import epochTime, now, format
 from std/uri import decodeUrl
+from std/xmltree import escape
 from std/options import Option, some, none, isSome, isNone, get
 from std/logging import info, error
 from db_connector/db_sqlite import DbConn
@@ -276,6 +277,8 @@ proc endlessChunk(trap: Trap, rng: Rng, index: int,
 
 proc mazePage(rng: Rng, path: string): string =
   ## A folder listing whose links all lead to more folders
+  # escaped, or a link with a script in the path would run it on our site
+  let path = escape(path)
   result = fmt"""<!DOCTYPE html>
 <html><head><title>Index of {path}</title></head>
 <body><h1>Index of {path}</h1><hr><pre><a href="../">../</a>

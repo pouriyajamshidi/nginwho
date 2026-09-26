@@ -21,3 +21,7 @@ suite "report table":
     let lines = formatTable(@["URI", "Status"], @[@["/café", "404", "2"], @["/ab", "500", "1"]], 3)
     check lines[1].startsWith("1  /café  404     ")
     check lines[2].startsWith("2  /ab    500     ")
+
+  test "escape codes saved by bots do not reach the terminal":
+    let lines = formatTable(@["Tried"], @[@["a\x1b[2Jb", "1"]], 1)
+    check lines[1].startsWith("1  a\\x1B[2Jb")

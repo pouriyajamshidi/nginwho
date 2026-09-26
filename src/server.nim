@@ -21,6 +21,10 @@ const
   # visitors at once. each takes up to two open files, the socket and the file sent.
   # trapped bots don't count, the trap has its own limit
   maxVisitors = 400
+  # all headers together, like nginx
+  maxHeaderBytes = 32 * 1024
+  # could fake a log line or mess with a terminal. a tab is fine
+  controlChars = {'\0' .. '\x1f', '\x7f'} - {'\t'}
 
 
 type
@@ -46,20 +50,29 @@ let mimes = newMimetypes()
 var visitors = 0 # being served right now, by any server in this process
 
 
+proc brokenLine(line: string): bool =
+  ## recvLine gives back one byte more than maxLength when a line is too long,
+  ## and the rest of the line would be read as the next one
+  line.len >= maxLine or line.contains(controlChars)
+
+
 proc readRequest*(client: AsyncSocket): Future[Request] {.async.} =
   ## Reads the request line and headers. An empty `line` means the client left,
   ## an empty `httpMethod` means the request is broken
   result.headers = newHttpHeaders()
   result.line = await client.recvLine(maxLength = maxLine)
-  if result.line in ["", "\r\n"] or result.line.len == maxLine:
+  if result.line in ["", "\r\n"] or brokenLine(result.line):
     return
 
+  var headerBytes = 0
   for i in 0 .. maxHeaders:
     let line = await client.recvLine(maxLength = maxLine)
     if line == "\r\n":
       break
+    headerBytes += line.len
     let colon = line.find(':')
-    if line == "" or line.len == maxLine or colon < 1 or i == maxHeaders:
+    if line == "" or brokenLine(line) or colon < 1 or i == maxHeaders or
+        headerBytes > maxHeaderBytes:
       return
     result.headers.add(line[0 ..< colon].strip(), line[colon + 1 .. ^1].strip())
 
@@ -69,6 +82,8 @@ proc readRequest*(client: AsyncSocket): Future[Request] {.async.} =
 
   let target = parts[1].split('?', maxsplit = 1)
   result.path = decodeUrl(target[0], decodePlus = false)
+  if result.path.contains(controlChars):
+    return
   if target.len == 2:
     result.query = "?" & target[1]
   result.version = parts[2]
@@ -205,15 +220,22 @@ proc isFile(path: string): bool =
 
 
 proc badPath(path: string): bool =
-  ## Tries to leave the root, or would put a decoded line break in a header
-  path.contains({'\0', '\r', '\n'}) or "/../" in path & "/"
+  ## Tries to leave the root
+  "/../" in path & "/"
+
+
+proc hidden(path: string): bool =
+  ## Dot files like .git and .env are never served, only .well-known for things like certificates
+  for part in path.split('/'):
+    if part.startsWith(".") and part != ".well-known":
+      return true
 
 
 proc resolve(root, urlPath: string): string =
   ## Same as try_files $uri $uri/ =404. Returns the file to send,
   ## "/" when a directory is asked for without the trailing slash and "" when nothing is found.
   ## A bad path finds nothing, or the trap would tell which files exist outside the root
-  if badPath(urlPath):
+  if badPath(urlPath) or hidden(urlPath):
     return ""
   let path = root / urlPath
   if isFile(path) and not urlPath.endsWith("/"):
