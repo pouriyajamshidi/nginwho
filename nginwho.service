@@ -13,8 +13,8 @@ RestartSec=5
 
 # systemd creates /var/lib/nginwho for the database and /var/log/nginwho for the --serve log
 StateDirectory=nginwho
-# 0711 lets tools like Grafana Alloy see the database size. The database itself stays 0600
-StateDirectoryMode=0711
+# 0755 lets tools like Grafana Alloy list the folder to see the database size
+StateDirectoryMode=0755
 LogsDirectory=nginwho
 
 # hardening. nginwho only writes its database, the nginx CIDRs file and the nftables rules file

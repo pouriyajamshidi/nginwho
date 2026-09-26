@@ -288,7 +288,7 @@ matching panels stay empty:
 ```bash
 sudo -u alloy head -1 /var/log/nginx/access.log &&
 sudo -u alloy head -1 /var/log/syslog &&
-sudo -u alloy stat /var/lib/nginwho/nginwho.db > /dev/null &&
+sudo -u alloy ls /var/lib/nginwho > /dev/null &&
 systemctl status alloy --no-pager
 ```
 
