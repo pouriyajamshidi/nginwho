@@ -16,6 +16,7 @@ All notable changes to **nginwho** are listed here.
 - Report mode has four new trap reports: top attackers, what they wanted, top probed paths and credentials tried.
 - Fastly support. `--cdn:fastly` (or `cdn = fastly` under `[nginx]` in the config file) makes `--showRealIps` and `--blockUntrustedCidrs` use Fastly's ranges instead of Cloudflare's. nginx then reads the visitor IP from the `Fastly-Client-IP` header, see the README to stop visitors from faking it.
 - A config file at `/etc/nginwho/nginwho.conf` (`--config` to point elsewhere). Command line flags override it. A sample `nginwho.conf` is in the repository.
+- An `observability` folder to see nginwho on Grafana, including the free tier of Grafana Cloud: a Grafana Alloy config that sends the access logs, trap hits, database size, nginx and server metrics, with each visitor's country and network from the free ip66.dev database, a dashboard, and a Docker Compose setup that runs it all on your machine with fake visitors and bots.
 
 ### Changed
 
@@ -28,6 +29,7 @@ All notable changes to **nginwho** are listed here.
 - Dates are saved in the `nginwho` table as unix seconds instead of in their own `dates` table. Nearly every log has its own date, so that table and its index were bigger than the logs themselves. A real 90.7 MB database went down to 54.9 MB.
 - Inserting logs is about 35% faster, and time window reports are as fast or faster.
 - Existing databases are upgraded once on start or when running `--report`, then vacuumed so the file shrinks. This takes a few seconds on big databases. Older versions can't read an upgraded database, so keep a backup if you may go back.
+- `nginwho.service` makes `/var/lib/nginwho` `0711` instead of `0700`, so a monitoring tool like Grafana Alloy can see how big the database is. The database itself can still only be read by root.
 
 ## [2.4.1]
 

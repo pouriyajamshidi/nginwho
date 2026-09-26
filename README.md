@@ -82,6 +82,7 @@ See what it does with `sudo journalctl -u nginwho -f`, and the numbers with
   - [Serving your site without nginx](#serving-your-site-without-nginx)
   - [Reports](#reports)
 - [Where nginwho keeps its files](#where-nginwho-keeps-its-files)
+- [See it on Grafana](#see-it-on-grafana)
 - [Upgrading from older versions](#upgrading-from-older-versions)
   - [Migrating a v1 database to v2](#migrating-a-v1-database-to-v2)
 
@@ -665,6 +666,12 @@ use `sudo`.
 | `/etc/nginx/nginwho`          | The CDN's addresses for nginx, with real visitor IPs turned on |
 | `/var/log/nginwho/access.log` | The access log of the built-in server                          |
 | `/run/nginwho.nft`            | The last firewall change, with blocking turned on              |
+
+## See it on Grafana
+
+The [observability](observability/README.md) folder sends your visits, trap hits and server
+health to Grafana, with each visitor's country, and has a dashboard for them. It works with the
+free tier of Grafana Cloud, and you can try it all on your machine first with Docker.
 
 ## Upgrading from older versions
 
