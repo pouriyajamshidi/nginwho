@@ -50,6 +50,12 @@ suite "cli":
       check exitCode == 1
       check "Bad value" in output
 
+  test "a flag value after a space is an error instead of being ignored":
+    for args in ["--processNginxLogs --omitReferrer example.com", "--report --dbPath /tmp/x.db"]:
+      let (output, exitCode) = run(args)
+      check exitCode == 1
+      check "Unexpected argument" in output
+
   test "bad config values are reported and the defaults are kept":
     let conf = tempDir / "bad.conf"
     writeFile(conf, "[nginx]\ninterval = 0\n[server]\nport = 70000\n[trap]\nport = abc\n" &

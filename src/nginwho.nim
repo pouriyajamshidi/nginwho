@@ -137,7 +137,10 @@ proc getArgs(): Args =
       except ValueError as e:
         error(fmt"Bad value '{p.val}' for --{p.key}: {e.msg}")
         usage(1)
-    of cmdArgument: discard
+    of cmdArgument:
+      # "--omitReferrer example.com" gives the flag no value, so the value must not be ignored
+      error(fmt"Unexpected argument '{p.key}'. Give flag values with = or :, like --omitReferrer=example.com")
+      usage(1)
 
   # the server writes its own log, the nginx one belongs to nginx
   if args.logPath == "":
