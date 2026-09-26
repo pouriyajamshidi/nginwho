@@ -16,7 +16,11 @@ const
   maxLine = 8192
   maxHeaders = 100
   headTimeout* = 10_000 # milliseconds to send the headers, also the keep-alive timeout
+  sendTimeout = 30_000 # milliseconds a client gets to take each piece of a response
   chunkBytes = 64 * 1024
+  # visitors at once. each takes up to two open files, the socket and the file sent.
+  # trapped bots don't count, the trap has its own limit
+  maxVisitors = 400
 
 
 type
@@ -39,6 +43,7 @@ type
 
 
 let mimes = newMimetypes()
+var visitors = 0 # being served right now, by any server in this process
 
 
 proc readRequest*(client: AsyncSocket): Future[Request] {.async.} =
@@ -83,7 +88,9 @@ proc readBody*(client: AsyncSocket, req: Request, limit: int): Future[
   except ValueError:
     return
   if length > 0:
-    result = await client.recv(length)
+    let reading = client.recv(length)
+    if await reading.withTimeout(headTimeout):
+      result = reading.read()
 
 
 proc httpDate*(unixTime: int64): string =
@@ -128,6 +135,14 @@ proc responseHead*(status: HttpCode, keepAlive: bool, headers: openArray[(
   result.add("Connection: " & (if keepAlive: "keep-alive" else: "close") & "\r\n\r\n")
 
 
+proc sendTimed*(client: AsyncSocket, data: string) {.async.} =
+  ## Gives up on clients that stop reading, so they can't hold the connection forever.
+  ## No SafeDisconn, so a client that left raises instead of the rest of a big file
+  ## being read and sent to nobody
+  if not await client.send(data, flags = {}).withTimeout(sendTimeout):
+    raise newException(IOError, "client stopped reading")
+
+
 proc sendText(client: AsyncSocket, req: Request, status: HttpCode,
     keepAlive: bool, headers: seq[(string, string)] = @[]): Future[
         int] {.async.} =
@@ -136,9 +151,9 @@ proc sendText(client: AsyncSocket, req: Request, status: HttpCode,
   var all = headers
   all.add(("Content-Type", "text/plain"))
   all.add(("Content-Length", $body.len))
-  await client.send(responseHead(status, keepAlive, all))
+  await client.sendTimed(responseHead(status, keepAlive, all))
   if req.httpMethod != "HEAD":
-    await client.send(body)
+    await client.sendTimed(body)
     return body.len
 
 
@@ -166,12 +181,12 @@ proc sendFile(client: AsyncSocket, req: Request, path: string, status: HttpCode,
 
   if status == Http200 and (req.header("If-None-Match") in [etag, "*"] or
       req.header("If-Modified-Since") == lastModified):
-    await client.send(responseHead(Http304, keepAlive, headers))
+    await client.sendTimed(responseHead(Http304, keepAlive, headers))
     return (Http304, 0)
 
   result.status = status
   headers.add(("Content-Length", $size))
-  await client.send(responseHead(status, keepAlive, headers))
+  await client.sendTimed(responseHead(status, keepAlive, headers))
   if req.httpMethod == "HEAD":
     return
 
@@ -180,7 +195,7 @@ proc sendFile(client: AsyncSocket, req: Request, path: string, status: HttpCode,
     let n = file.readBuffer(buffer[0].addr, buffer.len)
     if n <= 0:
       break
-    await client.send(buffer[0].addr, n)
+    await client.sendTimed(buffer[0 ..< n])
     result.bytesSent += n
 
 
@@ -189,9 +204,17 @@ proc isFile(path: string): bool =
   except OSError: false
 
 
+proc badPath(path: string): bool =
+  ## Tries to leave the root, or would put a decoded line break in a header
+  path.contains({'\0', '\r', '\n'}) or "/../" in path & "/"
+
+
 proc resolve(root, urlPath: string): string =
   ## Same as try_files $uri $uri/ =404. Returns the file to send,
-  ## "/" when a directory is asked for without the trailing slash and "" when nothing is found
+  ## "/" when a directory is asked for without the trailing slash and "" when nothing is found.
+  ## A bad path finds nothing, or the trap would tell which files exist outside the root
+  if badPath(urlPath):
+    return ""
   let path = root / urlPath
   if isFile(path) and not urlPath.endsWith("/"):
     return path
@@ -210,13 +233,13 @@ proc respond(client: AsyncSocket, req: Request, root: string, keepAlive: bool):
   if req.httpMethod notin ["GET", "HEAD"]:
     return (Http405, await client.sendText(req, Http405, keepAlive))
 
-  # never leave the root
-  if "\0" in req.path or "/../" in req.path & "/":
+  if badPath(req.path):
     return (Http400, await client.sendText(req, Http400, keepAlive))
 
   let file = resolve(root, req.path)
   if file == "/":
-    let location = req.path & "/" & req.query
+    # one leading slash, or "//evil.com" would send the browser to another site
+    let location = "/" & req.path.strip(trailing = false, chars = {'/'}) & "/" & req.query
     return (Http301, await client.sendText(req, Http301, keepAlive, @[(
         "Location", location)]))
   if file != "":
@@ -229,7 +252,10 @@ proc respond(client: AsyncSocket, req: Request, root: string, keepAlive: bool):
 
 proc handleClient(client: AsyncSocket, root, logPath: string,
     trapHook: TrapHook, realIP: RealIP) {.async.} =
-  defer: client.close()
+  inc visitors
+  defer:
+    dec visitors
+    client.close()
 
   try:
     var peer = client.getPeerAddr()[0]
@@ -247,15 +273,23 @@ proc handleClient(client: AsyncSocket, root, logPath: string,
       # the trap gets a look first: what would be a 404 or 405, and listed user agents.
       # it keeps its own record
       if trapHook != nil and req.httpMethod != "":
-        let miss = req.httpMethod notin ["GET", "HEAD"] or resolve(root, req.path) == ""
-        if await trapHook(client, req, remoteIP, miss):
-          return
+        let miss = req.httpMethod notin ["GET", "HEAD"] or resolve(root,
+            req.path) == ""
+        # a trapped bot is not a visitor, so it doesn't take a real visitor's place
+        dec visitors
+        try:
+          if await trapHook(client, req, remoteIP, miss):
+            return
+        finally:
+          inc visitors
 
-      # a request body is never read, so the connection can't be reused after one
+      # a request body is never read, so the connection can't be reused after one.
+      # checking the header is there, not its value, as a second Content-Length could
+      # hide a body that would be read as the next request
       let keepAlive = req.httpMethod != "" and req.version == "HTTP/1.1" and
           req.header("Connection").toLowerAscii != "close" and
-          req.header("Content-Length") in ["", "0"] and
-          req.header("Transfer-Encoding") == ""
+          not req.headers.hasKey("Content-Length") and
+          not req.headers.hasKey("Transfer-Encoding")
 
       let (status, bytesSent) =
         if req.httpMethod == "": (Http400, await client.sendText(req, Http400, false))
@@ -287,6 +321,11 @@ proc serve*(root, logPath: string, port: Port, address = "::",
   while true:
     try:
       let client = await server.accept()
-      asyncCheck handleClient(client, root, logPath, trapHook, realIP)
-    except OSError as e:
+      if visitors >= maxVisitors:
+        client.close()
+      else:
+        asyncCheck handleClient(client, root, logPath, trapHook, realIP)
+    except CatchableError as e:
+      # like running out of open files. wait a bit instead of spinning on it
       error(fmt"Could not accept a connection: {e.msg}")
+      await sleepAsync(100)

@@ -42,6 +42,9 @@ suite "classify":
     check $classify("/getcmd") == "rce"
     check $classify("/deploy.sh") == "rce"
     check $classify("/..%5c..%5cwindows/win.ini") == "rce"
+    check $classify("/..\\..\\windows/win.ini") == "rce"
+    check $classify("/..;/manager/html") == "rce"
+    check $classify("/static/..") == "rce"
 
   test "the paths that used to fall through are trapped now":
     check $classify("/error.log") == "backup"

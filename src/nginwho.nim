@@ -5,6 +5,7 @@ from db_connector/db_sqlite import DbConn, DbError
 from std/os import getFileInfo, FileInfo, FileId, dirExists, fileExists,
     createDir, parentDir
 from std/net import Port
+from std/posix import RLimit, getrlimit, setrlimit, RLIMIT_NOFILE
 from std/parseopt import CmdLineKind, initOptParser, next
 from std/logging import addHandler, newConsoleLogger, info, error, warn,
     setLogFilter, lvlError
@@ -235,6 +236,15 @@ proc processAndRecordLogs(args: Args) {.async.} =
     await sleepAsync(if moreToRead: 0 else: args.interval)
 
 
+proc raiseOpenFileLimit() =
+  ## The usual limit of 1024 open files is low for a web server and a trap together.
+  ## Must run before anything async, the event loop reads the limit once
+  var limit: RLimit
+  if getrlimit(RLIMIT_NOFILE, limit) == 0 and limit.rlim_cur < limit.rlim_max:
+    limit.rlim_cur = limit.rlim_max
+    discard setrlimit(RLIMIT_NOFILE, limit)
+
+
 proc runPreChecks(args: Args) =
   info("Running pre-checks based on provided user arguments")
 
@@ -274,6 +284,7 @@ proc main() =
 
   info("Starting nginwho")
 
+  raiseOpenFileLimit()
   runPreChecks(args)
 
   if args.serve:

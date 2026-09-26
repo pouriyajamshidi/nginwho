@@ -135,6 +135,14 @@ suite "server with the trap":
     check "/.env" notin readFile(trapLogPath)
     check "/typo" in readFile(trapLogPath)
 
+  test "path traversal is trapped, whether the file is there or not":
+    # a 400 for files that exist would tell the bot what is on the server
+    check get("/../../../../../../../etc/passwd", port = trapPort).startsWith("HTTP/1.1 200")
+    check get("/../../../../../../../etc/nothere", port = trapPort).startsWith("HTTP/1.1 200")
+    check get("/..%5c..%5cwindows/win.ini", port = trapPort).startsWith("HTTP/1.1 200")
+    # without the trap it is still a plain 400
+    check get("/../../../../../../../etc/passwd").startsWith("HTTP/1.1 400")
+
   test "a listed user agent is trapped even on a real page":
     let page = get("/", "User-Agent: DeepSeekBot\r\n", port = trapPort)
     check page.startsWith("HTTP/1.1 200")

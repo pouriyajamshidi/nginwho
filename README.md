@@ -433,7 +433,7 @@ The trap looks at the path a bot asked for and picks an answer:
 | Backups and database dumps            | `.sql` that never ends, and a gzip bomb for `.zip` and `.gz`              |
 | Admin and login pages                 | A fake login page                                                         |
 | APIs and debug pages                  | A fake settings file, or an answer that never ends                        |
-| Shells and path tricks                | A fake `/etc/passwd`                                                      |
+| Shells and `../` path traversal       | A fake `/etc/passwd`                                                      |
 
 The five kinds of answer:
 
@@ -550,6 +550,10 @@ port = 80
 - With the trap on, the server hands the bots to it directly. Real files and typos are served
   as usual.
 - Only `GET` and `HEAD` are answered, anything else gets a 405.
+- A path that tries to leave `root` with `../` gets a 400. With the trap on, it is trapped
+  instead, whether the file exists or not.
+- At most 400 visitors are served at once, and a visitor that stops reading is dropped after
+  30 seconds. Trapped bots don't count toward the 400.
 
 The server speaks plain HTTP only, so HTTPS has to come from a CDN in front of it. Behind a
 CDN, every request comes from the CDN's address. Turn on `show_real_ips` under `[nginx]` and

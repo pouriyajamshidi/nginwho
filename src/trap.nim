@@ -4,7 +4,7 @@
 ## Every hit is saved in the `trap_hits` table with what we did about it
 
 import std/asyncdispatch
-from std/asyncnet import AsyncSocket, send, close, getPeerAddr, newAsyncSocket,
+from std/asyncnet import AsyncSocket, close, getPeerAddr, newAsyncSocket,
     setSockOpt, bindAddr, listen, accept
 from std/net import Port, Domain, SOBool, OptReuseAddr
 from std/httpcore import HttpCode, Http200, Http401, Http404
@@ -23,7 +23,7 @@ from db_connector/db_sqlite import DbConn
 
 from nginx import dateFormat
 from server import Request, TrapHook, readRequest, readBody, header,
-    responseHead, headTimeout
+    responseHead, headTimeout, sendTimed
 from database import TrapHit, getDbConnection, createTables, insertTrapHit, finishTrapHit
 
 
@@ -147,7 +147,11 @@ proc classify*(path: string): Trap =
   if p.anyOf([".sql", ".bak", ".backup", ".old", ".zip", ".tar", ".gz", ".tgz", ".rar",
               ".7z", ".swp", ".log", "dump", "backup"]):
     return backup
-  if p.anyOf(["passwd", "/bin/sh", "../", "%2e%2e", "%5c", "jndi", "${", "shell", "cgi-bin",
+  # path traversal: ../ on linux, ..\ on windows, ..; for tomcat. the path is already
+  # decoded, so %2e%2e and %5c are the ones encoded twice
+  if p.anyOf(["../", "..\\", "..;", "%2e%2e", "%5c"]) or p.endsWith("/.."):
+    return rce
+  if p.anyOf(["passwd", "/bin/sh", "jndi", "${", "shell", "cgi-bin",
               "/cmd", "getcmd", "eval", ".sh", ".asp", ".jsp", ".cgi"]):
     return rce
   # admin and login pages before .php, so a login page like /administrator/index.php
@@ -295,7 +299,8 @@ proc tacticForPath(trap: Trap, p: string): Tactic =
     else: drip
   of adminPanel: login
   of backup:
-    if p.anyOf([".gz", ".zip", ".tar", ".7z", ".rar", ".tgz"]): bomb else: endless
+    if p.anyOf([".gz", ".zip", ".tar", ".7z", ".rar",
+        ".tgz"]): bomb else: endless
   of phpFile:
     if p.anyOf(["phpinfo", "info.php"]): drip else: bomb
   of gitRepo:
@@ -322,19 +327,13 @@ proc tacticFor(trap: Trap, path: string, repeatOffender: bool,
     result = endless
 
 
-proc sendOrFail(client: AsyncSocket, data: string) {.async.} =
-  ## asyncnet quietly ignores a closed connection by default. A trap needs to know,
-  ## or it keeps playing to a bot that already left
-  await client.send(data, flags = {})
-
-
 proc dripBody(client: AsyncSocket, body: string, cfg: TrapConfig, rng: Rng,
     deadline: float, played: Played) {.async.} =
   ## Sends a fake file one byte at a time. They almost never get to the end
   for c in body:
     if epochTime() > deadline:
       break
-    await client.sendOrFail($c)
+    await client.sendTimed($c)
     played.bytes.inc
     await sleepAsync(rng.rand(cfg.dripMinMs .. cfg.dripMaxMs))
 
@@ -344,7 +343,7 @@ proc dripEndless(client: AsyncSocket, trap: Trap, values: Table[string, string],
   var index = 0
   while epochTime() < deadline:
     let chunk = endlessChunk(trap, rng, index, values)
-    await client.sendOrFail(chunk)
+    await client.sendTimed(chunk)
     played.bytes.inc(chunk.len)
     index.inc
     await sleepAsync(rng.rand(cfg.dripMinMs .. cfg.dripMaxMs))
@@ -355,7 +354,7 @@ proc sendBomb(client: AsyncSocket, deadline: float, played: Played) {.async.} =
   for _ in 1 .. bombMembers:
     if epochTime() > deadline:
       break
-    await client.sendOrFail(zerosGz)
+    await client.sendTimed(zerosGz)
     played.bytes.inc(zerosGz.len)
 
 
@@ -391,13 +390,13 @@ proc playLogin(client: AsyncSocket, req: Request, values: Table[string, string],
 
   let body = fill(loginTemplate, page)
   let status = if req.httpMethod == "POST": Http401 else: Http200
-  await client.send(responseHead(status, false, [
+  await client.sendTimed(responseHead(status, false, [
     ("Content-Type", "text/html; charset=UTF-8"),
     ("Content-Length", $body.len),
     ("Cache-Control", "no-store"),
   ]))
   if req.httpMethod != "HEAD":
-    await client.send(body)
+    await client.sendTimed(body)
     played.bytes = body.len
 
 
@@ -419,24 +418,24 @@ proc play(client: AsyncSocket, req: Request, trap: Trap, tactic: Tactic,
     var headers = @[("Content-Type", if download: "application/gzip" else: "text/plain")]
     if not download:
       headers.add(("Content-Encoding", "gzip"))
-    await client.send(responseHead(Http200, false, headers))
+    await client.sendTimed(responseHead(Http200, false, headers))
     if req.httpMethod != "HEAD":
       await client.sendBomb(deadline, played)
   of maze:
     let body = mazePage(rng, req.path)
-    await client.send(responseHead(Http200, false, [
+    await client.sendTimed(responseHead(Http200, false, [
       ("Content-Type", "text/html"), ("Content-Length", $body.len)]))
     if req.httpMethod != "HEAD":
       await client.dripBody(body, cfg, rng, deadline, played)
   of endless:
-    await client.send(responseHead(Http200, false, [("Content-Type",
+    await client.sendTimed(responseHead(Http200, false, [("Content-Type",
         "text/plain")]))
     if req.httpMethod != "HEAD":
       await client.dripEndless(trap, values, cfg, rng, deadline, played)
   of drip:
     let (body, contentType, canary) = fakeFile(trap, req.path, values, rng)
     played.detail = canary
-    await client.send(responseHead(Http200, false, [
+    await client.sendTimed(responseHead(Http200, false, [
       ("Content-Type", contentType), ("Content-Length", $body.len)]))
     if req.httpMethod != "HEAD":
       await client.dripBody(body, cfg, rng, deadline, played)
@@ -445,9 +444,9 @@ proc play(client: AsyncSocket, req: Request, trap: Trap, tactic: Tactic,
 proc sendNotFound(client: AsyncSocket) {.async.} =
   ## nginx turns this into the real 404 page of the site
   const body = "404 Not Found\n"
-  await client.send(responseHead(Http404, false, [
+  await client.sendTimed(responseHead(Http404, false, [
     ("Content-Type", "text/plain"), ("Content-Length", $body.len)]))
-  await client.send(body)
+  await client.sendTimed(body)
 
 
 proc isRepeatOffender(ip: string, cfg: TrapConfig): bool =
@@ -570,5 +569,7 @@ proc trap*(cfg: TrapConfig, dbPath: string, address = "127.0.0.1") {.async.} =
     try:
       let client = await server.accept()
       asyncCheck handle(client, cfg, db)
-    except OSError as e:
+    except CatchableError as e:
+      # like running out of open files. wait a bit instead of spinning on it
       error(fmt"Trap could not accept a connection: {e.msg}")
+      await sleepAsync(100)
