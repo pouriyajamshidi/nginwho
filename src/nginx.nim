@@ -1,5 +1,6 @@
 from std/times import parse, format
-from std/strutils import splitWhitespace, replace, endsWith, startsWith, strip, contains, join, rfind, splitLines
+from std/strutils import splitWhitespace, replace, endsWith, startsWith, strip,
+    contains, join, rfind, splitLines
 from std/os import findExe, fileExists
 from std/osproc import execCmd
 from std/strformat import fmt
@@ -32,7 +33,8 @@ proc convertDateFormat*(nginxDate: string): string =
 proc isStaticAsset*(requestURI: string): bool =
   ## Fonts, scripts and styles are not stored, they only add noise
   # TODO: Decide whether to exclude these or not
-  requestURI.endsWith(".woff2") or requestURI.endsWith(".js") or requestURI.endsWith(".css")
+  requestURI.endsWith(".woff2") or requestURI.endsWith(".js") or
+      requestURI.endsWith(".css")
 
 
 proc ensureNginxLogExists*(logPath: string) =
@@ -119,7 +121,8 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
   return log
 
 
-proc readNewLines*(path: string, offset: var int64, maxBytes = readChunkBytes): seq[string] =
+proc readNewLines*(path: string, offset: var int64,
+    maxBytes = readChunkBytes): seq[string] =
   ## Reads the complete lines added to the file since `offset`, up to `maxBytes`, and moves `offset` forward
   let file = open(path)
   defer: file.close()

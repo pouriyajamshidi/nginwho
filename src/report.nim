@@ -1,15 +1,17 @@
 import std/times
-from std/terminal import setForegroundColor, resetAttributes, styledWrite, styledWriteLine,
-    styleBright, styleUnderscore, fgYellow, fgCyan, fgRed, fgGreen
+from std/terminal import setForegroundColor, resetAttributes, styledWrite,
+    styledWriteLine, styleBright, styleUnderscore, fgYellow, fgCyan, fgRed, fgGreen
 from std/strformat import fmt
-from std/strutils import parseInt, repeat, strip, insertSep, align, formatFloat, ffDecimal, rfind
+from std/strutils import parseInt, repeat, strip, insertSep, align, formatFloat,
+    ffDecimal, rfind
 from std/unicode import runeLen, runeSubStr
 from std/os import fileExists
 from db_connector/db_sqlite import DbConn, Row
 
 from nginx import dateFormat
-from database import getDbConnection, closeDbConnection, createTables, hasOldSchema,
-    getTopIPs, getTopURIs, getTopUnsuccessfulRequests, getTopReferres, getNonDefaults,
+from database import getDbConnection, closeDbConnection, createTables,
+    hasOldSchema, getTopIPs, getTopURIs, getTopUnsuccessfulRequests,
+        getTopReferres, getNonDefaults,
     getTotalRequests, getTotalNonDefaults,
     getTopTrappedIPs, getTopTraps, getTopTrappedURIs, getTrappedCredentials, getTrapTotals
 
@@ -32,20 +34,21 @@ type
 let reports = [
   Report(name: "Top IP addresses", columns: @["IP address"], query: getTopIPs),
   Report(name: "Top URIs", columns: @["URI"], query: getTopURIs),
-  Report(name: "Top unsuccessful requests", columns: @["Status", "URI", "User agent"],
-      query: getTopUnsuccessfulRequests),
+  Report(name: "Top unsuccessful requests", columns: @["Status", "URI",
+      "User agent"], query: getTopUnsuccessfulRequests),
   Report(name: "Top referrers", columns: @["Referrer"], query: getTopReferres),
   # non-default logs are saved without a date
-  Report(name: "Top non-defaults", columns: @["Log line"], query: getNonDefaults, allTimeOnly: true),
+  Report(name: "Top non-defaults", columns: @["Log line"],
+      query: getNonDefaults, allTimeOnly: true),
   # trap reports: who probed us and what we did to them
   Report(name: "Trap: top attackers", columns: @["IP address", "Time wasted"],
       query: getTopTrappedIPs, isTrap: true),
-  Report(name: "Trap: what they wanted", columns: @["Target", "Tactic", "Time wasted"],
-      query: getTopTraps, isTrap: true),
+  Report(name: "Trap: what they wanted", columns: @["Target", "Tactic",
+      "Time wasted"], query: getTopTraps, isTrap: true),
   Report(name: "Trap: top probed paths", columns: @["URI", "Target"],
       query: getTopTrappedURIs, isTrap: true),
-  Report(name: "Trap: credentials tried", columns: @["IP address", "Credentials"],
-      query: getTrappedCredentials, isTrap: true),
+  Report(name: "Trap: credentials tried", columns: @["IP address",
+      "Credentials"], query: getTrappedCredentials, isTrap: true),
 ]
 
 # a zero duration means all time
@@ -102,8 +105,8 @@ proc formatTable*(columns: seq[string], rows: seq[Row], total: int,
 
     let percent = if total > 0: counts[n] / total * 100 else: 0.0
     let bar = "█".repeat(max(1, counts[n] * barWidth div topCount))
-    result.add(line & "  " & align(insertSep($counts[n], ','), countWidth) & "  " &
-        align(percent.formatFloat(ffDecimal, 1) & "%", 6) & "  " & bar)
+    result.add(line & "  " & align(insertSep($counts[n], ','), countWidth) &
+        "  " &align(percent.formatFloat(ffDecimal, 1) & "%", 6) & "  " & bar)
 
 
 proc warn(message: string) =
@@ -164,7 +167,8 @@ proc chooseTimeWindow(current: int): int =
     lines.add(fmt"{i + 1}) {window.name}")
   printMenu(lines)
 
-  let choice = askNumber("Select a time window (q to keep the current one): ", len(timeWindows))
+  let choice = askNumber("Select a time window (q to keep the current one): ",
+      len(timeWindows))
   if choice == 0:
     return current
   return choice - 1
@@ -182,7 +186,8 @@ proc showResults(db: DbConn, report: Report, num: uint, window: TimeWindow) =
   let unit = if report.isTrap: "trap hits" else: "requests"
 
   echo()
-  stdout.styledWriteLine(fgGreen, styleBright, fmt"{report.name}, {windowName} ({insertSep($total, ',')} {unit})")
+  stdout.styledWriteLine(fgGreen, styleBright,
+      fmt"{report.name}, {windowName} ({insertSep($total, ',')} {unit})")
   echo()
 
   if len(rows) == 0:

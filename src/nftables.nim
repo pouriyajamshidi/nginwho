@@ -178,7 +178,8 @@ proc createNginwhoChain(name: string = "nginwho"): JsonNode =
   }
 
 
-proc createNginwhoIPPolicy(protocol: IPProtocol, setName: string, logPrefix: string): JsonNode =
+proc createNginwhoIPPolicy(protocol: IPProtocol, setName: string,
+    logPrefix: string): JsonNode =
   info(fmt"Creating nginwho {protocol} policy for Set {setName}")
 
   return %* {
@@ -318,7 +319,8 @@ proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
   if nftAttrs.withNginwhoPolicies:
     # the rules of another CDN would drop this one's traffic, so the chain is emptied first.
     # nft applies the file at once, so nothing gets through in between
-    rules["nftables"].add(%*{"flush": {"chain": {"family": "inet", "table": "filter", "name": nginwhoChain}}})
+    rules["nftables"].add(%*{"flush": {"chain": {"family": "inet",
+        "table": "filter", "name": nginwhoChain}}})
     rules["nftables"].add(createNginwhoIPPolicy(IPProtocol.IPv4,
         nftSet.setNameV4, logPrefixV4))
     rules["nftables"].add(createNginwhoIPPolicy(IPProtocol.IPv6,
@@ -527,8 +529,10 @@ proc changesRequired(nftAttrs: NftAttrs): bool =
 proc requiredChanges*(nftOutput: JsonNode, nftSet: NftSet): NftAttrs =
   ## Compares the current ruleset with what nginwho needs and returns the missing parts
   return NftAttrs(
-    withV4Set: not setExists(nftOutput, nftSet.setNameV4) or setChanged(nftOutput, nftSet.ipv4, nftSet.setNameV4),
-    withV6Set: not setExists(nftOutput, nftSet.setNameV6) or setChanged(nftOutput, nftSet.ipv6, nftSet.setNameV6),
+    withV4Set: not setExists(nftOutput, nftSet.setNameV4) or setChanged(
+        nftOutput, nftSet.ipv4, nftSet.setNameV4),
+    withV6Set: not setExists(nftOutput, nftSet.setNameV6) or setChanged(
+        nftOutput, nftSet.ipv6, nftSet.setNameV6),
     withNginwhoChain: not nginwhoChainExists(nftOutput),
     withNginwhoPolicies: not nginwhoChainIsCurrent(nftOutput, nftSet),
     withInputChain: not inputChainExists(nftOutput),

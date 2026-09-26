@@ -2,13 +2,15 @@ import std/asyncdispatch
 from std/strformat import fmt
 from std/strutils import parseBool, splitLines, startsWith, split, strip
 from db_connector/db_sqlite import DbConn, DbError
-from std/os import getFileInfo, FileInfo, FileId, dirExists, fileExists, createDir, parentDir
+from std/os import getFileInfo, FileInfo, FileId, dirExists, fileExists,
+    createDir, parentDir
 from std/net import Port
 from std/parseopt import CmdLineKind, initOptParser, next
-from std/logging import addHandler, newConsoleLogger, info, error, warn, setLogFilter, lvlError
+from std/logging import addHandler, newConsoleLogger, info, error, warn,
+    setLogFilter, lvlError
 
-from nginx import Log, isStaticAsset, readChunkBytes, ensureNginxExists, ensureNginxLogExists,
-    parseLogEntry, readNewLines, offsetAfterLastInserted
+from nginx import Log, isStaticAsset, readChunkBytes, ensureNginxExists,
+    ensureNginxLogExists, parseLogEntry, readNewLines, offsetAfterLastInserted
 from cdn import Cdn, fetchAndProcessIPCidrs
 from nftables import ensureNftExists
 from database import getDbConnection, closeDbConnection,
@@ -16,8 +18,8 @@ from database import getDbConnection, closeDbConnection,
 from report import report
 from server import serve
 from trap import trap, trapHook
-from config import Args, readConfigFile, parsePort, parseInterval, parseCdn, defaultConfigFile,
-    defaultDbPath, oldDbPath, nginxLogPath, serveLogPath
+from config import Args, readConfigFile, parsePort, parseInterval, parseCdn,
+    defaultConfigFile, defaultDbPath, oldDbPath, nginxLogPath, serveLogPath
 
 
 proc nimbleVersion(): string =
@@ -125,7 +127,8 @@ proc getArgs(): Args =
         of "omitReferrer": args.omitReferrer = p.val
         of "cdn": args.cdn = parseCdn(p.val)
         of "showRealIps": args.showRealIPs = p.val == "" or parseBool(p.val)
-        of "blockUntrustedCidrs": args.blockUntrustedCidrs = p.val == "" or parseBool(p.val)
+        of "blockUntrustedCidrs": args.blockUntrustedCidrs = p.val == "" or
+            parseBool(p.val)
         of "processNginxLogs": args.processNginxLogs = p.val == "" or parseBool(p.val)
         of "serve": args.serve = p.val == "" or parseBool(p.val)
         of "root": args.root = p.val
@@ -140,7 +143,8 @@ proc getArgs(): Args =
     args.logPath = if args.serve: serveLogPath else: nginxLogPath
 
   # older versions kept the database in /var/log. keep using it until it is moved
-  if args.dbPath == defaultDbPath and not fileExists(defaultDbPath) and fileExists(oldDbPath):
+  if args.dbPath == defaultDbPath and not fileExists(defaultDbPath) and
+      fileExists(oldDbPath):
     warn(fmt"Using the old database at {oldDbPath}. Stop nginwho and move it to {defaultDbPath}")
     args.dbPath = oldDbPath
 
@@ -289,7 +293,8 @@ proc main() =
           "Set it to client.ip in your Fastly VCL, see the README")
 
   if args.showRealIPs or args.blockUntrustedCidrs:
-    asyncCheck fetchAndProcessIPCidrs(args.cdn, args.showRealIPs, args.blockUntrustedCidrs)
+    asyncCheck fetchAndProcessIPCidrs(args.cdn, args.showRealIPs,
+        args.blockUntrustedCidrs)
 
   runForever()
 

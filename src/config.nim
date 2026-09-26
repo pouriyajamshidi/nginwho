@@ -21,7 +21,7 @@ const
 type
   Args* = object
     ## Settings from the config file and the command line. The values here are the defaults
-    logPath*: string # empty means nginxLogPath, or serveLogPath with --serve
+    logPath*: string        # empty means nginxLogPath, or serveLogPath with --serve
     dbPath*: string = defaultDbPath
     interval*: int = 10_000 # milliseconds
     omitReferrer*: string
@@ -74,7 +74,8 @@ proc getString(config: Config, section, key: string, fallback: string): string =
   return if value == "": fallback else: value
 
 
-proc get[T](config: Config, section, key: string, fallback: T, parse: proc (value: string): T): T =
+proc get[T](config: Config, section, key: string, fallback: T, parse: proc (
+    value: string): T): T =
   ## Parses the value with `parse`. A missing or bad value keeps `fallback`
   let value = config.getSectionValue(section, key)
   if value == "":
@@ -104,11 +105,14 @@ proc readConfigFile*(path: string, args: var Args) =
 
   args.logPath = config.getString("nginx", "log_path", args.logPath)
   args.interval = config.get("nginx", "interval", args.interval, parseInterval)
-  args.omitReferrer = config.getString("nginx", "omit_referrer", args.omitReferrer)
+  args.omitReferrer = config.getString("nginx", "omit_referrer",
+      args.omitReferrer)
   args.cdn = config.get("nginx", "cdn", args.cdn, parseCdn)
   args.showRealIPs = config.get("nginx", "show_real_ips", args.showRealIPs, parseBool)
-  args.blockUntrustedCidrs = config.get("nginx", "block_untrusted_cidrs", args.blockUntrustedCidrs, parseBool)
-  args.processNginxLogs = config.get("nginx", "process_logs", args.processNginxLogs, parseBool)
+  args.blockUntrustedCidrs = config.get("nginx", "block_untrusted_cidrs",
+      args.blockUntrustedCidrs, parseBool)
+  args.processNginxLogs = config.get("nginx", "process_logs",
+      args.processNginxLogs, parseBool)
 
   args.serve = config.get("server", "enabled", args.serve, parseBool)
   args.root = config.getString("server", "root", args.root)
@@ -116,12 +120,17 @@ proc readConfigFile*(path: string, args: var Args) =
 
   args.trap.enabled = config.get("trap", "enabled", args.trap.enabled, parseBool)
   args.trap.port = config.get("trap", "port", args.trap.port, parsePort)
-  args.trap.maxConnections = config.get("trap", "max_connections", args.trap.maxConnections, atLeast(1))
-  args.trap.maxSeconds = config.get("trap", "max_seconds", args.trap.maxSeconds, atLeast(1))
-  args.trap.dripMinMs = config.get("trap", "drip_min_ms", args.trap.dripMinMs, atLeast(0))
-  args.trap.dripMaxMs = config.get("trap", "drip_max_ms", args.trap.dripMaxMs, atLeast(0))
+  args.trap.maxConnections = config.get("trap", "max_connections",
+      args.trap.maxConnections, atLeast(1))
+  args.trap.maxSeconds = config.get("trap", "max_seconds", args.trap.maxSeconds,
+      atLeast(1))
+  args.trap.dripMinMs = config.get("trap", "drip_min_ms", args.trap.dripMinMs,
+      atLeast(0))
+  args.trap.dripMaxMs = config.get("trap", "drip_max_ms", args.trap.dripMaxMs,
+      atLeast(0))
   args.trap.bombs = config.get("trap", "bombs", args.trap.bombs, parseBool)
-  args.trap.bombAfter = config.get("trap", "bomb_after", args.trap.bombAfter, atLeast(0))
+  args.trap.bombAfter = config.get("trap", "bomb_after", args.trap.bombAfter,
+      atLeast(0))
 
   # the pause between drips is picked from min to max, which can't be an empty range
   if args.trap.dripMinMs > args.trap.dripMaxMs:

@@ -1,5 +1,6 @@
 import std/[asyncdispatch, httpcore, json]
-from std/httpclient import AsyncHttpClient, AsyncResponse, newAsyncHttpClient, close, get, code, body
+from std/httpclient import AsyncHttpClient, AsyncResponse, newAsyncHttpClient,
+    close, get, code, body
 from std/strformat import fmt
 from std/options import Option, none, some, isNone, get
 from std/strutils import startsWith, split, join, toHex, capitalizeAscii
@@ -73,7 +74,8 @@ proc parseCidrsResponse*(cdn: Cdn, jsonResponse: JsonNode): Option[Cidrs] =
     ipv6Cidrs = jsonResponse{"ipv6_addresses"}
 
   # an empty list would flush its nftables Set and block all CDN traffic of that IP version
-  if ipv4Cidrs.isNil or ipv6Cidrs.isNil or ipv4Cidrs.len == 0 or ipv6Cidrs.len == 0:
+  if ipv4Cidrs.isNil or ipv6Cidrs.isNil or ipv4Cidrs.len == 0 or
+      ipv6Cidrs.len == 0:
     warn("API response is missing IPv4 or IPv6 CIDRs")
     return none(Cidrs)
   else:
@@ -154,7 +156,8 @@ proc getCurrentEtag*(configFile: string = cidrFile): string =
         return etagLine[1]
 
 
-proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs, blockUntrustedCidrs: bool) {.async.} =
+proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
+    blockUntrustedCidrs: bool) {.async.} =
   ## Fetches the CDN's ranges every six hours. `showRealIPs` writes them for nginx and
   ## `blockUntrustedCidrs` lets only them through nftables. Each works without the other
   info(fmt"Fetching and processing {cdn.name} CIDRs")

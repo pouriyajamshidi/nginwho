@@ -9,8 +9,10 @@ from std/net import Port, Domain, SOBool, OptReuseAddr
 from std/httpcore import HttpCode, Http200, Http401, Http404
 from std/random import Rand, initRand, rand, sample
 from std/hashes import hash
-from std/tables import Table, toTable, `[]`, `[]=`, initTable, hasKey, mgetOrPut, pairs, clear
-from std/strutils import toLowerAscii, contains, endsWith, startsWith, replace, split, strip
+from std/tables import Table, toTable, `[]`, `[]=`, initTable, hasKey,
+    mgetOrPut, pairs, clear
+from std/strutils import toLowerAscii, contains, endsWith, startsWith, replace,
+    split, strip
 from std/strformat import fmt
 from std/times import epochTime, now, format
 from std/uri import decodeUrl
@@ -18,7 +20,8 @@ from std/logging import info, error
 from db_connector/db_sqlite import DbConn
 
 from nginx import dateFormat
-from server import Request, TrapHook, readRequest, readBody, header, responseHead, headTimeout
+from server import Request, TrapHook, readRequest, readBody, header,
+    responseHead, headTimeout
 from database import TrapHit, getDbConnection, createTables, insertTrapHit, finishTrapHit
 
 
@@ -73,11 +76,12 @@ const
   bombMembers = 10_000 # 1 MiB of zeros each, about 10 GB unpacked
   maxBodyBytes = 8192 # of a fake login POST
 
-  apps = ["acme", "northwind", "helios", "lumen", "vertex", "cobalt", "meridian", "quanta"]
+  apps = ["acme", "northwind", "helios", "lumen", "vertex", "cobalt",
+      "meridian", "quanta"]
   users = ["admin", "deploy", "jenkins", "svc-backup", "mgarcia", "twong", "pkoch"]
 
 var
-  active = 0                          # trapped connections right now
+  active = 0                           # trapped connections right now
   hitsToday = initTable[string, int]() # how often we saw an IP today
   today = ""
 
@@ -114,14 +118,20 @@ proc classify*(path: string): Trap =
 
   # Spring boot endpoints first, so /actuator/env is not read as a plain .env file
   if p.anyOf(["actuator", "jolokia", "heapdump"]): return apiDebug
-  if p.anyOf([".env", "environ", "sendgrid"]) or p.endsWith("/env"): return envFile
+  if p.anyOf([".env", "environ", "sendgrid"]) or p.endsWith(
+      "/env"): return envFile
   if p.anyOf([".git", ".svn", ".hg", ".bzr"]): return gitRepo
-  if p.anyOf(["wp-", "wordpress", "xmlrpc", "wlwmanifest", "rest_route"]): return wordpress
+  if p.anyOf(["wp-", "wordpress", "xmlrpc", "wlwmanifest",
+      "rest_route"]): return wordpress
   if p.anyOf([".aws", "aws.json", "aws.yml", "aws.yaml", "credential", ".ssh", "id_rsa",
-              "id_ed25519", ".npmrc", ".pypirc", ".netrc", ".s3cfg", ".boto", "rclone",
-              "secret", "firebase", "terraform", "gcp", "stripe", "serviceaccount",
-              "service-account", "service_account", "sa.json", "key.json", "privatekey",
-              "private-key", "keyfile", ".key", ".pem", ".bash", ".zsh", ".claude", ".mcp",
+              "id_ed25519", ".npmrc", ".pypirc", ".netrc", ".s3cfg", ".boto",
+              "rclone",
+              "secret", "firebase", "terraform", "gcp", "stripe",
+              "serviceaccount",
+              "service-account", "service_account", "sa.json", "key.json",
+              "privatekey",
+              "private-key", "keyfile", ".key", ".pem", ".bash", ".zsh",
+              ".claude", ".mcp",
               ".cursor", ".codex"]):
     return creds
   if p.anyOf([".sql", ".bak", ".backup", ".old", ".zip", ".tar", ".gz", ".tgz", ".rar",
@@ -133,7 +143,8 @@ proc classify*(path: string): Trap =
   # admin and login pages before .php, so a login page like /administrator/index.php
   # gets the fake login that harvests credentials, not the generic php trap
   if p.anyOf(["admin", "login", "signin", "sign-in", "signup", "register", "dashboard",
-              "cpanel", "backoffice", "webmail", "/manager", "file-manager", "console",
+              "cpanel", "backoffice", "webmail", "/manager", "file-manager",
+              "console",
               "portal", "panel", "secure", "account", "/auth", "reset-password",
               "forgot-password"]):
     return adminPanel
@@ -141,13 +152,17 @@ proc classify*(path: string): Trap =
               "artisan", "_debugbar", "livewire", "telescope"]):
     return phpFile
   if p.anyOf(["config", "appsettings", "settings", "application.yml", "application.properties",
-              "docker", ".vscode", ".idea", "sftp", ".htaccess", ".htpasswd", "serverless",
-              "vercel", "netlify", ".travis", "gradle", "package.json", "composer.json",
+              "docker", ".vscode", ".idea", "sftp", ".htaccess", ".htpasswd",
+              "serverless",
+              "vercel", "netlify", ".travis", "gradle", "package.json",
+              "composer.json",
               "manifest.json", ".vite", "values.yaml", ".toml", ".ds_store"]):
     return configFile
   if p.anyOf(["/api", "graphql", "swagger", "openapi", "/debug", "server-status",
-              "server-info", "/info", "/health", "/mcp", "/sse", "/metrics", "/solr",
-              "/vendor", "autodiscover", "/owa", "/hudson", "/jenkins", "/nacos", "/druid"]):
+              "server-info", "/info", "/health", "/mcp", "/sse", "/metrics",
+              "/solr",
+              "/vendor", "autodiscover", "/owa", "/hudson", "/jenkins",
+              "/nacos", "/druid"]):
     return apiDebug
   if p.contains(".well-known/"): return wellKnown
 
@@ -261,7 +276,8 @@ proc mazePage(rng: Rng, path: string): string =
   result.add("</pre><hr></body></html>\n")
 
 
-proc tacticFor(trap: Trap, path: string, repeatOffender: bool, cfg: TrapConfig): Tactic =
+proc tacticFor(trap: Trap, path: string, repeatOffender: bool,
+    cfg: TrapConfig): Tactic =
   let p = path.toLowerAscii
 
   result =
@@ -272,7 +288,8 @@ proc tacticFor(trap: Trap, path: string, repeatOffender: bool, cfg: TrapConfig):
       else: drip
     of adminPanel: login
     of backup:
-      if p.anyOf([".gz", ".zip", ".tar", ".7z", ".rar", ".tgz"]): bomb else: endless
+      if p.anyOf([".gz", ".zip", ".tar", ".7z", ".rar",
+          ".tgz"]): bomb else: endless
     of phpFile:
       if p.anyOf(["phpinfo", "info.php"]): drip else: bomb
     of gitRepo:
@@ -380,7 +397,8 @@ proc play(client: AsyncSocket, req: Request, trap: Trap, tactic: Tactic,
     await client.playLogin(req, values, rng, deadline, played)
   of bomb:
     # a download keeps its gzip through Cloudflare, a page gets unpacked by the client
-    let download = req.path.toLowerAscii.anyOf([".gz", ".zip", ".tar", ".7z", ".rar", ".tgz"])
+    let download = req.path.toLowerAscii.anyOf([".gz", ".zip", ".tar", ".7z",
+        ".rar", ".tgz"])
     var headers = @[("Content-Type", if download: "application/gzip" else: "text/plain")]
     if not download:
       headers.add(("Content-Encoding", "gzip"))
@@ -394,7 +412,8 @@ proc play(client: AsyncSocket, req: Request, trap: Trap, tactic: Tactic,
     if req.httpMethod != "HEAD":
       await client.dripBody(body, cfg, rng, deadline, played)
   of endless:
-    await client.send(responseHead(Http200, false, [("Content-Type", "text/plain")]))
+    await client.send(responseHead(Http200, false, [("Content-Type",
+        "text/plain")]))
     if req.httpMethod != "HEAD":
       await client.dripEndless(trap, values, cfg, rng, deadline, played)
   of drip:

@@ -1,9 +1,11 @@
 ## A small static file server that writes nginx style access logs
 
 import std/[asyncdispatch, net, httpcore, os]
-from std/strutils import find, contains, strip, split, startsWith, endsWith, toHex, replace, removePrefix, toLowerAscii, parseInt
+from std/strutils import find, contains, strip, split, startsWith, endsWith,
+    toHex, replace, removePrefix, toLowerAscii, parseInt
 from std/times import fromUnix, utc, format, now, getTime, toUnix
-from std/asyncnet import AsyncSocket, recvLine, recv, send, close, getPeerAddr, newAsyncSocket, setSockOpt, bindAddr, listen, accept
+from std/asyncnet import AsyncSocket, recvLine, recv, send, close, getPeerAddr,
+    newAsyncSocket, setSockOpt, bindAddr, listen, accept
 from std/uri import decodeUrl
 from std/strformat import fmt
 from std/mimetypes import newMimetypes, getMimetype
@@ -26,7 +28,8 @@ type
     version*: string
     headers*: HttpHeaders
 
-  TrapHook* = proc (client: AsyncSocket, req: Request, remoteIP: string): Future[bool]
+  TrapHook* = proc (client: AsyncSocket, req: Request,
+      remoteIP: string): Future[bool]
     ## Gets the requests the server can't serve, like nginx's error_page to the trap.
     ## Returns false when it does not take one, and the server answers as usual
 
@@ -67,7 +70,8 @@ proc header*(req: Request, name: string): string =
   if req.headers.hasKey(name): $req.headers[name] else: ""
 
 
-proc readBody*(client: AsyncSocket, req: Request, limit: int): Future[string] {.async.} =
+proc readBody*(client: AsyncSocket, req: Request, limit: int): Future[
+    string] {.async.} =
   ## Reads a small request body, such as a submitted login form. Bigger bodies are cut short
   var length = 0
   try:
@@ -94,7 +98,8 @@ proc escapeLog(value: string): string =
 proc accessLogLine*(remoteIP, request: string, status, bytesSent: int,
     referrer, userAgent: string): string =
   ## Builds a line in nginx's default "combined" format
-  let time = now().format("dd/MMM/yyyy:HH:mm:ss ") & now().format("zzz").replace(":", "")
+  let time = now().format("dd/MMM/yyyy:HH:mm:ss ") & now().format(
+      "zzz").replace(":", "")
   let referrer = if referrer == "": "-" else: escapeLog(referrer)
   fmt"""{remoteIP} - - [{time}] "{escapeLog(request)}" {status} {bytesSent} "{referrer}" "{escapeLog(userAgent)}"""" & "\n"
 
@@ -109,7 +114,8 @@ proc writeAccessLog(path, line: string) =
     error(fmt"Could not write to {path}: {e.msg}")
 
 
-proc responseHead*(status: HttpCode, keepAlive: bool, headers: openArray[(string, string)]): string =
+proc responseHead*(status: HttpCode, keepAlive: bool, headers: openArray[(
+    string, string)]): string =
   result = "HTTP/1.1 " & $status & "\r\n"
   result.add("Server: nginwho\r\n")
   result.add("Date: " & httpDate(times.getTime().toUnix) & "\r\n")
@@ -118,8 +124,9 @@ proc responseHead*(status: HttpCode, keepAlive: bool, headers: openArray[(string
   result.add("Connection: " & (if keepAlive: "keep-alive" else: "close") & "\r\n\r\n")
 
 
-proc sendText(client: AsyncSocket, req: Request, status: HttpCode, keepAlive: bool,
-    headers: seq[(string, string)] = @[]): Future[int] {.async.} =
+proc sendText(client: AsyncSocket, req: Request, status: HttpCode,
+    keepAlive: bool, headers: seq[(string, string)] = @[]): Future[
+        int] {.async.} =
   ## Sends a short plain text body such as "404 Not Found"
   let body = $status & "\n"
   var all = headers
@@ -132,7 +139,8 @@ proc sendText(client: AsyncSocket, req: Request, status: HttpCode, keepAlive: bo
 
 
 proc sendFile(client: AsyncSocket, req: Request, path: string, status: HttpCode,
-    keepAlive: bool): Future[tuple[status: HttpCode, bytesSent: int]] {.async.} =
+    keepAlive: bool): Future[tuple[status: HttpCode,
+        bytesSent: int]] {.async.} =
   ## Sends a file in chunks so big files don't sit in memory
   let file = open(path)
   defer: file.close()
@@ -146,7 +154,8 @@ proc sendFile(client: AsyncSocket, req: Request, path: string, status: HttpCode,
         toHex(size).strip(trailing = false, chars = {'0'}) & "\""
 
   var headers = @[
-    ("Content-Type", mimes.getMimetype(path.splitFile.ext.strip(chars = {'.'}), "application/octet-stream")),
+    ("Content-Type", mimes.getMimetype(path.splitFile.ext.strip(chars = {'.'}),
+        "application/octet-stream")),
     ("Last-Modified", lastModified),
     ("ETag", etag),
   ]
@@ -204,7 +213,8 @@ proc respond(client: AsyncSocket, req: Request, root: string, keepAlive: bool):
   let file = resolve(root, req.path)
   if file == "/":
     let location = req.path & "/" & req.query
-    return (Http301, await client.sendText(req, Http301, keepAlive, @[("Location", location)]))
+    return (Http301, await client.sendText(req, Http301, keepAlive, @[(
+        "Location", location)]))
   if file != "":
     return await client.sendFile(req, file, Http200, keepAlive)
 
@@ -213,7 +223,8 @@ proc respond(client: AsyncSocket, req: Request, root: string, keepAlive: bool):
   return (Http404, await client.sendText(req, Http404, keepAlive))
 
 
-proc handleClient(client: AsyncSocket, root, logPath: string, trapHook: TrapHook) {.async.} =
+proc handleClient(client: AsyncSocket, root, logPath: string,
+    trapHook: TrapHook) {.async.} =
   defer: client.close()
 
   try:
@@ -244,8 +255,8 @@ proc handleClient(client: AsyncSocket, root, logPath: string, trapHook: TrapHook
         if req.httpMethod == "": (Http400, await client.sendText(req, Http400, false))
         else: await client.respond(req, root, keepAlive)
 
-      writeAccessLog(logPath, accessLogLine(remoteIP, req.line, status.int, bytesSent,
-          req.header("Referer"), req.header("User-Agent")))
+      writeAccessLog(logPath, accessLogLine(remoteIP, req.line, status.int,
+          bytesSent, req.header("Referer"), req.header("User-Agent")))
 
       if not keepAlive:
         return
@@ -254,7 +265,8 @@ proc handleClient(client: AsyncSocket, root, logPath: string, trapHook: TrapHook
     discard
 
 
-proc serve*(root, logPath: string, port: Port, address = "::", trapHook: TrapHook = nil) {.async.} =
+proc serve*(root, logPath: string, port: Port, address = "::",
+    trapHook: TrapHook = nil) {.async.} =
   let server = newAsyncSocket(if ':' in address: Domain.AF_INET6 else: Domain.AF_INET)
   server.setSockOpt(OptReuseAddr, true)
   try:

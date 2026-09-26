@@ -1,5 +1,5 @@
-from db_connector/db_sqlite import DbConn, DbError, Row, SqlPrepared, sql, open, close, exec, tryExec, insertID,
-    prepare, getRow, getAllRows, getValue, dbError
+from db_connector/db_sqlite import DbConn, DbError, Row, SqlPrepared, sql, open,
+    close, exec, tryExec, insertID, prepare, getRow, getAllRows, getValue, dbError
 from db_connector/sqlite3 import PStmt, bind_text, step, reset, finalize,
     SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT
 from std/tables import initTable, mgetOrPut, pairs
@@ -220,7 +220,8 @@ proc execPrepared(db: DbConn, statement: SqlPrepared, values: varargs[string]) =
   let stmt = PStmt(statement)
   discard reset(stmt)
   for i, value in values:
-    if bind_text(stmt, int32(i + 1), value.cstring, int32(value.len), SQLITE_TRANSIENT) != SQLITE_OK:
+    if bind_text(stmt, int32(i + 1), value.cstring, int32(value.len),
+        SQLITE_TRANSIENT) != SQLITE_OK:
       dbError(db)
   if step(stmt) != SQLITE_DONE:
     dbError(db)
@@ -456,7 +457,8 @@ proc insertTrapHit*(db: DbConn, hit: TrapHit): int64 =
     return -1
 
 
-proc finishTrapHit*(db: DbConn, id: int64, bytesSent, seconds: int, detail: string) =
+proc finishTrapHit*(db: DbConn, id: int64, bytesSent, seconds: int,
+    detail: string) =
   ## Fills in what the trap ended up sending and how long it held the bot
   if id < 0:
     return
