@@ -3,7 +3,8 @@ from std/options import isSome, isNone, get
 from std/strutils import contains
 
 from nginx import Log, parseLogEntry, readNewLines, offsetAfterLastInserted
-from cdn import Cdn, Cidrs, getCurrentEtag, parseCidrsResponse, populateReverseProxyFile
+from cdn import Cdn, Cidrs, getCurrentEtag, parseCidrsResponse, populateReverseProxyFile,
+    trustRanges, visitorIP
 
 let tempDir = getTempDir() / "nginwho_test_nginx"
 createDir(tempDir)
@@ -198,6 +199,22 @@ suite "CDN CIDRs file":
     check parseCidrsResponse(Cloudflare, parseJson("""{"success": true, "result": {"ipv4_cidrs": ["1.1.1.0/24"], "ipv6_cidrs": []}}""")).isNone
     check parseCidrsResponse(Fastly, parseJson("{}")).isNone
     check parseCidrsResponse(Fastly, parseJson("""{"addresses": ["1.1.1.0/24"], "ipv6_addresses": []}""")).isNone
+
+  test "the real IP header only counts when the CDN sent the request":
+    # nothing is trusted before the ranges are fetched
+    check visitorIP("23.235.32.9", "203.0.113.7") == "23.235.32.9"
+
+    trustRanges(parseCidrsResponse(Fastly, fastlyResponse).get)
+    check visitorIP("23.235.32.9", "203.0.113.7") == "203.0.113.7"
+    check visitorIP("23.235.47.255", "203.0.113.7") == "203.0.113.7"
+    check visitorIP("2a04:4e42:10::5", "2001:db8::1") == "2001:db8::1"
+    # a visitor talking to us directly can't pick their own IP
+    check visitorIP("23.235.48.0", "203.0.113.7") == "23.235.48.0"
+    check visitorIP("198.51.100.4", "203.0.113.7") == "198.51.100.4"
+    check visitorIP("2a04:4e41::5", "2001:db8::1") == "2a04:4e41::5"
+    # no header, or not an IP
+    check visitorIP("23.235.32.9", "") == "23.235.32.9"
+    check visitorIP("23.235.32.9", "evil\"quote") == "23.235.32.9"
     # a Cloudflare response is not a Fastly one
     check parseCidrsResponse(Fastly, apiResponse).isNone
 

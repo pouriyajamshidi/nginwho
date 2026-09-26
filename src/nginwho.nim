@@ -11,12 +11,12 @@ from std/logging import addHandler, newConsoleLogger, info, error, warn,
 
 from nginx import Log, isStaticAsset, readChunkBytes, ensureNginxExists,
     ensureNginxLogExists, parseLogEntry, readNewLines, offsetAfterLastInserted
-from cdn import Cdn, fetchAndProcessIPCidrs
+from cdn import Cdn, fetchAndProcessIPCidrs, visitorIP, realIpHeaders
 from nftables import ensureNftExists
 from database import getDbConnection, closeDbConnection,
     createTables, insertLogs, migrateV1ToV2, getLastRow
 from report import report
-from server import serve
+from server import serve, RealIP, Request, header
 from trap import trap, trapHook
 from config import Args, readConfigFile, parsePort, parseInterval, parseCdn,
     defaultConfigFile, defaultDbPath, oldDbPath, nginxLogPath, serveLogPath
@@ -46,8 +46,8 @@ proc usage(errorCode: int = 0) =
                             or /var/log/nginwho/access.log with '--serve')
   --interval              : Refresh interval in seconds (default: 10)
   --omitReferrer          : Omit a specific referrer from being logged (default: none)
-  --showRealIps           : Show real IP of visitors by getting the CDN's CIDRs to include in nginx config.
-                            Self-updates every six hours (default: false)
+  --showRealIps           : Show real IP of visitors by getting the CDN's CIDRs to include in nginx config,
+                            or with '--serve' to trust the CDN's header. Self-updates every six hours (default: false)
   --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows the CDN's CIDRs (default: false)
   --cdn                   : The CDN in front of your site, cloudflare or fastly (default: cloudflare)
   --processNginxLogs      : Process nginx logs (default: false)
@@ -249,8 +249,9 @@ proc runPreChecks(args: Args) =
   elif args.processNginxLogs:
     ensureNginxLogExists(args.logPath)
 
-  # only --showRealIps runs nginx, to test and reload its config. reading its log needs no nginx
-  if args.showRealIPs:
+  # only --showRealIps runs nginx, to test and reload its config. reading its log needs no nginx.
+  # with --serve there is no nginx, the server reads the real IP itself
+  if args.showRealIPs and not args.serve:
     ensureNginxExists()
 
   if args.blockUntrustedCidrs:
@@ -278,7 +279,15 @@ proc main() =
   if args.serve:
     # nginwho is the web server here, so it hands probes to the trap itself instead of nginx
     let hook = if args.trap.enabled: trapHook(args.trap, args.dbPath) else: nil
-    asyncCheck serve(args.root, args.logPath, Port(args.port), trapHook = hook)
+    # behind a CDN, the visitor's IP is in the CDN's header instead of the connection
+    let cdn = args.cdn
+    let realIP: RealIP =
+      if args.showRealIPs:
+        proc (peer: string, req: Request): string =
+          visitorIP(peer, req.header(realIpHeaders[cdn]))
+      else: nil
+    asyncCheck serve(args.root, args.logPath, Port(args.port), trapHook = hook,
+        realIP = realIP)
 
   if args.trap.enabled and not args.serve:
     asyncCheck trap(args.trap, args.dbPath)
@@ -287,14 +296,15 @@ proc main() =
     asyncCheck processAndRecordLogs(args)
 
   if args.showRealIPs:
-    warn("Do not forget to add `include /etc/nginx/nginwho;` in your nginx config file")
+    if not args.serve:
+      warn("Do not forget to add `include /etc/nginx/nginwho;` in your nginx config file")
     if args.cdn == Fastly:
       warn("Fastly keeps a Fastly-Client-IP header sent by visitors, so they can fake their IP. " &
           "Set it to client.ip in your Fastly VCL, see the README")
 
   if args.showRealIPs or args.blockUntrustedCidrs:
     asyncCheck fetchAndProcessIPCidrs(args.cdn, args.showRealIPs,
-        args.blockUntrustedCidrs)
+        args.blockUntrustedCidrs, args.serve)
 
   runForever()
 

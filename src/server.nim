@@ -34,6 +34,9 @@ type
     ## nginx's error_page to the trap. Returns false when it does not take one, and
     ## the server answers as usual
 
+  RealIP* = proc (peer: string, req: Request): string
+    ## The visitor's IP, when a CDN in front puts it in a header
+
 
 let mimes = newMimetypes()
 
@@ -225,12 +228,12 @@ proc respond(client: AsyncSocket, req: Request, root: string, keepAlive: bool):
 
 
 proc handleClient(client: AsyncSocket, root, logPath: string,
-    trapHook: TrapHook) {.async.} =
+    trapHook: TrapHook, realIP: RealIP) {.async.} =
   defer: client.close()
 
   try:
-    var remoteIP = client.getPeerAddr()[0]
-    remoteIP.removePrefix("::ffff:") # IPv4 clients on an IPv6 socket
+    var peer = client.getPeerAddr()[0]
+    peer.removePrefix("::ffff:") # IPv4 clients on an IPv6 socket
 
     while true:
       let reading = client.readRequest()
@@ -239,6 +242,7 @@ proc handleClient(client: AsyncSocket, root, logPath: string,
       let req = reading.read()
       if req.line in ["", "\r\n"]:
         return
+      let remoteIP = if realIP != nil: realIP(peer, req) else: peer
 
       # the trap gets a look first: what would be a 404 or 405, and listed user agents.
       # it keeps its own record
@@ -268,7 +272,7 @@ proc handleClient(client: AsyncSocket, root, logPath: string,
 
 
 proc serve*(root, logPath: string, port: Port, address = "::",
-    trapHook: TrapHook = nil) {.async.} =
+    trapHook: TrapHook = nil, realIP: RealIP = nil) {.async.} =
   let server = newAsyncSocket(if ':' in address: Domain.AF_INET6 else: Domain.AF_INET)
   server.setSockOpt(OptReuseAddr, true)
   try:
@@ -283,6 +287,6 @@ proc serve*(root, logPath: string, port: Port, address = "::",
   while true:
     try:
       let client = await server.accept()
-      asyncCheck handleClient(client, root, logPath, trapHook)
+      asyncCheck handleClient(client, root, logPath, trapHook, realIP)
     except OSError as e:
       error(fmt"Could not accept a connection: {e.msg}")

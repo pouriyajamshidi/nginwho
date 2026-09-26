@@ -7,9 +7,11 @@ from std/strutils import split, splitLines, startsWith, endsWith, strip, contain
 
 from db_connector/db_sqlite import getValue, sql
 
-from server import serve, accessLogLine
+from server import serve, accessLogLine, Request, header
+from cdn import visitorIP, trustRanges, parseCidrsResponse, Fastly
 from nginx import parseLogEntry
-from std/options import none
+from std/options import none, get
+from std/json import parseJson
 
 from trap import TrapConfig, Tactic, trapHook
 from database import getDbConnection
@@ -138,3 +140,19 @@ suite "server with the trap":
     check page.startsWith("HTTP/1.1 200")
     check page.body != "home"
     check get("/", "User-Agent: Mozilla/5.0\r\n", port = trapPort).body == "home"
+
+
+# the same site behind a CDN whose ranges include 127.0.0.1
+const cdnPort = Port(18095)
+let cdnLogPath = tempDir / "cdn_access.log"
+trustRanges(parseCidrsResponse(Fastly, parseJson(
+    """{"addresses": ["127.0.0.0/8"], "ipv6_addresses": ["2a04:4e40::/32"]}""")).get)
+asyncCheck serve(root, cdnLogPath, cdnPort, "127.0.0.1",
+    realIP = proc (peer: string, req: Request): string =
+  visitorIP(peer, req.header("Fastly-Client-IP")))
+
+
+suite "server behind a CDN":
+  test "logs the visitor's IP from the CDN's header":
+    discard get("/", "Fastly-Client-IP: 203.0.113.7\r\n", port = cdnPort)
+    check readFile(cdnLogPath).startsWith("203.0.113.7 - - [")

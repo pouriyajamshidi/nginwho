@@ -3,7 +3,8 @@ from std/httpclient import AsyncHttpClient, AsyncResponse, newAsyncHttpClient,
     close, get, code, body
 from std/strformat import fmt
 from std/options import Option, none, some, isNone, get
-from std/strutils import startsWith, split, join, toHex, capitalizeAscii
+from std/strutils import startsWith, split, join, toHex, capitalizeAscii, parseInt
+from std/net import IpAddress, IpAddressFamily, parseIpAddress, isIpAddress
 from std/algorithm import sorted
 from std/hashes import hash
 from std/times import getTime, format
@@ -34,12 +35,15 @@ const
     Cloudflare: "https://api.cloudflare.com/client/v4/ips",
     Fastly: "https://api.fastly.com/public-ip-list"]
   # the header the CDN puts the visitor's IP in
-  realIpHeaders: array[Cdn, string] = [
+  realIpHeaders*: array[Cdn, string] = [
     Cloudflare: "CF-Connecting-IP",
     Fastly: "Fastly-Client-IP"]
   timeoutMs = 10_000
   refreshMs = 6 * 60 * 60 * 1000
   retryMs = 60 * 1000
+
+# the ranges fetched last. --serve trusts the CDN's real IP header only from these
+var trustedRanges: seq[tuple[network: IpAddress, bits: int]]
 
 
 proc name*(cdn: Cdn): string =
@@ -142,6 +146,50 @@ proc populateReverseProxyFile*(filePath: string, cidrs: Cidrs): bool =
     return false
 
 
+proc trustRanges*(cidrs: Cidrs) =
+  ## Replaces the ranges `visitorIP` trusts
+  var ranges: seq[tuple[network: IpAddress, bits: int]]
+  for list in [cidrs.ipv4, cidrs.ipv6]:
+    for cidr in list:
+      let parts = cidr.getStr().split('/')
+      try:
+        if parts.len != 2:
+          raise newException(ValueError, "no prefix length")
+        ranges.add((parseIpAddress(parts[0]), parseInt(parts[1])))
+      except ValueError:
+        warn(fmt"Skipping bad CIDR {cidr.getStr()}")
+  trustedRanges = ranges
+
+
+proc samePrefix(a, b: openArray[uint8], bits: int): bool =
+  for i in 0 ..< bits:
+    let mask = 0x80'u8 shr (i mod 8)
+    if (a[i div 8] and mask) != (b[i div 8] and mask):
+      return false
+  return true
+
+
+proc fromCdn(ip: string): bool =
+  ## Whether `ip` is in the CDN's ranges. False until the ranges are fetched
+  if not isIpAddress(ip):
+    return false
+  let address = parseIpAddress(ip)
+  for (network, bits) in trustedRanges:
+    if address.family != network.family:
+      continue
+    if address.family == IpAddressFamily.IPv4:
+      if samePrefix(address.address_v4, network.address_v4, bits): return true
+    elif samePrefix(address.address_v6, network.address_v6, bits): return true
+
+
+proc visitorIP*(peer, headerIP: string): string =
+  ## The visitor's IP for a request from `peer` carrying `headerIP` in the CDN's real IP
+  ## header. Anyone can send that header, so it only counts when the CDN sent the request
+  if headerIP != "" and isIpAddress(headerIP) and fromCdn(peer):
+    return headerIP
+  return peer
+
+
 proc getCurrentEtag*(configFile: string = cidrFile): string =
   info("Getting current CIDRs ETAG")
 
@@ -157,8 +205,9 @@ proc getCurrentEtag*(configFile: string = cidrFile): string =
 
 
 proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
-    blockUntrustedCidrs: bool) {.async.} =
-  ## Fetches the CDN's ranges every six hours. `showRealIPs` writes them for nginx and
+    blockUntrustedCidrs, serve: bool) {.async.} =
+  ## Fetches the CDN's ranges every six hours. `showRealIPs` writes them for nginx, or
+  ## with `serve` lets our own server trust the CDN's real IP header.
   ## `blockUntrustedCidrs` lets only them through nftables. Each works without the other
   info(fmt"Fetching and processing {cdn.name} CIDRs")
 
@@ -179,7 +228,9 @@ proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
         # a firewall problem must not stop the real IPs or anything else nginwho runs
         error(e.msg)
 
-    if showRealIPs:
+    if showRealIPs and serve:
+      trustRanges(cidrs)
+    elif showRealIPs:
       let currentEtag: string = getCurrentEtag()
       if currentEtag != cidrs.etag:
         # nginx reload is graceful and does not drop open connections
