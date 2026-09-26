@@ -73,6 +73,7 @@ See what it does with `sudo journalctl -u nginwho -f`, and the numbers with
   - [Build from source](#build-from-source)
   - [Run as a service](#run-as-a-service)
 - [The config file](#the-config-file)
+- [The nginx config](#the-nginx-config)
 - [Flags](#flags)
 - [How each feature works](#how-each-feature-works)
   - [Saving your logs](#saving-your-logs)
@@ -133,7 +134,8 @@ cdn = cloudflare    # or fastly
 show_real_ips = true
 ```
 
-Then add this one line to your nginx config, inside the `http` block:
+Then add this one line to your nginx config, inside the `http` block. The top of your site's
+file in `/etc/nginx/sites-available` is inside it, as in [The nginx config](#the-nginx-config):
 
 ```nginx
 include /etc/nginx/nginwho;
@@ -170,7 +172,8 @@ enabled = true
 ```
 
 nginx needs a few lines to send its 403 and 404 answers to the trap. They are in
-[The trap](#the-trap). Real visitors who mistype a link still get your normal 404 page.
+[The nginx config](#the-nginx-config). Real visitors who mistype a link still get your normal
+404 page.
 
 ### I want to punish AI crawlers or other bots by their name
 
@@ -331,6 +334,103 @@ bomb_after = 3
 
 [trap.agents]
 # bots to trap by their user agent, whatever they ask for. see "The trap"
+```
+
+## The nginx config
+
+If nginx serves your site, here is a complete, basic config that works with every nginwho
+feature. Save it as `/etc/nginx/sites-available/example.com`, change `example.com`, the site
+folder and the certificate to yours, and leave out the parts for features you don't use.
+
+```nginx
+# real visitor IPs behind your CDN, written by nginwho (show_real_ips = true).
+# at the top of the file it is in nginx's http block, so every server below uses it
+include /etc/nginx/nginwho;
+
+# plain HTTP goes to HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name example.com www.example.com;
+    return 301 https://example.com$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name example.com www.example.com;
+
+    ssl_certificate     /etc/ssl/example.com.pem;
+    ssl_certificate_key /etc/ssl/example.com.key;
+
+    root  /var/www/html;
+    index index.html;
+
+    # nginwho reads this log (process_logs = true). keep nginx's default format
+    access_log /var/log/nginx/access.log combined;
+
+    # a real missing page shows your 404 page. bots reach the trap through @trap
+    error_page 404 /404.html;
+    # blocked bots (403) and probing POSTs (405) go to the trap
+    error_page 403 405 = @trap;
+
+    location @trap {
+        proxy_pass http://127.0.0.1:7777;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_buffering off;               # or nginx holds back the slow drip
+        proxy_read_timeout 15m;            # the trap holds bots for a long time
+        proxy_intercept_errors on;         # a real missing page still gets 404.html
+        error_page 404 /404.html;
+        error_page 502 504 =404 /404.html; # if nginwho is down, act like a normal site
+        gzip off;                          # compressing again breaks the gzip bomb
+        access_log off;                    # the trap saves its own record in trap_hits
+    }
+
+    location / {
+        # a static site only needs GET and HEAD. a POST to a fake login still reaches the trap
+        if ($request_method !~ ^(GET|HEAD)$) { return 405; }
+
+        # the bots under [trap.agents] in nginwho.conf. nginx must send them a 403, or they
+        # never reach the trap, so keep the two lists the same
+        if ($http_user_agent ~* (deepseek|gptbot|bytespider)) { return 403; }
+
+        # a missing file goes to the trap. known probe paths get trapped,
+        # a real typo gets the 404 page through @trap
+        try_files $uri $uri/ @trap;
+    }
+}
+
+# nginx's numbers for the Grafana setup in observability/, only reachable from the server
+server {
+    listen 127.0.0.1:8080;
+    access_log off;
+
+    location = /stub_status {
+        stub_status on;
+    }
+}
+```
+
+What each part is for:
+
+| Part                                  | Needed for                                                                  |
+| ------------------------------------- | --------------------------------------------------------------------------- |
+| `include /etc/nginx/nginwho`          | [Real visitor IPs behind a CDN](#real-visitor-ips-behind-a-cdn)             |
+| `access_log ... combined`             | [Saving your logs](#saving-your-logs)                                       |
+| `error_page`, `@trap` and `try_files` | [The trap](#the-trap)                                                       |
+| The `$http_user_agent` line           | [Trapping bots by their name](#trapping-bots-by-their-name)                 |
+| The `stub_status` server              | The [Grafana dashboard](#see-it-on-grafana), optional                       |
+
+Start nginwho first when `show_real_ips` is on, so `/etc/nginx/nginwho` exists. Without
+`show_real_ips`, remove the `include` line, since the file isn't there. Then turn the site on:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/example.com /etc/nginx/sites-enabled/ &&
+sudo nginx -t &&
+sudo systemctl reload nginx
 ```
 
 ## Flags
@@ -508,47 +608,14 @@ Gzip bombs only hurt clients that unpack as they read. Go's `net/http` and Pytho
 after the first megabyte, and a `.zip` or `.gz` download lands as a 10 MB file that only bites
 if someone opens it.
 
-**Setting up nginx**
+**How nginx sends bots to the trap**
 
 The trap listens on `127.0.0.1:7777`. nginx sends it the requests it would answer with 403,
 404 or 405. For a path that isn't a known probe, the trap says 404 and nginx shows your normal
-404 page, so real visitors never notice anything.
+404 page, so real visitors never notice anything. If nginwho is not running, nginx acts like a
+normal site and shows the 404 page.
 
-```nginx
-# a genuine missing page shows this. bots reach the trap through @trap instead
-error_page 404 /404.html;
-
-# blocked scrapers (403) and probe POSTs (405) are handed to the trap. if the trap
-# returns a 404 for one of these, they get nginx's plain 404 page instead of 404.html.
-# that is fine, they are not welcome here
-error_page 403 405 = @trap;
-
-location @trap {
-    proxy_pass http://127.0.0.1:7777;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_buffering off;         # or nginx holds back the slow drip
-    proxy_read_timeout 15m;
-    proxy_intercept_errors on;   # a genuine miss still gets the real 404 page
-    error_page 404 /404.html;
-    error_page 502 504 =404 /404.html;  # if nginwho is down, act like a normal site
-    gzip off;                    # never re-compress the trap, it breaks the gzip bomb
-    access_log off;              # the trap keeps its own record in trap_hits
-}
-
-location / {
-    if ($request_method !~ ^(GET|HEAD)$) { return 405; }
-    # ... your user agent and referer blocks return 403 here, for example:
-    # if ($http_user_agent ~* (deepseek|gptbot|bytespider)) { return 403; }
-
-    # a missing file goes to the trap. known probe paths get trapped,
-    # a genuine typo gets the 404 page through @trap
-    try_files $uri $uri/ @trap;
-}
-```
-
-If nginwho is not running, nginx acts like a normal site and shows the 404 page.
+The lines that do this are in [The nginx config](#the-nginx-config).
 
 > [!NOTE]
 > Behind a CDN, check that the slow drip arrives byte by byte and that the gzip bomb gets
@@ -578,7 +645,8 @@ bytespider
 - If two names match, the first one in the list wins.
 
 Behind nginx, a bot only reaches the trap if nginx blocks it with a 403. Block the same names
-in nginx, as in the example above. With the built-in server there is nothing else to do.
+in nginx, as in [The nginx config](#the-nginx-config). With the built-in server there is nothing
+else to do.
 
 ### Serving your site without nginx
 
