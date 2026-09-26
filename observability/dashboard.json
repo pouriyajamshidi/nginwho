@@ -1,0 +1,1934 @@
+{
+  "title": "nginwho",
+  "uid": "nginwho",
+  "tags": [
+    "nginwho",
+    "nginx"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "templating": {
+    "list": [
+      {
+        "name": "loki",
+        "label": "Logs",
+        "type": "datasource",
+        "query": "loki"
+      },
+      {
+        "name": "prometheus",
+        "label": "Metrics",
+        "type": "datasource",
+        "query": "prometheus"
+      },
+      {
+        "name": "job",
+        "label": "Access log",
+        "type": "custom",
+        "query": "nginx,nginwho",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "includeAll": true,
+        "allValue": "nginx|nginwho",
+        "multi": false,
+        "options": []
+      },
+      {
+        "name": "instance",
+        "label": "Host",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prometheus}"
+        },
+        "query": {
+          "query": "label_values(up{job=\"integrations/node_exporter\"}, instance)",
+          "refId": "A"
+        },
+        "includeAll": true,
+        "allValue": ".*",
+        "refresh": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Overview",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "nginx",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "min(nginx_up{instance=~\"$instance\"})",
+          "legendFormat": ""
+        }
+      ],
+      "description": "Whether the nginx exporter can reach nginx. Needs the nginx exporter, see the README",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red",
+                  "index": 1
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Requests",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum(count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` [$__range]))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 3,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "none",
+        "colorMode": "none"
+      },
+      "id": 3
+    },
+    {
+      "type": "stat",
+      "title": "Unique IPs",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "count(sum by (ip) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` [$__range])))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 6,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "none",
+        "colorMode": "none"
+      },
+      "id": 4
+    },
+    {
+      "type": "stat",
+      "title": "Countries",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "count(sum by (country) (count_over_time({job=~\"$job\"} | country != \"\" [$__range])))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 9,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "none",
+        "colorMode": "none"
+      },
+      "id": 5,
+      "description": "Country data from ip66.dev (CC BY 4.0)"
+    },
+    {
+      "type": "stat",
+      "title": "5xx errors",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum(count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` | status =~ \"5..\" [$__range])) or vector(0)",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "none",
+        "colorMode": "none"
+      },
+      "id": 6
+    },
+    {
+      "type": "stat",
+      "title": "Data sent",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum(sum_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` | unwrap bytes [$__range]))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 15,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "none",
+        "colorMode": "none"
+      },
+      "id": 7
+    },
+    {
+      "type": "stat",
+      "title": "Trap hits",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum(count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` [$__range])) or vector(0)",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 18,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "none",
+        "colorMode": "none"
+      },
+      "id": 8
+    },
+    {
+      "type": "stat",
+      "title": "Database",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "sum({__name__=~\"file_size_b|file_size_bytes\", file_name=~\"nginwho.db.*\"})"
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 21,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "none",
+        "colorMode": "none"
+      },
+      "id": 9
+    },
+    {
+      "type": "row",
+      "title": "Traffic",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 10
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests by status",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum by (status) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` [$__auto]))",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "id": 11,
+      "interval": "1m"
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests by method",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum by (method) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` [$__auto]))",
+          "legendFormat": "{{method}}"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "id": 12,
+      "interval": "1m"
+    },
+    {
+      "type": "timeseries",
+      "title": "Data sent",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum(sum_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` | unwrap bytes [$__auto]))",
+          "legendFormat": "bytes"
+        }
+      ],
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "id": 13,
+      "interval": "1m"
+    },
+    {
+      "type": "row",
+      "title": "nginx",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "id": 14
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests nginx answered",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "interval": "1m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "sum(rate(nginx_http_requests_total{instance=~\"$instance\"}[5m]))",
+          "legendFormat": "requests"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "description": "Every request nginx answered, including the ones it handed to the trap, which the access log leaves out",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "id": 15
+    },
+    {
+      "type": "timeseries",
+      "title": "Connections by state",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "interval": "1m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "sum(nginx_connections_active{instance=~\"$instance\"})",
+          "legendFormat": "active"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "sum(nginx_connections_reading{instance=~\"$instance\"})",
+          "legendFormat": "reading"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "sum(nginx_connections_writing{instance=~\"$instance\"})",
+          "legendFormat": "writing"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "sum(nginx_connections_waiting{instance=~\"$instance\"})",
+          "legendFormat": "waiting"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "id": 16
+    },
+    {
+      "type": "timeseries",
+      "title": "Connections accepted and handled",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "interval": "1m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "sum(rate(nginx_connections_accepted{instance=~\"$instance\"}[5m]))",
+          "legendFormat": "accepted"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "sum(rate(nginx_connections_handled{instance=~\"$instance\"}[5m]))",
+          "legendFormat": "handled"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps"
+        },
+        "overrides": []
+      },
+      "description": "Handled stays with accepted unless nginx runs out of room for connections",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      },
+      "id": 17
+    },
+    {
+      "type": "state-timeline",
+      "title": "nginx up",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "min(nginx_up{instance=~\"$instance\"})",
+          "legendFormat": "nginx"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red",
+                  "index": 1
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "legend": {
+          "showLegend": false
+        },
+        "mergeValues": true
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 30
+      },
+      "id": 18
+    },
+    {
+      "type": "row",
+      "title": "Who and what",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      },
+      "id": 19
+    },
+    {
+      "type": "table",
+      "title": "Top IPs",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "topk(20, sum by (ip) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` [$__range])))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 0,
+        "y": 39
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "hits",
+              "Value #A": "hits"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "hits",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "id": 20
+    },
+    {
+      "type": "table",
+      "title": "Top paths",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "topk(20, sum by (path) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` [$__range])))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 8,
+        "y": 39
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "hits",
+              "Value #A": "hits"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "hits",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "id": 21
+    },
+    {
+      "type": "table",
+      "title": "Top user agents",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "topk(20, sum by (agent) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` [$__range])))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 16,
+        "y": 39
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "hits",
+              "Value #A": "hits"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "hits",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "id": 22
+    },
+    {
+      "type": "table",
+      "title": "Top 404 paths",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "topk(20, sum by (path) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` | status = \"404\" [$__range])))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 0,
+        "y": 49
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "hits",
+              "Value #A": "hits"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "hits",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "id": 23
+    },
+    {
+      "type": "table",
+      "title": "Top referrers",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "topk(20, sum by (referrer) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` | referrer != \"-\" [$__range])))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 8,
+        "y": 49
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "hits",
+              "Value #A": "hits"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "hits",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "id": 24
+    },
+    {
+      "type": "table",
+      "title": "Top IPs with 4xx",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "topk(20, sum by (ip) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` | status =~ \"4..\" [$__range])))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 16,
+        "y": 49
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "hits",
+              "Value #A": "hits"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "hits",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "id": 25
+    },
+    {
+      "type": "row",
+      "title": "Where from",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 59
+      },
+      "id": 26
+    },
+    {
+      "type": "geomap",
+      "title": "Visitors by country",
+      "description": "Country and network data from ip66.dev (CC BY 4.0)",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum by (country) (count_over_time({job=~\"$job\"} | country != \"\" [$__range]))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 12,
+        "w": 16,
+        "x": 0,
+        "y": 60
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "hits",
+              "Value #A": "hits"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-BlYlRd"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "view": {
+          "id": "zero",
+          "zoom": 1
+        },
+        "controls": {
+          "showZoom": true,
+          "mouseWheelZoom": false
+        },
+        "layers": [
+          {
+            "type": "markers",
+            "name": "Visitors",
+            "location": {
+              "mode": "lookup",
+              "lookup": "country",
+              "gazetteer": "public/gazetteer/countries.json"
+            },
+            "config": {
+              "style": {
+                "size": {
+                  "field": "hits",
+                  "min": 4,
+                  "max": 30,
+                  "fixed": 5
+                },
+                "color": {
+                  "field": "hits"
+                }
+              }
+            },
+            "tooltip": true
+          }
+        ],
+        "basemap": {
+          "type": "osm-standard",
+          "name": "OpenStreetMap"
+        }
+      },
+      "id": 27
+    },
+    {
+      "type": "table",
+      "title": "Top countries",
+      "description": "Country and network data from ip66.dev (CC BY 4.0)",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "topk(20, sum by (country_name) (count_over_time({job=~\"$job\"} | country_name != \"\" [$__range])))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 12,
+        "w": 8,
+        "x": 16,
+        "y": 60
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "hits",
+              "Value #A": "hits"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "hits",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "id": 28
+    },
+    {
+      "type": "table",
+      "title": "Top networks",
+      "description": "Country and network data from ip66.dev (CC BY 4.0)",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "topk(20, sum by (network) (count_over_time({job=~\"$job\"} | network != \"\" [$__range])))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 72
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "hits",
+              "Value #A": "hits"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "hits",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "id": 29
+    },
+    {
+      "type": "timeseries",
+      "title": "Data centers vs everyone else",
+      "description": "Country and network data from ip66.dev (CC BY 4.0)",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "legendFormat": "{{source}}",
+          "expr": "sum by (source) (count_over_time({job=~\"$job\"} | label_format source=`{{ if .hosting }}data centers{{ else }}everyone else{{ end }}` [$__auto]))"
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 72
+      },
+      "id": 30,
+      "interval": "1m"
+    },
+    {
+      "type": "row",
+      "title": "Trap",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 82
+      },
+      "id": 31
+    },
+    {
+      "type": "timeseries",
+      "title": "Trap hits by trap",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum by (trap) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` [$__auto]))",
+          "legendFormat": "{{trap}}"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 83
+      },
+      "id": 32,
+      "interval": "1m"
+    },
+    {
+      "type": "timeseries",
+      "title": "Trap hits by tactic",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum by (tactic) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` [$__auto]))",
+          "legendFormat": "{{tactic}}"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 83
+      },
+      "id": 33,
+      "interval": "1m"
+    },
+    {
+      "type": "table",
+      "title": "Top trapped IPs",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "topk(20, sum by (ip) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` [$__range])))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 91
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "hits",
+              "Value #A": "hits"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "hits",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "id": 34
+    },
+    {
+      "type": "table",
+      "title": "Top trapped paths",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "topk(20, sum by (path) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` [$__range])))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 91
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "hits",
+              "Value #A": "hits"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "hits",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "id": 35
+    },
+    {
+      "type": "table",
+      "title": "Top trapped countries",
+      "description": "Country and network data from ip66.dev (CC BY 4.0)",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "topk(20, sum by (country_name) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` | country_name != \"\" [$__range])))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 101
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "hits",
+              "Value #A": "hits"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "hits",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "id": 36
+    },
+    {
+      "type": "table",
+      "title": "Top trapped networks",
+      "description": "Country and network data from ip66.dev (CC BY 4.0)",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "topk(20, sum by (network) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` | network != \"\" [$__range])))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 101
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "hits",
+              "Value #A": "hits"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "hits",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "id": 37
+    },
+    {
+      "type": "logs",
+      "title": "Latest trap hits",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "{job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` | line_format \"{{.ip}}  {{.tactic}}  {{.trap}}  {{.path}}\""
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 111
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": false,
+        "sortOrder": "Descending"
+      },
+      "id": 38
+    },
+    {
+      "type": "row",
+      "title": "Server",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 119
+      },
+      "id": 39
+    },
+    {
+      "type": "bargauge",
+      "title": "Pressure now",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "avg(rate(node_pressure_cpu_waiting_seconds_total{job=\"integrations/node_exporter\", instance=~\"$instance\"}[5m]))",
+          "legendFormat": "CPU",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "avg(rate(node_pressure_memory_waiting_seconds_total{job=\"integrations/node_exporter\", instance=~\"$instance\"}[5m]))",
+          "legendFormat": "Memory",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "avg(rate(node_pressure_io_waiting_seconds_total{job=\"integrations/node_exporter\", instance=~\"$instance\"}[5m]))",
+          "legendFormat": "Disk",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "avg(rate(node_pressure_irq_stalled_seconds_total{job=\"integrations/node_exporter\", instance=~\"$instance\"}[5m]))",
+          "legendFormat": "Interrupts",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "How much of the time programs had to wait for the CPU, memory, disk or interrupts. Close to 0% is good",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 0.3
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "lcd",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 120
+      },
+      "id": 40
+    },
+    {
+      "type": "timeseries",
+      "title": "Pressure over time",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "interval": "1m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "avg(rate(node_pressure_cpu_waiting_seconds_total{job=\"integrations/node_exporter\", instance=~\"$instance\"}[5m]))",
+          "legendFormat": "CPU"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "avg(rate(node_pressure_memory_waiting_seconds_total{job=\"integrations/node_exporter\", instance=~\"$instance\"}[5m]))",
+          "legendFormat": "Memory"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "avg(rate(node_pressure_io_waiting_seconds_total{job=\"integrations/node_exporter\", instance=~\"$instance\"}[5m]))",
+          "legendFormat": "Disk"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "avg(rate(node_pressure_irq_stalled_seconds_total{job=\"integrations/node_exporter\", instance=~\"$instance\"}[5m]))",
+          "legendFormat": "Interrupts"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "description": "How much of the time programs had to wait for the CPU, memory, disk or interrupts. Close to 0% is good",
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
+        "y": 120
+      },
+      "id": 41
+    },
+    {
+      "type": "timeseries",
+      "title": "nginwho database size",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "interval": "1m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "sum({__name__=~\"file_size_b|file_size_bytes\", file_name=~\"nginwho.db.*\"})",
+          "legendFormat": "database"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineInterpolation": "stepAfter"
+          }
+        },
+        "overrides": []
+      },
+      "description": "The database and its -wal file, where SQLite keeps the newest writes for a while",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 128
+      },
+      "id": 42
+    },
+    {
+      "type": "row",
+      "title": "Logs",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 135
+      },
+      "id": 43
+    },
+    {
+      "type": "logs",
+      "title": "Access log",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "{job=~\"$job\"}"
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 136
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": false,
+        "sortOrder": "Descending"
+      },
+      "id": 44
+    }
+  ],
+  "description": "Country and network data from ip66.dev (CC BY 4.0)"
+}
