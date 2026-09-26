@@ -265,7 +265,7 @@ Then install the exporter and point it at the page:
 
 ```bash
 sudo apt install prometheus-nginx-exporter &&
-echo 'ARGS="--nginx.scrape-uri=http://127.0.0.1:8080/stub_status"' | sudo tee /etc/default/prometheus-nginx-exporter > /dev/null &&
+echo 'ARGS="--nginx.scrape-uri=http://127.0.0.1:8080/stub_status --web.listen-address=127.0.0.1:9113"' | sudo tee /etc/default/prometheus-nginx-exporter > /dev/null &&
 sudo nginx -t &&
 sudo systemctl reload nginx &&
 sudo systemctl restart prometheus-nginx-exporter
