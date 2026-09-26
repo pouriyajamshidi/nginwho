@@ -13,8 +13,52 @@ away from your server, and wastes the time of the bots that scan your site for s
 It is a single file with nothing else to install. Every feature is off until you turn it on,
 so you only use what you need.
 
+## TLDR
+
+Every feature on, for a static site in `/var/www/html` behind Cloudflare. nginwho serves the
+site itself, so stop nginx first if it uses port 80.
+
+- The server speaks plain HTTP, so set Cloudflare's SSL mode to Flexible.
+- On Fastly, change `cdn = cloudflare` to `cdn = fastly`.
+- Not behind a CDN? Remove the `show_real_ips` and `block_untrusted_cidrs` lines, or only the
+  CDN could reach your site.
+
+```bash
+curl -fLo nginwho https://github.com/pouriyajamshidi/nginwho/releases/latest/download/nginwho &&
+sudo install nginwho -D -t /usr/local/bin/ &&
+curl -fLo nginwho.service https://raw.githubusercontent.com/pouriyajamshidi/nginwho/master/nginwho.service &&
+sudo install -m 644 nginwho.service -D -t /etc/systemd/system/ &&
+sudo mkdir -p /etc/nginwho &&
+sudo tee /etc/nginwho/nginwho.conf > /dev/null <<'EOF' &&
+[nginx]
+process_logs = true
+cdn = cloudflare
+show_real_ips = true
+block_untrusted_cidrs = true
+
+[server]
+enabled = true
+root = /var/www/html
+port = 80
+
+[trap]
+enabled = true
+
+[trap.agents]
+deepseek = drip
+gptbot = maze
+bytespider
+EOF
+sudo systemctl daemon-reload &&
+sudo systemctl enable --now nginwho.service
+```
+
+See what it does with `sudo journalctl -u nginwho -f`, and the numbers with
+`sudo nginwho --report`. To keep nginx instead, [pick your setup](#pick-your-setup).
+
 ## Table of contents
 
+- [TLDR](#tldr)
 - [What nginwho can do](#what-nginwho-can-do)
 - [Pick your setup](#pick-your-setup)
   - [I want to know who visits my site](#i-want-to-know-who-visits-my-site)
@@ -177,7 +221,7 @@ There is no nginx config to write. Behind Cloudflare or Fastly, also set
 ### Binary release (Linux x86_64)
 
 ```bash
-curl -Lo nginwho https://github.com/pouriyajamshidi/nginwho/releases/latest/download/nginwho
+curl -fLo nginwho https://github.com/pouriyajamshidi/nginwho/releases/latest/download/nginwho &&
 sudo install nginwho -D -t /usr/local/bin/
 ```
 
@@ -192,10 +236,10 @@ nimble install nginwho
 Requires [Nimble](https://github.com/nim-lang/nimble). It downloads the latest stable Nim if needed:
 
 ```bash
-git clone https://github.com/pouriyajamshidi/nginwho.git
-cd nginwho
-nimble install -y --depsOnly
-nimble c -d:release --opt:speed -d:ssl -o:nginwho src/nginwho.nim
+git clone https://github.com/pouriyajamshidi/nginwho.git &&
+cd nginwho &&
+nimble install -y --depsOnly &&
+nimble c -d:release --opt:speed -d:ssl -o:nginwho src/nginwho.nim &&
 sudo install nginwho -D -t /usr/local/bin/
 ```
 
@@ -208,17 +252,19 @@ not possible.
 The [systemd service](https://github.com/pouriyajamshidi/nginwho/blob/master/nginwho.service)
 keeps nginwho running in the background and starts it again after a reboot. It reads
 everything from `/etc/nginwho/nginwho.conf`, so put the
-[sample config](https://github.com/pouriyajamshidi/nginwho/blob/master/nginwho.conf) there and
-edit it first:
+[sample config](https://github.com/pouriyajamshidi/nginwho/blob/master/nginwho.conf) there:
 
 ```bash
-curl -Lo nginwho.conf https://raw.githubusercontent.com/pouriyajamshidi/nginwho/master/nginwho.conf
+curl -fLo nginwho.conf https://raw.githubusercontent.com/pouriyajamshidi/nginwho/master/nginwho.conf &&
 sudo install -m 644 nginwho.conf -D -t /etc/nginwho/
-# edit /etc/nginwho/nginwho.conf to fit your setup
+```
 
-curl -Lo nginwho.service https://raw.githubusercontent.com/pouriyajamshidi/nginwho/master/nginwho.service
-sudo install -m 644 nginwho.service -D -t /etc/systemd/system/
-sudo systemctl daemon-reload
+Edit `/etc/nginwho/nginwho.conf` to fit your setup, then install and start the service:
+
+```bash
+curl -fLo nginwho.service https://raw.githubusercontent.com/pouriyajamshidi/nginwho/master/nginwho.service &&
+sudo install -m 644 nginwho.service -D -t /etc/systemd/system/ &&
+sudo systemctl daemon-reload &&
 sudo systemctl enable --now nginwho.service
 ```
 
