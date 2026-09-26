@@ -1,0 +1,6 @@
+#!/bin/sh
+# gets the latest free geoip database from https://ip66.dev and restarts Alloy so it
+# loads it. Alloy only opens the file when it starts. Put this in /etc/cron.weekly/
+curl -fsSL -o /var/lib/alloy/ip66.mmdb.new https://downloads.ip66.dev/db/ip66.mmdb &&
+  mv /var/lib/alloy/ip66.mmdb.new /var/lib/alloy/ip66.mmdb &&
+  systemctl restart alloy
