@@ -107,6 +107,8 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
     log.httpMethod = matches[5].replace("\"", "")
 
     var requestURI = mergeSlashes(matches[6].replace("\"", ""))
+    # `/posts/x/` and `/posts/x` are one page, so the trailing slash is dropped. The same
+    # goes for referrers, which is why a saved referrer never ends with a slash
     if requestURI.endsWith("/") and len(requestURI) > 1:
       requestURI = requestURI.strip(leading = false, chars = {'/'})
     log.requestURI = requestURI
