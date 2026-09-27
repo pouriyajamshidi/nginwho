@@ -160,7 +160,7 @@ proc getTopURIs*(db: DbConn, num: uint, since = ""): seq[Row] =
   return topValues(db, "request_uri", num, since)
 
 
-proc getTopReferres*(db: DbConn, num: uint, since = ""): seq[Row] =
+proc getTopReferrers*(db: DbConn, num: uint, since = ""): seq[Row] =
   info(fmt"Getting top {num} referrers")
   return topValues(db, "referrer", num, since)
 
