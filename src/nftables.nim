@@ -137,29 +137,29 @@ proc validCidrs*(cidrs: JsonNode): seq[string] =
     result.add(withPrefix)
 
 
-proc applyRules(fileName: string = rulesFile) =
+proc applyRules() =
   info("Applying nftables rules")
 
-  let res: int = execCmd(fmt"nft -j -f {fileName}")
+  let res: int = execCmd(fmt"nft -j -f {rulesFile}")
   if res != 0:
     raise newException(NftError, "Failed applying nftables rules - Are you root?")
   else:
     info("Successfully applied nftables rules")
 
 
-proc writeRules(fileName: string = rulesFile, rules: JsonNode): bool =
-  info(fmt"Writing nginwho rules to {fileName}")
+proc writeRules(rules: JsonNode): bool =
+  info(fmt"Writing nginwho rules to {rulesFile}")
 
   try:
-    writeFile(fileName, rules.pretty())
-    info(fmt"Successfully wrote nginwho rules to {fileName}")
+    writeFile(rulesFile, rules.pretty())
+    info(fmt"Successfully wrote nginwho rules to {rulesFile}")
     return true
   except IOError as e:
-    error(fmt"Failed writing nginwho rules to {fileName}: {e.msg}")
+    error(fmt"Failed writing nginwho rules to {rulesFile}: {e.msg}")
     return false
 
 
-proc createNginwhoChain(name: string = "nginwho"): JsonNode =
+proc createNginwhoChain(): JsonNode =
   info("Creating nginwho chain")
 
   return %* {
@@ -167,7 +167,7 @@ proc createNginwhoChain(name: string = "nginwho"): JsonNode =
       "chain": {
         "family": "inet",
         "table": "filter",
-        "name": name,
+        "name": nginwhoChain,
         "handle": 1,
         "type": "filter",
         "hook": "prerouting",
@@ -187,7 +187,7 @@ proc createNginwhoIPPolicy(protocol: IPProtocol, setName: string,
       "rule": {
         "family": "inet",
         "table": "filter",
-        "chain": "nginwho",
+        "chain": nginwhoChain,
         "handle": 3,
         "expr": [
           {
@@ -213,7 +213,7 @@ proc createNginwhoIPPolicy(protocol: IPProtocol, setName: string,
   }
 
 
-proc createInputChain(name: string = "input"): JsonNode =
+proc createInputChain(): JsonNode =
   info("Creating input chain")
 
   return %* {
@@ -221,7 +221,7 @@ proc createInputChain(name: string = "input"): JsonNode =
       "chain": {
         "family": "inet",
         "table": "filter",
-        "name": name,
+        "name": inputChain,
         "handle": 1,
         "type": "filter",
         "hook": "input",
@@ -240,7 +240,7 @@ proc createInputChainPolicy(): JsonNode =
       "rule": {
         "family": "inet",
         "table": "filter",
-        "chain": "input",
+        "chain": inputChain,
         "handle": 2,
         "expr": [
           {
@@ -501,7 +501,7 @@ proc getCurrentRules(): JsonNode =
 
 proc writeRulesAndApply(rules: JsonNode) =
   # don't apply an old or unknown rules file if writing failed
-  if writeRules(rules = rules):
+  if writeRules(rules):
     applyRules()
 
 
