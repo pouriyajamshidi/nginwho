@@ -128,7 +128,7 @@ proc closeDbConnection*(db: DbConn) =
     warn(fmt"Could not close database: {e.msg}")
 
 
-proc topValues(db: DbConn, column: string, num: uint, since: string): seq[Row] =
+proc topValues(db: DbConn, column: string, num: int, since: string): seq[Row] =
   ## Returns the most seen values of a column with their count, from `since` on.
   ## An empty `since` means all time
   if since == "":
@@ -149,27 +149,27 @@ proc topValues(db: DbConn, column: string, num: uint, since: string): seq[Row] =
     LIMIT ?"""), since, num)
 
 
-proc getTopIPs*(db: DbConn, num: uint, since = ""): seq[Row] =
+proc getTopIPs*(db: DbConn, num: int, since = ""): seq[Row] =
   info(fmt"Getting top {num} visitor IPs")
   return topValues(db, "remote_ip", num, since)
 
 
-proc getTopURIs*(db: DbConn, num: uint, since = ""): seq[Row] =
+proc getTopURIs*(db: DbConn, num: int, since = ""): seq[Row] =
   info(fmt"Getting top {num} URIs")
   return topValues(db, "request_uri", num, since)
 
 
-proc getTopReferrers*(db: DbConn, num: uint, since = ""): seq[Row] =
+proc getTopReferrers*(db: DbConn, num: int, since = ""): seq[Row] =
   info(fmt"Getting top {num} referrers")
   return topValues(db, "referrer", num, since)
 
 
-proc getTopUserAgents*(db: DbConn, num: uint, since = ""): seq[Row] =
+proc getTopUserAgents*(db: DbConn, num: int, since = ""): seq[Row] =
   info(fmt"Getting top {num} user agents")
   return topValues(db, "user_agent", num, since)
 
 
-proc getTopUnsuccessfulRequests*(db: DbConn, num: uint, since = ""): seq[Row] =
+proc getTopUnsuccessfulRequests*(db: DbConn, num: int, since = ""): seq[Row] =
   info(fmt"Getting top {num} unsuccessful requests")
 
   let statement = sql(fmt"""
@@ -195,7 +195,7 @@ proc getTopUnsuccessfulRequests*(db: DbConn, num: uint, since = ""): seq[Row] =
   return db.getAllRows(statement, since, num)
 
 
-proc getNonDefaults*(db: DbConn, num: uint, since = ""): seq[Row] =
+proc getNonDefaults*(db: DbConn, num: int, since = ""): seq[Row] =
   ## Non-default logs have no date, so `since` is ignored
   info(fmt"Getting top {num} non-default logs")
   return topValues(db, "non_default", num, "")
@@ -493,7 +493,7 @@ const
     END"""
 
 
-proc getTopTrappedIPs*(db: DbConn, num: uint, since = ""): seq[Row] =
+proc getTopTrappedIPs*(db: DbConn, num: int, since = ""): seq[Row] =
   ## The busiest bots, with how long they were held. Last column is the hit count
   info(fmt"Getting top {num} trapped IPs")
   return db.getAllRows(sql(fmt"""
@@ -505,7 +505,7 @@ proc getTopTrappedIPs*(db: DbConn, num: uint, since = ""): seq[Row] =
     LIMIT ?"""), since, num)
 
 
-proc getTopTraps*(db: DbConn, num: uint, since = ""): seq[Row] =
+proc getTopTraps*(db: DbConn, num: int, since = ""): seq[Row] =
   ## What the bots were after and what we did about it
   info(fmt"Getting top {num} traps")
   return db.getAllRows(sql(fmt"""
@@ -517,7 +517,7 @@ proc getTopTraps*(db: DbConn, num: uint, since = ""): seq[Row] =
     LIMIT ?"""), since, num)
 
 
-proc getTopTrappedURIs*(db: DbConn, num: uint, since = ""): seq[Row] =
+proc getTopTrappedURIs*(db: DbConn, num: int, since = ""): seq[Row] =
   info(fmt"Getting top {num} trapped URIs")
   return db.getAllRows(sql(fmt"""
     SELECT request_uri, trap, COUNT(*) AS hits
@@ -528,7 +528,7 @@ proc getTopTrappedURIs*(db: DbConn, num: uint, since = ""): seq[Row] =
     LIMIT ?"""), since, num)
 
 
-proc getTrappedCredentials*(db: DbConn, num: uint, since = ""): seq[Row] =
+proc getTrappedCredentials*(db: DbConn, num: int, since = ""): seq[Row] =
   ## Usernames and passwords bots typed into the fake login pages
   info(fmt"Getting top {num} trapped credentials")
   return db.getAllRows(sql(fmt"""

@@ -25,7 +25,7 @@ type
   Report = object
     name: string
     columns: seq[string]
-    query: proc (db: DbConn, num: uint, since: string): seq[Row] {.nimcall.}
+    query: proc (db: DbConn, num: int, since: string): seq[Row] {.nimcall.}
     allTimeOnly: bool
     isTrap: bool # counts and percentages are against trap hits, not all requests
 
@@ -208,7 +208,7 @@ proc chooseTimeWindow(current: int): int =
   return choice - 1
 
 
-proc showResults(db: DbConn, report: Report, num: uint, window: TimeWindow) =
+proc showResults(db: DbConn, report: Report, num: int, window: TimeWindow) =
   let rows = report.query(db, num, since(window))
 
   let windowName = if report.allTimeOnly: "all time" else: window.name
@@ -295,6 +295,6 @@ proc report*(dbPath: string) =
     if num == 0:
       continue
 
-    showResults(db, reports[option - 1], uint(num), timeWindows[window])
+    showResults(db, reports[option - 1], num, timeWindows[window])
 
   stdout.resetAttributes()
