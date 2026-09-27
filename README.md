@@ -88,6 +88,7 @@ See what it does with `sudo journalctl -u nginwho -f`, and the numbers with
   - [Where nginwho keeps its files](#where-nginwho-keeps-its-files)
   - [See it on Grafana](#see-it-on-grafana)
   - [Upgrading from older versions](#upgrading-from-older-versions)
+    - [Coming from version 1](#coming-from-version-1)
 
 ## What nginwho can do
 
@@ -780,14 +781,20 @@ The full list of changes is in the [changelog](CHANGELOG.md).
 
 ### Coming from version 1
 
-Version 3 can't read a version 1 database. Convert it with the
-[v2.4.1 release](https://github.com/pouriyajamshidi/nginwho/releases/tag/v2.4.1) first,
-then upgrade to version 3.
+Version 3 can't read a version 1 database. Stop nginwho, convert the database with the
+[v2.4.1 release](https://github.com/pouriyajamshidi/nginwho/releases/tag/v2.4.1), then
+[install](#installation) version 3. It picks up the converted database from
+`/var/lib/nginwho/nginwho.db`.
 
-> Change the file names to match yours.
+> Change `/var/log/nginwho.db` to where your version 1 database is.
 
 ```bash
-nginwho --migrateV1ToV2Db \
-        --v1DbPath:nginwho_v1.db \
-        --v2DbPath:nginwho.db
+sudo systemctl stop nginwho &&
+curl -fLo nginwho-v2 https://github.com/pouriyajamshidi/nginwho/releases/download/v2.4.1/nginwho &&
+chmod +x nginwho-v2 &&
+sudo mkdir -p /var/lib/nginwho &&
+sudo ./nginwho-v2 --migrateV1ToV2Db \
+  --v1DbPath:/var/log/nginwho.db \
+  --v2DbPath:/var/lib/nginwho/nginwho.db &&
+rm nginwho-v2
 ```
