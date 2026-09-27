@@ -58,45 +58,48 @@ See what it does with `sudo journalctl -u nginwho -f`, and the numbers with
 
 ## Table of contents
 
-- [TLDR](#tldr)
-- [What nginwho can do](#what-nginwho-can-do)
-- [Pick your setup](#pick-your-setup)
-  - [I want to know who visits my site](#i-want-to-know-who-visits-my-site)
-  - [My site is behind Cloudflare or Fastly and I see their IPs instead of my visitors'](#my-site-is-behind-cloudflare-or-fastly-and-i-see-their-ips-instead-of-my-visitors)
-  - [I want only my CDN to reach my server](#i-want-only-my-cdn-to-reach-my-server)
-  - [Bots keep scanning my site for .env files and WordPress logins](#bots-keep-scanning-my-site-for-env-files-and-wordpress-logins)
-  - [I want to punish AI crawlers or other bots by their name](#i-want-to-punish-ai-crawlers-or-other-bots-by-their-name)
-  - [I have a small static site and don't want to run nginx](#i-have-a-small-static-site-and-dont-want-to-run-nginx)
-- [Installation](#installation)
-  - [Binary release (Linux x86_64)](#binary-release-linux-x86_64)
-  - [Nimble](#nimble)
-  - [Build from source](#build-from-source)
-  - [Run as a service](#run-as-a-service)
-- [The config file](#the-config-file)
-- [The nginx config](#the-nginx-config)
-- [Flags](#flags)
-- [How each feature works](#how-each-feature-works)
-  - [Saving your logs](#saving-your-logs)
-  - [Real visitor IPs behind a CDN](#real-visitor-ips-behind-a-cdn)
-  - [Blocking everyone but your CDN](#blocking-everyone-but-your-cdn)
-  - [The trap](#the-trap)
-  - [Serving your site without nginx](#serving-your-site-without-nginx)
-  - [Reports](#reports)
-- [Where nginwho keeps its files](#where-nginwho-keeps-its-files)
-- [See it on Grafana](#see-it-on-grafana)
-- [Upgrading from older versions](#upgrading-from-older-versions)
-  - [Migrating a v1 database to v2](#migrating-a-v1-database-to-v2)
+- [nginwho](#nginwho)
+  - [TLDR](#tldr)
+  - [Table of contents](#table-of-contents)
+  - [What nginwho can do](#what-nginwho-can-do)
+  - [Pick your setup](#pick-your-setup)
+    - [I want to know who visits my site](#i-want-to-know-who-visits-my-site)
+    - [My site is behind Cloudflare or Fastly and I see their IPs instead of my visitors'](#my-site-is-behind-cloudflare-or-fastly-and-i-see-their-ips-instead-of-my-visitors)
+    - [I want only my CDN to reach my server](#i-want-only-my-cdn-to-reach-my-server)
+    - [Bots keep scanning my site for .env files and WordPress logins](#bots-keep-scanning-my-site-for-env-files-and-wordpress-logins)
+    - [I want to punish AI crawlers or other bots by their name](#i-want-to-punish-ai-crawlers-or-other-bots-by-their-name)
+    - [I have a small static site and don't want to run nginx](#i-have-a-small-static-site-and-dont-want-to-run-nginx)
+  - [Installation](#installation)
+    - [Binary release (Linux x86_64)](#binary-release-linux-x86_64)
+    - [Nimble](#nimble)
+    - [Build from source](#build-from-source)
+    - [Run as a service](#run-as-a-service)
+  - [The config file](#the-config-file)
+  - [The nginx config](#the-nginx-config)
+  - [Flags](#flags)
+  - [How each feature works](#how-each-feature-works)
+    - [Saving your logs](#saving-your-logs)
+    - [Real visitor IPs behind a CDN](#real-visitor-ips-behind-a-cdn)
+    - [Blocking everyone but your CDN](#blocking-everyone-but-your-cdn)
+    - [The trap](#the-trap)
+      - [Trapping bots by their name](#trapping-bots-by-their-name)
+    - [Serving your site without nginx](#serving-your-site-without-nginx)
+    - [Reports](#reports)
+  - [Where nginwho keeps its files](#where-nginwho-keeps-its-files)
+  - [See it on Grafana](#see-it-on-grafana)
+  - [Upgrading from older versions](#upgrading-from-older-versions)
+    - [Migrating a v1 database to v2](#migrating-a-v1-database-to-v2)
 
 ## What nginwho can do
 
-| Feature                 | In plain words                                                                                   |
-| ----------------------- | ------------------------------------------------------------------------------------------------ |
-| Save your logs          | Reads your nginx access log and saves every visit in a small database                            |
-| Reports                 | Shows your top pages, top visitors, failed requests, referrers and what the bots tried           |
-| Real visitor IPs        | Behind Cloudflare or Fastly, makes nginx log your visitors' IPs instead of the CDN's             |
-| Block everyone but CDN  | Uses the firewall so only your CDN can reach your website ports                                  |
-| The trap                | Bots looking for secrets get fake files, fake logins and endless answers instead of a plain 404  |
-| Serve your site         | A simple web server for static sites, so you don't need nginx at all                             |
+| Feature                | In plain words                                                                                  |
+| ---------------------- | ----------------------------------------------------------------------------------------------- |
+| Save your logs         | Reads your nginx access log and saves every visit in a small database                           |
+| Reports                | Shows your top pages, top visitors, failed requests, referrers and what the bots tried          |
+| Real visitor IPs       | Behind Cloudflare or Fastly, makes nginx log your visitors' IPs instead of the CDN's            |
+| Block everyone but CDN | Uses the firewall so only your CDN can reach your website ports                                 |
+| The trap               | Bots looking for secrets get fake files, fake logins and endless answers instead of a plain 404 |
+| Serve your site        | A simple web server for static sites, so you don't need nginx at all                            |
 
 ## Pick your setup
 
@@ -424,14 +427,14 @@ server {
 
 What each part is for:
 
-| Part                                  | Needed for                                                                  |
-| ------------------------------------- | --------------------------------------------------------------------------- |
-| `include /etc/nginx/nginwho`          | [Real visitor IPs behind a CDN](#real-visitor-ips-behind-a-cdn)             |
-| `access_log ... combined`             | [Saving your logs](#saving-your-logs)                                       |
-| `error_page`, `@trap`, `try_files`    | [The trap](#the-trap)                                                       |
-| The `map` and `@trap`'s `access_log`  | Logging the bots the trap lets go, like blocked scrapers on normal pages    |
-| The `$http_user_agent` line           | [Trapping bots by their name](#trapping-bots-by-their-name)                 |
-| The `stub_status` server              | The [Grafana dashboard](#see-it-on-grafana), optional                       |
+| Part                                 | Needed for                                                               |
+| ------------------------------------ | ------------------------------------------------------------------------ |
+| `include /etc/nginx/nginwho`         | [Real visitor IPs behind a CDN](#real-visitor-ips-behind-a-cdn)          |
+| `access_log ... combined`            | [Saving your logs](#saving-your-logs)                                    |
+| `error_page`, `@trap`, `try_files`   | [The trap](#the-trap)                                                    |
+| The `map` and `@trap`'s `access_log` | Logging the bots the trap lets go, like blocked scrapers on normal pages |
+| The `$http_user_agent` line          | [Trapping bots by their name](#trapping-bots-by-their-name)              |
+| The `stub_status` server             | The [Grafana dashboard](#see-it-on-grafana), optional                    |
 
 Start nginwho first when `show_real_ips` is on, so `/etc/nginx/nginwho` exists. Without
 `show_real_ips`, remove the `include` line, since the file isn't there. Then turn the site on:
@@ -578,28 +581,28 @@ they move on to the next site. The trap plays along instead and wastes their tim
 
 The trap looks at the path a bot asked for and picks an answer:
 
-| The bot asked for                     | What it gets                                                              |
-| ------------------------------------- | ------------------------------------------------------------------------- |
-| `.env` files                          | A fake `.env` full of made up keys and passwords, sent one byte at a time |
-| Keys and cloud logins (`.aws`, `.ssh`)| Fake AWS credentials or a fake private key, sent one byte at a time       |
-| `.git`                                | A fake `config`, then a maze of fake folders                              |
-| WordPress                             | A fake `wp-login.php` that never lets anyone in, endless `xmlrpc.php`     |
-| PHP files                             | A fake `phpinfo()` page, and a gzip bomb for unknown `.php` files         |
-| Config files                          | A fake config full of made up secrets, sent one byte at a time            |
-| Backups and database dumps            | `.sql` that never ends, and a gzip bomb for `.zip` and `.gz`              |
-| Admin and login pages                 | A fake login page                                                         |
-| APIs and debug pages                  | A fake settings file, or an answer that never ends                        |
-| Shells and `../` path traversal       | A fake `/etc/passwd`                                                      |
+| The bot asked for                      | What it gets                                                              |
+| -------------------------------------- | ------------------------------------------------------------------------- |
+| `.env` files                           | A fake `.env` full of made up keys and passwords, sent one byte at a time |
+| Keys and cloud logins (`.aws`, `.ssh`) | Fake AWS credentials or a fake private key, sent one byte at a time       |
+| `.git`                                 | A fake `config`, then a maze of fake folders                              |
+| WordPress                              | A fake `wp-login.php` that never lets anyone in, endless `xmlrpc.php`     |
+| PHP files                              | A fake `phpinfo()` page, and a gzip bomb for unknown `.php` files         |
+| Config files                           | A fake config full of made up secrets, sent one byte at a time            |
+| Backups and database dumps             | `.sql` that never ends, and a gzip bomb for `.zip` and `.gz`              |
+| Admin and login pages                  | A fake login page                                                         |
+| APIs and debug pages                   | A fake settings file, or an answer that never ends                        |
+| Shells and `../` path traversal        | A fake `/etc/passwd`                                                      |
 
 The five kinds of answer:
 
-| Name      | What it does                                                                               |
-| --------- | ------------------------------------------------------------------------------------------ |
-| `drip`    | A believable fake file, sent one byte every half second or so                              |
-| `endless` | An answer that never ends, like a database dump that keeps going                           |
-| `maze`    | A fake folder listing whose links lead to more fake folders                                |
-| `login`   | A fake login page. Every try waits 10 to 30 seconds, then says the password was wrong      |
-| `bomb`    | A gzip bomb: about 10 MB to send, about 10 GB once the bot unpacks it                      |
+| Name      | What it does                                                                          |
+| --------- | ------------------------------------------------------------------------------------- |
+| `drip`    | A believable fake file, sent one byte every half second or so                         |
+| `endless` | An answer that never ends, like a database dump that keeps going                      |
+| `maze`    | A fake folder listing whose links lead to more fake folders                           |
+| `login`   | A fake login page. Every try waits 10 to 30 seconds, then says the password was wrong |
+| `bomb`    | A gzip bomb: about 10 MB to send, about 10 GB once the bot unpacks it                 |
 
 - **Bots that come back get a bomb.** After `bomb_after` trapped requests in one day (3 by
   default), the next one from that IP gets the bomb. Set `bombs = false` to never send one,

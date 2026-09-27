@@ -10,36 +10,38 @@ your system and one command removes it all.
 
 ## Table of contents
 
-- [What you get](#what-you-get)
-- [Try it on your machine](#try-it-on-your-machine)
-  - [Start it](#start-it)
-  - [Look around](#look-around)
-  - [Send your own requests](#send-your-own-requests)
-  - [Stop and remove it](#stop-and-remove-it)
-  - [How the test setup works](#how-the-test-setup-works)
-- [Set it up on your server](#set-it-up-on-your-server)
-  - [1. Let Alloy see the database size](#1-let-alloy-see-the-database-size)
-  - [2. Install Alloy and give it the config](#2-install-alloy-and-give-it-the-config)
-  - [3. Get the country data](#3-get-the-country-data)
-  - [4. nginx metrics (optional)](#4-nginx-metrics-optional)
-  - [5. Import the dashboard](#5-import-the-dashboard)
-  - [Check that it works](#check-that-it-works)
-- [More from the free tier](#more-from-the-free-tier)
-- [The files in this folder](#the-files-in-this-folder)
+- [nginwho on Grafana](#nginwho-on-grafana)
+  - [Table of contents](#table-of-contents)
+  - [What you get](#what-you-get)
+  - [Try it on your machine](#try-it-on-your-machine)
+    - [Start it](#start-it)
+    - [Look around](#look-around)
+    - [Send your own requests](#send-your-own-requests)
+    - [Stop and remove it](#stop-and-remove-it)
+    - [How the test setup works](#how-the-test-setup-works)
+  - [Set it up on your server](#set-it-up-on-your-server)
+    - [1. Let Alloy see the database size](#1-let-alloy-see-the-database-size)
+    - [2. Install Alloy and give it the config](#2-install-alloy-and-give-it-the-config)
+    - [3. Get the country data](#3-get-the-country-data)
+    - [4. nginx metrics (optional)](#4-nginx-metrics-optional)
+    - [5. Import the dashboard](#5-import-the-dashboard)
+    - [Check that it works](#check-that-it-works)
+  - [More from the free tier](#more-from-the-free-tier)
+  - [The files in this folder](#the-files-in-this-folder)
 
 ## What you get
 
 [Grafana Alloy](https://grafana.com/docs/alloy/latest/) runs on your server, reads these and
 sends them to Grafana:
 
-| What                          | From                           | Shows up as                |
-| ----------------------------- | ------------------------------ | -------------------------- |
-| nginx's access log            | `/var/log/nginx/access.log`    | logs with `job="nginx"`    |
-| nginwho's log, with `--serve` | `/var/log/nginwho/access.log`  | logs with `job="nginwho"`  |
-| nginwho's output, trap hits   | `/var/log/syslog`              | logs with `job="syslog"`   |
-| The database size             | `/var/lib/nginwho/nginwho.db*` | `file_size_*` metrics      |
-| nginx connections             | the nginx Prometheus exporter  | `nginx_*` metrics          |
-| CPU, memory, disk, network    | Alloy's built-in node exporter | `node_*` metrics           |
+| What                          | From                           | Shows up as               |
+| ----------------------------- | ------------------------------ | ------------------------- |
+| nginx's access log            | `/var/log/nginx/access.log`    | logs with `job="nginx"`   |
+| nginwho's log, with `--serve` | `/var/log/nginwho/access.log`  | logs with `job="nginwho"` |
+| nginwho's output, trap hits   | `/var/log/syslog`              | logs with `job="syslog"`  |
+| The database size             | `/var/lib/nginwho/nginwho.db*` | `file_size_*` metrics     |
+| nginx connections             | the nginx Prometheus exporter  | `nginx_*` metrics         |
+| CPU, memory, disk, network    | Alloy's built-in node exporter | `node_*` metrics          |
 
 Every visitor and trapped bot also gets its country and network, from the free
 [ip66.dev](https://ip66.dev) database. You need no account or key for it.
@@ -91,12 +93,12 @@ two.
 
 ### Look around
 
-| What                    | Where                                                        |
-| ----------------------- | ------------------------------------------------------------ |
-| The dashboard           | <http://localhost:3000>, no login needed                     |
-| Alloy's pipeline        | <http://localhost:12345>                                     |
-| The site behind nginx   | <http://localhost:8081>                                      |
-| The site nginwho serves | <http://localhost:8082>                                      |
+| What                    | Where                                    |
+| ----------------------- | ---------------------------------------- |
+| The dashboard           | <http://localhost:3000>, no login needed |
+| Alloy's pipeline        | <http://localhost:12345>                 |
+| The site behind nginx   | <http://localhost:8081>                  |
+| The site nginwho serves | <http://localhost:8082>                  |
 
 nginwho's report works too. It reads the same database as on a real server:
 
@@ -320,11 +322,11 @@ These need nothing on your server. Find them in the Grafana Cloud menu.
   about to expire.
 - **Alerts**: under **Alerting**, add your email as a contact point, then add rules. Some ideas:
 
-| Alert                              | Query                                                                                               |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------- |
-| The site is returning errors       | `sum(count_over_time({job=~"nginx\|nginwho"} \|~ "\" 5\\d\\d " [5m])) > 10`                          |
-| The disk is almost full            | `node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.1`    |
-| The certificate expires in 14 days | `probe_ssl_earliest_cert_expiry - time() < 14 * 86400` (needs Synthetic Monitoring)                  |
+| Alert                              | Query                                                                                            |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ |
+| The site is returning errors       | `sum(count_over_time({job=~"nginx\|nginwho"} \|~ "\" 5\\d\\d " [5m])) > 10`                      |
+| The disk is almost full            | `node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.1` |
+| The certificate expires in 14 days | `probe_ssl_earliest_cert_expiry - time() < 14 * 86400` (needs Synthetic Monitoring)              |
 
 This setup stays well inside the free tier's limits of 10,000 metric series and 50 GB of logs
 a month. Grafana Cloud keeps logs and metrics for 14 days on the free tier, and nginwho's
@@ -332,15 +334,15 @@ database keeps everything for as long as you like.
 
 ## The files in this folder
 
-| File                       | What it is                                                              |
-| -------------------------- | ----------------------------------------------------------------------- |
-| `config.alloy`             | The Alloy config. Goes to `/etc/alloy/config.alloy`                     |
-| `alloy.env`                | The Grafana Cloud settings to fill in, for `/etc/default/alloy`         |
-| `ip66-update`              | Keeps the country data fresh. Goes to `/etc/cron.weekly/`               |
-| `dashboard.json`           | The Grafana dashboard                                                   |
-| `compose.yaml`             | The test setup                                                          |
-| `test/`                    | The test setup's nginx and nginwho configs, site and traffic script     |
-| `images/`                  | The pictures in this README                                             |
+| File             | What it is                                                          |
+| ---------------- | ------------------------------------------------------------------- |
+| `config.alloy`   | The Alloy config. Goes to `/etc/alloy/config.alloy`                 |
+| `alloy.env`      | The Grafana Cloud settings to fill in, for `/etc/default/alloy`     |
+| `ip66-update`    | Keeps the country data fresh. Goes to `/etc/cron.weekly/`           |
+| `dashboard.json` | The Grafana dashboard                                               |
+| `compose.yaml`   | The test setup                                                      |
+| `test/`          | The test setup's nginx and nginwho configs, site and traffic script |
+| `images/`        | The pictures in this README                                         |
 
 Country and network data comes from [ip66.dev](https://ip66.dev), under the
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license.
