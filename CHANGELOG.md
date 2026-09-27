@@ -41,6 +41,7 @@ All notable changes to **nginwho** are listed here.
 
 ### Fixed
 
+- `--blockUntrustedCidrs` took a chain or Set with the same name in another table, like the `input` chain of an `ip filter` table, for its own. It then added a rule to a chain that did not exist, and nothing was blocked.
 - `--report=false` still started report mode. It now turns it off like `=false` does for the other flags.
 
 ## [2.4.1]

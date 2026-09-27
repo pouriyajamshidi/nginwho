@@ -129,6 +129,21 @@ suite "nftables":
         let after = applyInNamespace(@[createRules(cidrs, allChanges)], setup)
         check requiredChanges(after, cidrs) == NftAttrs()
 
+  test "chains and sets with the same names in other tables are not taken for nginwho's":
+    if not canRunNft():
+      skip()
+    else:
+      let setup = "nft add table ip filter && " &
+          "nft 'add chain ip filter input { type filter hook input priority filter; policy accept; }' && " &
+          "nft add rule ip filter input tcp dport '{ 80, 443 }' counter accept && " &
+          "nft add table inet other && nft add chain inet other nginwho && " &
+          "nft 'add set inet other Cloudflare_IPv4 { type ipv4_addr; flags interval; }'"
+      let before = applyInNamespace(@[], setup)
+      check requiredChanges(before, cidrs) == allChanges
+
+      let after = applyInNamespace(@[createRules(cidrs, allChanges)], setup)
+      check requiredChanges(after, cidrs) == NftAttrs()
+
   test "an input chain that drops by default is kept and gets the web ports":
     if not canRunNft():
       skip()

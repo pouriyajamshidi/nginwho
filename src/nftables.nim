@@ -404,8 +404,7 @@ proc setExists(nftOutput: JsonNode, setName: string): bool =
 
   for node in nftOutput:
     if node.contains("set"):
-      if node["set"]["family"].getStr() == "inet" and
-      node["set"]["name"].getStr() == setName:
+      if node["set"]["name"].getStr() == setName:
         info(fmt"Found nftables {setName} Set")
         return true
 
@@ -452,8 +451,20 @@ proc changesRequired(nftAttrs: NftAttrs): bool =
   return false
 
 
+proc inetFilterOnly(nftOutput: JsonNode): JsonNode =
+  ## The part of the ruleset in `inet filter`. A chain or Set with the same name in
+  ## another table, like an `input` chain in `ip filter`, is not nginwho's
+  result = newJArray()
+  for node in nftOutput:
+    for kind, item in node:
+      let table = if kind == "table": item{"name"} else: item{"table"}
+      if item{"family"}.getStr() == "inet" and table.getStr() == "filter":
+        result.add(node)
+
+
 proc requiredChanges*(nftOutput: JsonNode, nftSet: NftSet): NftAttrs =
   ## Compares the current ruleset with what nginwho needs and returns the missing parts
+  let nftOutput = inetFilterOnly(nftOutput)
   return NftAttrs(
     withV4Set: not setExists(nftOutput, nftSet.setNameV4) or setChanged(
         nftOutput, nftSet.ipv4, nftSet.setNameV4),
