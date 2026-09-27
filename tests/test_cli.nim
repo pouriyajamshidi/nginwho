@@ -31,6 +31,7 @@ suite "cli":
   test "exits with an error when told to do nothing":
     # every feature is off by default. a missing config file keeps the defaults
     check run("--config=" & quoteShell(tempDir / "none.conf")).exitCode == 1
+    check run("--config=" & quoteShell(tempDir / "none.conf") & " --report=false").exitCode == 1
 
   test "report runs on its own":
     let path = tempDir / "report.db"

@@ -78,6 +78,11 @@ proc validateArgs(args: Args) =
     usage(1)
 
 
+proc isOn(value: string): bool =
+  ## A flag on its own is on, and `--serve=false` turns it off
+  value == "" or parseBool(value)
+
+
 proc getArgs(): Args =
   # Args() and not `var args: Args`, only the constructor fills in the defaults
   var args = Args()
@@ -103,9 +108,9 @@ proc getArgs(): Args =
     of cmdShortOption, cmdLongOption:
       try:
         case p.key
-        of "report": args.report = true
+        of "report": args.report = isOn(p.val)
         of "config": discard # already read
-        of "trap": args.trap.enabled = p.val == "" or parseBool(p.val)
+        of "trap": args.trap.enabled = isOn(p.val)
         of "trapPort": args.trap.port = parsePort(p.val)
         of "help", "h": usage()
         of "version", "v":
@@ -117,11 +122,10 @@ proc getArgs(): Args =
         of "interval": args.interval = parseInterval(p.val)
         of "omitReferrer": args.omitReferrer = p.val
         of "cdn": args.cdn = parseCdn(p.val)
-        of "showRealIps": args.showRealIPs = p.val == "" or parseBool(p.val)
-        of "blockUntrustedCidrs": args.blockUntrustedCidrs = p.val == "" or
-            parseBool(p.val)
-        of "processNginxLogs": args.processNginxLogs = p.val == "" or parseBool(p.val)
-        of "serve": args.serve = p.val == "" or parseBool(p.val)
+        of "showRealIps": args.showRealIPs = isOn(p.val)
+        of "blockUntrustedCidrs": args.blockUntrustedCidrs = isOn(p.val)
+        of "processNginxLogs": args.processNginxLogs = isOn(p.val)
+        of "serve": args.serve = isOn(p.val)
         of "root": args.root = p.val
         of "port": args.port = parsePort(p.val)
       except ValueError as e:
