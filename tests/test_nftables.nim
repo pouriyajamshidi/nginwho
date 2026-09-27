@@ -144,6 +144,18 @@ suite "nftables":
       let after = applyInNamespace(@[createRules(cidrs, allChanges)], setup)
       check requiredChanges(after, cidrs) == NftAttrs()
 
+  test "an empty Set is filled instead of crashing the check":
+    if not canRunNft():
+      skip()
+    else:
+      let setup = "nft add table inet filter && " &
+          "nft 'add set inet filter Cloudflare_IPv4 { type ipv4_addr; flags interval; }'"
+      let before = applyInNamespace(@[], setup)
+      check requiredChanges(before, cidrs) == allChanges
+
+      let after = applyInNamespace(@[createRules(cidrs, allChanges)], setup)
+      check requiredChanges(after, cidrs) == NftAttrs()
+
   test "an input chain that drops by default is kept and gets the web ports":
     if not canRunNft():
       skip()

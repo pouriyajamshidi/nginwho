@@ -379,7 +379,8 @@ proc setChanged(nftOutput: JsonNode, newCidrs: JsonNode,
     if not node.contains("set"):
       continue
     if node["set"]["name"].getStr() == setName:
-      for elem in node["set"]["elem"]:
+      # an empty Set has no elem at all
+      for elem in node["set"]{"elem"}.getElems():
         # nft lists single addresses like 1.2.3.4/32 as a plain string
         if elem.kind == JString:
           currentSets.add(withMask(elem.getStr()))
