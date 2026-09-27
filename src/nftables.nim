@@ -82,7 +82,8 @@ proc applyRules() =
 
   let res = execCmd(fmt"nft -j -f {rulesFile}")
   if res != 0:
-    raise newException(NftError, "Failed applying nftables rules - Are you root?")
+    # nft prints why just before this
+    raise newException(NftError, fmt"nft could not apply the rules in {rulesFile}")
   else:
     info("Successfully applied nftables rules")
 
