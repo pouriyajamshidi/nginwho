@@ -87,6 +87,12 @@ const
   bombMembers = 10_000 # 1 MiB of zeros each, about 10 GB unpacked
   maxBodyBytes = 8192 # of a fake login POST
 
+  # for the fake secrets
+  alphanumeric = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+  base64Chars = alphanumeric & "+/"
+  base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+  hexChars = "0123456789abcdef"
+
   apps = ["acme", "northwind", "helios", "lumen", "vertex", "cobalt",
       "meridian", "quanta"]
   users = ["admin", "deploy", "jenkins", "svc-backup", "mgarcia", "twong", "pkoch"]
@@ -189,7 +195,7 @@ proc classify*(path: string): Trap =
 
 
 proc token(rng: Rng, length: int,
-    alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"): string =
+    alphabet = alphanumeric): string =
   for _ in 1 .. length:
     result.add(alphabet[rng.state.rand(alphabet.high)])
 
@@ -205,15 +211,15 @@ proc fakeValues(rng: Rng): Table[string, string] =
     "{{PASS}}": token(rng, 18),
     "{{PASS2}}": token(rng, 18),
     "{{PASS3}}": token(rng, 18),
-    "{{AWS_KEY}}": "AKIA" & token(rng, 16, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"),
-    "{{AWS_KEY2}}": "AKIA" & token(rng, 16, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"),
-    "{{AWS_KEY3}}": "AKIA" & token(rng, 16, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"),
-    "{{AWS_SECRET}}": token(rng, 40, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/"),
-    "{{AWS_SECRET2}}": token(rng, 40, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/"),
-    "{{AWS_SECRET3}}": token(rng, 40, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/"),
+    "{{AWS_KEY}}": "AKIA" & token(rng, 16, base32Chars),
+    "{{AWS_KEY2}}": "AKIA" & token(rng, 16, base32Chars),
+    "{{AWS_KEY3}}": "AKIA" & token(rng, 16, base32Chars),
+    "{{AWS_SECRET}}": token(rng, 40, base64Chars),
+    "{{AWS_SECRET2}}": token(rng, 40, base64Chars),
+    "{{AWS_SECRET3}}": token(rng, 40, base64Chars),
     "{{STRIPE}}": "sk_live_" & token(rng, 24),
     "{{TOKEN}}": "ghp_" & token(rng, 36),
-    "{{HEX}}": token(rng, 64, "0123456789abcdef"),
+    "{{HEX}}": token(rng, 64, hexChars),
     "{{B64}}": token(rng, 43) & "=",
     "{{ID}}": token(rng, 24),
     "{{VERSION}}": fmt"{rng.rand(4 .. 6)}.{rng.rand(0 .. 9)}.{rng.rand(0 .. 9)}",
@@ -239,12 +245,11 @@ proc fakeFile(trap: Trap, path: string, values: Table[string, string], rng: Rng)
     return (fill(envTemplate, values), "text/plain", awsKey)
   of creds:
     if p.endsWith(".pem") or p.contains("id_rsa") or p.contains("key"):
-      let alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/"
       # the first line is enough to recognize the key
-      let firstLine = token(rng, 64, alphabet)
+      let firstLine = token(rng, 64, base64Chars)
       var key = "-----BEGIN RSA PRIVATE KEY-----\n" & firstLine & "\n"
       for _ in 2 .. 25:
-        key.add(token(rng, 64, alphabet) & "\n")
+        key.add(token(rng, 64, base64Chars) & "\n")
       return (key & "-----END RSA PRIVATE KEY-----\n", "text/plain", firstLine)
     return (fill(credentialsTemplate, values), "text/plain", awsKey)
   of gitRepo:
@@ -268,13 +273,13 @@ proc endlessChunk(trap: Trap, rng: Rng, index: int,
   of backup:
     let
       email = token(rng, 8) & "@" & values["{{HOST}}"]
-      password = "$2y$10$" & token(rng, 53, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789./")
+      password = "$2y$10$" & token(rng, 53, alphanumeric & "./")
     "INSERT INTO users VALUES (" & $index & ", '" & email & "', '" & password & "');\n"
   of wordpress:
     "<member><name>" & token(rng, 12) & "</name><value><string>" &
         token(rng, 40) & "</string></value></member>\n"
   of gitRepo:
-    token(rng, 40, "0123456789abcdef") & "\trefs/heads/" & token(rng, 10) & "\n"
+    token(rng, 40, hexChars) & "\trefs/heads/" & token(rng, 10) & "\n"
   else:
     "{\"id\": " & $index & ", \"token\": \"" & token(rng, 32) & "\"},\n"
 
