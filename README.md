@@ -545,6 +545,7 @@ fetched, for example right after a boot with no network yet, it tries again ever
 
 nginwho does not touch the rules you already have. It only adds its own parts next to them:
 
+- The `inet filter` table, if you don't have one.
 - Two sets with the CDN's addresses, like `Cloudflare_IPv4` and `Cloudflare_IPv6`.
 - Its own chain called `nginwho`, which drops web traffic from everyone else.
 - One rule in your `input` chain that lets ports 80 and 443 in, only if you don't have one
@@ -559,9 +560,8 @@ don't block the new one.
 > This needs root, since it changes the firewall.
 
 > [!IMPORTANT]
-> A firewall mistake can lock you out of your server. So nginwho only works on top of an
-> existing `inet filter` table. If you don't have one, nginwho leaves the firewall alone and
-> prints an example you can start from. Make sure your own rules let SSH in.
+> A firewall mistake can lock you out of your server. What nginwho adds only drops traffic to
+> ports 80 and 443, so SSH and everything else stay as your own rules have them.
 
 If something goes wrong with nftables, nginwho logs it and keeps the other features running.
 

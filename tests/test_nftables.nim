@@ -1,8 +1,7 @@
 import std/[unittest, json, os]
 from std/osproc import execCmdEx
-from std/strutils import splitLines, startsWith, join, find
 
-from nftables import NftSet, NftAttrs, samplePolicy, createRules, requiredChanges, inetFilterExists, validCidrs
+from nftables import NftSet, NftAttrs, createRules, requiredChanges, validCidrs
 
 const allChanges = NftAttrs(withV4Set: true, withV6Set: true,
     withNginwhoChain: true, withNginwhoPolicies: true,
@@ -37,20 +36,13 @@ proc applyInNamespace(rulesFiles: seq[JsonNode], setup = "nft add table inet fil
 suite "nftables":
   test "an empty inet filter table needs everything":
     let ruleset = %*[{"table": {"family": "inet", "name": "filter", "handle": 1}}]
-    check inetFilterExists(ruleset)
     check requiredChanges(ruleset, cidrs) == allChanges
-
-  test "no inet table":
-    let ruleset = %*[{"table": {"family": "ip", "name": "filter", "handle": 1}}]
-    check not inetFilterExists(ruleset)
-
-  test "an inet table with another name is not inet filter":
-    let ruleset = %*[{"table": {"family": "inet", "name": "firewalld", "handle": 1}}]
-    check not inetFilterExists(ruleset)
 
   test "only the requested parts are created":
     let rules = createRules(cidrs, NftAttrs(withV6Set: true))["nftables"]
-    for command in rules:
+    # the table always comes first, adding it does nothing when it exists
+    check rules[0] == %*{"add": {"table": {"family": "inet", "name": "filter"}}}
+    for command in rules[1 .. ^1]:
       let body = if command.hasKey("add"): command["add"] else: command["flush"]
       check body.hasKey("set")
       check body["set"]["name"].getStr() == "Cloudflare_IPv6"
@@ -125,15 +117,25 @@ suite "nftables":
           rules.add(node["rule"]["expr"][0]["match"]["right"].getStr())
       check rules == @["@Fastly_IPv4", "@Fastly_IPv6"]
 
-  test "option 1 of the sample policy nginwho suggests to users works":
+  test "a missing inet filter table is created":
     if not canRunNft():
       skip()
     else:
-      let start = samplePolicy.find("#!/usr/sbin/nft -f")
-      let conf = samplePolicy[start ..< samplePolicy.find("####", start)]
-      writeFile(tempDir / "nftables.conf", conf)
+      # no table at all, or only tables nginwho does not use
+      for setup in ["true", "nft add table inet firewalld && nft add table ip filter"]:
+        let before = applyInNamespace(@[], setup)
+        check requiredChanges(before, cidrs) == allChanges
 
-      let setup = "nft -f " & quoteShell(tempDir / "nftables.conf")
+        let after = applyInNamespace(@[createRules(cidrs, allChanges)], setup)
+        check requiredChanges(after, cidrs) == NftAttrs()
+
+  test "an input chain that drops by default is kept and gets the web ports":
+    if not canRunNft():
+      skip()
+    else:
+      let setup = "nft add table inet filter && " &
+          "nft 'add chain inet filter input { type filter hook input priority filter; policy drop; }' && " &
+          "nft add rule inet filter input tcp dport 22 accept"
       let before = applyInNamespace(@[], setup)
       var expected = allChanges
       expected.withInputChain = false
@@ -141,23 +143,8 @@ suite "nftables":
 
       let after = applyInNamespace(@[createRules(cidrs, expected)], setup)
       check requiredChanges(after, cidrs) == NftAttrs()
-
-  test "option 2 of the sample policy nginwho suggests to users works":
-    if not canRunNft():
-      skip()
-    else:
-      var commands: seq[string]
-      for line in samplePolicy[samplePolicy.find("2) Using") .. ^1].splitLines():
-        if line.startsWith("nft "):
-          commands.add(line)
-      check commands.len > 0
-
-      let setup = commands.join(" && ")
-      let before = applyInNamespace(@[], setup)
-      var expected = allChanges
-      expected.withInputChain = false
-      expected.withInputPolicy = false
-      check requiredChanges(before, cidrs) == expected
-
-      let after = applyInNamespace(@[createRules(cidrs, expected)], setup)
-      check requiredChanges(after, cidrs) == NftAttrs()
+      var policy = ""
+      for node in after:
+        if node{"chain", "name"}.getStr() == "input":
+          policy = node["chain"]["policy"].getStr()
+      check policy == "drop"

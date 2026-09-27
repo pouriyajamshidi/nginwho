@@ -35,58 +35,6 @@ const
   logPrefixV4 = "NGINWHO_DROPPED_v4 "
   logPrefixV6 = "NGINWHO_DROPPED_v6 "
 
-  samplePolicy* = """
-##########################################
-#      Pick either option 1 or 2         #
-##########################################
-
-
-1) Using /etc/nftables.conf:
-
-#!/usr/sbin/nft -f
-
-flush ruleset
-
-table inet filter {
-  chain input {
-    type filter hook input priority filter; policy drop;
-    log prefix "NFTABLES_DROPPED "
-    ip saddr 127.0.0.1 counter accept
-    ct state established,related accept
-    tcp dport 22 counter accept
-  }
-
-  chain forward {
-    type filter hook forward priority filter; policy drop;
-  }
-
-  chain output {
-    type filter hook output priority filter; policy accept;
-  }
-}
-
-
-#####################################################################
-#####################################################################
-#####################################################################
-
-
-2) Using the `nft` command (might require `sudo`):
-
-nft add table inet filter
-nft 'add chain inet filter input { type filter hook input priority filter; policy accept; }'
-nft add rule inet filter input ct state established,related accept
-nft add rule inet filter input ip saddr 127.0.0.1 accept
-nft add rule inet filter input tcp dport 22 accept
-nft 'add rule inet filter input tcp dport { 80, 443 } counter accept'
-nft 'add chain inet filter forward { type filter hook forward priority filter; policy drop; }'
-nft 'add chain inet filter output { type filter hook output priority filter; policy accept; }'
-# switch the input policy to drop only after the accept rules are in place
-nft 'add chain inet filter input { type filter hook input priority filter; policy drop; }'
-
-
-"""
-
 
 proc setNameV4(nftSet: NftSet): string = nftSet.name & "_IPv4"
 proc setNameV6(nftSet: NftSet): string = nftSet.name & "_IPv6"
@@ -296,7 +244,8 @@ proc createSet(cidrs: JsonNode, setName, setType: string): seq[JsonNode] =
 proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
   info("Creating nftables rules")
 
-  var rules = %* {"nftables": []}
+  # adding a table that exists does nothing, so this makes `inet filter` only when there is none
+  var rules = %* {"nftables": [{"add": {"table": {"family": "inet", "name": "filter"}}}]}
 
   if nftAttrs.withV4Set:
     for command in createSet(nftSet.ipv4, nftSet.setNameV4, "ipv4_addr"):
@@ -463,17 +412,6 @@ proc setExists(nftOutput: JsonNode, setName: string): bool =
   warn(fmt"Set {setName} does not exist")
 
 
-proc inetFilterExists*(nftOutput: JsonNode): bool =
-  info("Checking nftables `inet filter` table existence")
-
-  # the rules are added to `inet filter`, another inet table does not help
-  for node in nftOutput:
-    let table = node{"table"}
-    if table{"family"}.getStr() == "inet" and table{"name"}.getStr() == "filter":
-      info("Found table inet filter")
-      return true
-
-
 proc getCurrentRules(): JsonNode =
   info(fmt"Getting current nftables rules using `{getRulesetCmd}`")
 
@@ -528,19 +466,6 @@ proc requiredChanges*(nftOutput: JsonNode, nftSet: NftSet): NftAttrs =
   )
 
 
-proc runPrechecks(nftSet: NftSet): NftAttrs =
-  info("Running nftables pre-checks")
-
-  let nftOutput = getCurrentRules()
-
-  if not inetFilterExists(nftOutput):
-    info("Please create one manually using this sample:\n\n",
-        samplePolicy)
-    raise newException(NftError, "nftables `inet` filter not found")
-
-  return requiredChanges(nftOutput, nftSet)
-
-
 proc acceptOnly*(nftSet: NftSet) =
   ## Raises NftError when the rules can't be checked or applied
   info(fmt"Using `{getRulesetCmd}` to construct nftables rules ")
@@ -549,7 +474,7 @@ proc acceptOnly*(nftSet: NftSet) =
     warn("Received empty NFT Sets")
     return
 
-  let nftAttrs = runPrechecks(nftSet)
+  let nftAttrs = requiredChanges(getCurrentRules(), nftSet)
 
   if changesRequired(nftAttrs):
     let rules = createRules(nftSet, nftAttrs)
