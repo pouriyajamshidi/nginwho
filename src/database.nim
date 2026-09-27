@@ -321,7 +321,7 @@ proc normalizeNginwhoTable(db: DbConn, logs: seq[Log]) =
   defer: discard finalize(PStmt(defaultQuery))
 
   for log in logs:
-    # TODO: handle non-defaults
+    # TODO: handle non-default logs
     if log.nonDefault != "":
       continue
     execPrepared(db, defaultQuery,
