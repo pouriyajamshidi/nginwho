@@ -294,7 +294,7 @@ proc createSet(cidrs: JsonNode, setName, setType: string): seq[JsonNode] =
 
 
 proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
-  info(fmt"Creating nftables rules")
+  info("Creating nftables rules")
 
   var rules = %* {"nftables": []}
 
@@ -325,7 +325,7 @@ proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
   if nftAttrs.withInputPolicy:
     rules["nftables"].add(createInputChainPolicy())
 
-  info(fmt"Successfully created nftables rules")
+  info("Successfully created nftables rules")
 
   return rules
 
@@ -535,7 +535,7 @@ proc runPrechecks(nftSet: NftSet): NftAttrs =
 
   if not inetFilterExists(nftOutput):
     info("Please create one manually using this sample:\n\n",
-        fmt"{samplePolicy}")
+        samplePolicy)
     raise newException(NftError, "nftables `inet` filter not found")
 
   return requiredChanges(nftOutput, nftSet)
