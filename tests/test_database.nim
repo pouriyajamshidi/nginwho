@@ -44,34 +44,34 @@ suite "database":
   test "a saved log reads back with every field in the right column":
     let db = newDb()
     let line = """203.0.113.7 - - [13/Sep/2026:10:15:32 +0000] "GET /blog HTTP/1.1" 404 5120 "https://example.com" "Mozilla/5.0 Firefox/130.0""""
-    insertLogs(db, @[parseLogEntry(line, "")])
+    check insertLogs(db, @[parseLogEntry(line, "")])
 
     check db.allLogs() == @[@["2026-09-13 10:15:32", "203.0.113.7", "GET", "/blog", "404",
         "5120", "https://example.com", "Mozilla/5.0 Firefox/130.0"]]
 
   test "logs without a referrer are saved":
     let db = newDb()
-    insertLogs(db, @[log(referrer = "")])
+    check insertLogs(db, @[log(referrer = "")])
     check db.count("nginwho") == 1
     check db.count("referrers") == 0
 
   test "counts add up across inserts":
     let db = newDb()
-    insertLogs(db, @[log(ip = "1.1.1.1"), log(ip = "1.1.1.1"), log(ip = "2.2.2.2")])
-    insertLogs(db, @[log(ip = "1.1.1.1")])
+    check insertLogs(db, @[log(ip = "1.1.1.1"), log(ip = "1.1.1.1"), log(ip = "2.2.2.2")])
+    check insertLogs(db, @[log(ip = "1.1.1.1")])
 
     check db.count("nginwho") == 4
     check db.getTopIPs(10) == @[@["1.1.1.1", "3"], @["2.2.2.2", "1"]]
 
   test "createTables on an existing database keeps the data":
     let db = newDb()
-    insertLogs(db, @[log()])
+    check insertLogs(db, @[log()])
     createTables(db)
     check db.count("nginwho") == 1
 
   test "non-default logs are counted but not added to the nginwho table":
     let db = newDb()
-    insertLogs(db, @[Log(nonDefault: "garbage"), Log(nonDefault: "garbage"), log()])
+    check insertLogs(db, @[Log(nonDefault: "garbage"), Log(nonDefault: "garbage"), log()])
     check db.count("nginwho") == 1
     check db.getNonDefaults(10) == @[@["garbage", "2"]]
 
@@ -79,7 +79,7 @@ suite "database":
     let db = newDb()
     check db.getLastRow() == Log()
 
-    insertLogs(db, @[log(uri = "/first"), log(uri = "/last", date = "2026-09-13 10:00:05")])
+    check insertLogs(db, @[log(uri = "/first"), log(uri = "/last", date = "2026-09-13 10:00:05")])
     let last = db.getLastRow()
     check last.requestURI == "/last"
     check last.date == "2026-09-13 10:00:05"
@@ -95,7 +95,7 @@ suite "database":
       var logs: seq[Log]
       for line in readNewLines(path, offset):
         logs.add(parseLogEntry(line, ""))
-      insertLogs(db, logs)
+      check insertLogs(db, logs)
 
     var offset: int64 = 0
     readAndInsert(offset)
@@ -125,7 +125,7 @@ suite "database":
 
   test "a request with an empty user agent does not lose the other logs":
     let db = newDb()
-    insertLogs(db, @[
+    check insertLogs(db, @[
       parseLogEntry("""1.1.1.1 - - [13/Sep/2026:10:00:00 +0000] "GET /a HTTP/1.1" 200 1 "-" "curl/8.0"""", ""),
       parseLogEntry("""2.2.2.2 - - [13/Sep/2026:10:00:01 +0000] "GET /b HTTP/1.1" 200 1 "-" """"", ""),
     ])
@@ -133,21 +133,21 @@ suite "database":
 
   test "top lists are ordered and limited":
     let db = newDb()
-    insertLogs(db, @[log(uri = "/a"), log(uri = "/b"), log(uri = "/b"), log(uri = "/c"),
+    check insertLogs(db, @[log(uri = "/a"), log(uri = "/b"), log(uri = "/b"), log(uri = "/c"),
         log(uri = "/c"), log(uri = "/c")])
     check db.getTopURIs(2) == @[@["/c", "3"], @["/b", "2"]]
 
-    insertLogs(db, @[log(referrer = "https://x.com"), log(referrer = "https://y.com"),
+    check insertLogs(db, @[log(referrer = "https://x.com"), log(referrer = "https://y.com"),
         log(referrer = "https://y.com")])
     check db.getTopReferrers(1) == @[@["https://y.com", "2"]]
 
-    insertLogs(db, @[log(userAgent = "bot/1.0"), log(userAgent = "bot/1.0")])
+    check insertLogs(db, @[log(userAgent = "bot/1.0"), log(userAgent = "bot/1.0")])
     check db.getTopUserAgents(2) == @[@["curl/8.0", "9"], @["bot/1.0", "2"]]
 
   test "top unsuccessful requests only has recent failed GET requests":
     let db = newDb()
     let today = now().utc.format("yyyy-MM-dd HH:mm:ss")
-    insertLogs(db, @[
+    check insertLogs(db, @[
       log(uri = "/missing", status = "404", date = today),
       log(uri = "/missing", status = "404", date = today),
       log(uri = "/missing", status = "404", date = today, userAgent = "bot/1.0"),
@@ -173,7 +173,7 @@ suite "database":
 
   test "time window only counts logs from that date on":
     let db = newDb()
-    insertLogs(db, @[
+    check insertLogs(db, @[
       log(ip = "1.1.1.1", referrer = "https://old.com", date = "2026-08-01 10:00:00"),
       log(ip = "1.1.1.1", referrer = "https://old.com", date = "2026-08-01 10:00:01"),
       log(ip = "1.1.1.1", referrer = "https://old.com", date = "2026-08-01 10:00:02"),
@@ -196,7 +196,7 @@ suite "database":
     check db.getSpan("nginwho") == (0, "", "")
     check db.getSpan("trap_hits") == (0, "", "")
 
-    insertLogs(db, @[log(date = "2026-09-13 10:00:00"), log(date = "2024-11-01 08:30:00"),
+    check insertLogs(db, @[log(date = "2026-09-13 10:00:00"), log(date = "2024-11-01 08:30:00"),
         log(date = "2026-09-26 23:59:59")])
     discard db.insertTrapHit(TrapHit(date: "2026-09-20 12:00:00", remoteIP: "9.9.9.9",
         httpMethod: "GET", requestURI: "/.env", userAgent: "bot", trap: "env", tactic: "drip"))
@@ -210,7 +210,7 @@ suite "database":
 
   test "an old database with a dates table is upgraded without losing logs":
     let db = newDb()
-    insertLogs(db, @[log(uri = "/old", date = "2026-09-13 10:00:05")])
+    check insertLogs(db, @[log(uri = "/old", date = "2026-09-13 10:00:05")])
 
     # turn it back into the old layout, where nginwho points to a row in the dates table
     db.exec(sql"CREATE TABLE dates (id INTEGER PRIMARY KEY, date TEXT UNIQUE NOT NULL, count INTEGER NOT NULL DEFAULT 1)")
@@ -233,7 +233,7 @@ suite "database":
       removeFile(path)
 
     createTables(db)
-    insertLogs(db, @[log()])
+    check insertLogs(db, @[log()])
     check db.count("nginwho") == 1
     check db.getValue(sql"PRAGMA journal_mode") == "wal"
     check db.getValue(sql"PRAGMA foreign_keys") == "1"

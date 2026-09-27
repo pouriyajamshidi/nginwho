@@ -34,6 +34,10 @@ All notable changes to **nginwho** are listed here.
 - `nginwho.service` makes `/var/lib/nginwho` `0755` instead of `0700`, so a monitoring tool like Grafana Alloy can see how big the database is.
 - `--omitReferrer` (`omit_referrer`) only drops referrers from that domain and its subdomains. Before, it matched anywhere in the referrer, so a search like `google.com/search?q=example.com` was dropped too.
 
+### Removed
+
+- V1 to V2 database migration (`--migrateV1ToV2Db`, `--v1DbPath` and `--v2DbPath`). Convert a v1 database with v2.4.1 first, then upgrade.
+
 ## [2.4.1]
 
 ### Fixed

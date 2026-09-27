@@ -15,7 +15,7 @@ from nginx import Log, isStaticAsset, readChunkBytes, ensureNginxExists,
 from cdn import Cdn, fetchAndProcessIPCidrs, visitorIP, realIpHeaders, fromCdn
 from nftables import ensureNftExists
 from database import getDbConnection, closeDbConnection,
-    createTables, insertLogs, migrateV1ToV2, getLastRow
+    createTables, insertLogs, getLastRow
 from report import report
 from server import serve, RealIP, Request, header
 from trap import trap, trapHook
@@ -63,11 +63,6 @@ proc usage(errorCode: int = 0) =
                             the server hands them over itself (default: false)
   --trapPort              : Port the trap listens on for nginx, on localhost only (default: 7777)
 
-  --migrateV1ToV2Db       : Migrate V1 database to V2 and exit (default: false).
-                            Use with '--v1DbPath' and '--v2DbPath' flags
-  --v1DbPath              : Path and name of the V1 database (e.g: /var/log/nginwho_v1.db)
-  --v2DbPath              : Path and name of the V2 database (e.g: /var/lib/nginwho/nginwho.db)
-
   """
   quit(errorCode)
 
@@ -78,8 +73,7 @@ proc validateArgs(args: Args) =
   not args.showRealIPs and
   not args.blockUntrustedCidrs and
   not args.serve and
-  not args.trap.enabled and
-  not args.migrateV1ToV2Db:
+  not args.trap.enabled:
     error("Provided flags say do nothing... Exiting")
     usage(1)
 
@@ -118,10 +112,6 @@ proc getArgs(): Args =
           echo version
           quit(0)
 
-        of "v1DbPath": args.v1DbPath = p.val
-        of "v2DbPath": args.v2DbPath = p.val
-        of "migrateV1ToV2Db": args.migrateV1ToV2Db = true
-
         of "logPath": args.logPath = p.val
         of "dbPath": args.dbPath = p.val
         of "interval": args.interval = parseInterval(p.val)
@@ -151,10 +141,6 @@ proc getArgs(): Args =
       fileExists(oldDbPath):
     warn(fmt"Using the old database at {oldDbPath}. Stop nginwho and move it to {defaultDbPath}")
     args.dbPath = oldDbPath
-
-  if args.migrateV1ToV2Db and (args.v1DbPath == "" or args.v2DbPath == ""):
-    error("Migration needs '--v1DbPath' and '--v2DbPath' flags")
-    usage(1)
 
   validateArgs(args)
 
@@ -274,10 +260,6 @@ proc runPreChecks(args: Args) =
 proc main() =
   # parse args first so --help and --version print nothing else
   let args: Args = getArgs()
-
-  if args.migrateV1ToV2Db:
-    migrateV1ToV2(args.v1DbPath, args.v2DbPath)
-    return
 
   if args.report:
     # info logs would get mixed with the report output

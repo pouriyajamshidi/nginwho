@@ -5,11 +5,10 @@ from db_connector/sqlite3 import PStmt, bind_text, step, reset, finalize,
 from std/tables import initTable, mgetOrPut, pairs
 from std/strformat import fmt
 from std/os import fileExists, setFilePermissions, FilePermission, createDir, parentDir
-from std/strutils import parseInt, contains, split, formatFloat, ffDecimal
-from std/times import format, epochTime
+from std/strutils import parseInt
 from std/logging import info, warn, error
 
-from nginx import Log, convertDateFormat, isStaticAsset
+from nginx import Log
 
 
 type
@@ -394,7 +393,7 @@ proc upsert(db: DbConn, table, column: string, values: seq[string]) =
     execPrepared(db, insertQuery, value, $count)
 
 
-proc insertLogs*(db: DbConn, logs: seq[Log]): bool {.discardable.} =
+proc insertLogs*(db: DbConn, logs: seq[Log]): bool =
   ## Returns false when the insert failed and nothing was saved
   let logsLen = len(logs)
   if logsLen < 1:
@@ -548,106 +547,3 @@ proc getTrapTotals*(db: DbConn, since = ""): tuple[hits, seconds, bytes: int] =
     FROM trap_hits
     WHERE date >= {toUnixOrAll}"""), since)
   return (parseInt(row[0]), parseInt(row[1]), parseInt(row[2]))
-
-
-proc migrateV1ToV2*(v1DbName, v2DbName: string) =
-  ## Raises IOError when the v1 database is missing and DbError when it can't be read
-  info(fmt"Migrating v1 database at '{v1DbName}' to v2 database at '{v2DbName}'")
-
-  if not fileExists(v1DbName):
-    raise newException(IOError, fmt"V1 database does not exist at {v1DbName}")
-
-  let v1Db = getDbConnection(v1DbName)
-  let v2Db = getDbConnection(v2DbName)
-
-  defer:
-    closeDbConnection(v1Db)
-    closeDbConnection(v2Db)
-
-  var totalRecords: string
-
-  try:
-    totalRecords = v1db.getRow(sql"SELECT COUNT(*) from nginwho")[0]
-    info(fmt"{v1DbName} contains {totalRecords} records")
-  except DbError as e:
-    let recoveryCommand = fmt"sqlite3 {v1DbName} '.recover' | sqlite3 {v1DbName.split('.')[0]}_recovered.db"
-    raise newException(DbError, fmt"Could not count rows in {v1DbName}: {e.msg}. " &
-        fmt"Retry after recovering your DB with: {recoveryCommand}")
-
-  createTables(v2Db)
-
-  let selectStatement = sql"""
-    SELECT date, remoteIP, httpMethod, requestURI, statusCode, responseSize,
-           referrer, userAgent, remoteUser, authenticatedUser, rowid
-    FROM nginwho
-    WHERE rowid > ? AND date IS NOT NULL AND date != ''
-    ORDER BY rowid
-    LIMIT ?
-  """
-
-  const migrationBatchSize = 100_000
-
-  var
-    logs: seq[Log]
-    lastRowId = 0
-
-  # page with rowid instead of OFFSET so each batch does not scan all the previous rows
-  while true:
-    info(fmt"🔥 Processing records after rowid {lastRowId} in batches of {migrationBatchSize}")
-
-    var rows: seq[Row]
-
-    try:
-      rows = v1Db.getAllRows(selectStatement, lastRowId, migrationBatchSize)
-      if len(rows) == 0:
-        break
-    except DbError as e:
-      error(fmt"Could not get rows with limit of {migrationBatchSize} after rowid {lastRowId}: {e.msg}")
-      break
-
-    lastRowId = parseInt(rows[^1][10])
-
-    for row in rows:
-      var httpMethod = row[2]
-      if httpMethod.contains("\\") or httpMethod.contains("{"):
-        warn(fmt"Experimentally adding: {row}")
-        logs.add(Log(nonDefault: $row))
-        continue
-
-      if httpMethod == "":
-        httpMethod = "Invalid"
-
-      let requestURI = row[3]
-      if isStaticAsset(requestURI):
-        continue
-
-      logs.add(
-        Log(
-          date: convertDateFormat(row[0]),
-          remoteIP: row[1],
-          httpMethod: httpMethod,
-          requestURI: requestURI,
-          statusCode: row[4],
-          responseSize: row[5],
-          referrer: row[6],
-          userAgent: row[7],
-          remoteUser: row[8],
-          authenticatedUser: row[9]
-        )
-      )
-
-      if len(logs) >= migrationBatchSize:
-        let start = epochTime()
-        insertLogs(v2Db, logs)
-        let elapsed = epochTime() - start
-        let elapsedStr = elapsed.formatFloat(format = ffDecimal, precision = 3)
-        info(fmt"Row insertion took {elapsedStr} seconds")
-
-        logs = @[]
-
-  # if there are leftovers, add them
-  if len(logs) > 0:
-    info(fmt"Adding {len(logs)} leftovers")
-    insertLogs(v2Db, logs)
-
-  info(fmt"Processed {totalRecords} records")

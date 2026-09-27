@@ -88,7 +88,6 @@ See what it does with `sudo journalctl -u nginwho -f`, and the numbers with
   - [Where nginwho keeps its files](#where-nginwho-keeps-its-files)
   - [See it on Grafana](#see-it-on-grafana)
   - [Upgrading from older versions](#upgrading-from-older-versions)
-    - [Migrating a v1 database to v2](#migrating-a-v1-database-to-v2)
 
 ## What nginwho can do
 
@@ -472,11 +471,6 @@ Flags do the same as the config file and win over it, which is handy for trying 
                             nginx forwards its 403s and 404s to us, or with '--serve'
                             the server hands them over itself (default: false)
   --trapPort              : Port the trap listens on for nginx, on localhost only (default: 7777)
-
-  --migrateV1ToV2Db       : Migrate V1 database to V2 and exit (default: false).
-                            Use with '--v1DbPath' and '--v2DbPath' flags
-  --v1DbPath              : Path and name of the V1 database (e.g: /var/log/nginwho_v1.db)
-  --v2DbPath              : Path and name of the V2 database (e.g: /var/lib/nginwho/nginwho.db)
 ```
 
 A few examples:
@@ -784,11 +778,11 @@ free tier of Grafana Cloud, and you can try it all on your machine first with Do
 
 The full list of changes is in the [changelog](CHANGELOG.md).
 
-### Migrating a v1 database to v2
+### Coming from version 1
 
-If you have used nginwho since version 1, convert your database to the version 2 format first.
-The command below checks your old database for errors and tells you how to fix them if it
-finds any. If all is well, it copies your data into a new version 2 database.
+Version 3 can't read a version 1 database. Convert it with the
+[v2.4.1 release](https://github.com/pouriyajamshidi/nginwho/releases/tag/v2.4.1) first,
+then upgrade to version 3.
 
 > Change the file names to match yours.
 
