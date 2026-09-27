@@ -473,17 +473,12 @@ proc setExists(nftOutput: JsonNode, setName: string): bool =
 proc inetFilterExists*(nftOutput: JsonNode): bool =
   info("Checking nftables `inet filter` table existence")
 
-  try:
-    for node in nftOutput:
-      if node.contains("table"):
-        let tableFamily: string = node["table"]["family"].getStr()
-        # if tableFamily notin ["inet", "ip"]:
-        if tableFamily != "inet":
-          continue
-        info(fmt"Found table inet filter family: `{tableFamily}`")
-        return true
-  except KeyError as e:
-    error(fmt"Failed checking `inet` table existence: {e.msg}")
+  # the rules are added to `inet filter`, another inet table does not help
+  for node in nftOutput:
+    let table = node{"table"}
+    if table{"family"}.getStr() == "inet" and table{"name"}.getStr() == "filter":
+      info("Found table inet filter")
+      return true
 
 
 proc getCurrentRules(): JsonNode =

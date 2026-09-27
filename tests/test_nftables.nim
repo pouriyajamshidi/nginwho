@@ -44,6 +44,10 @@ suite "nftables":
     let ruleset = %*[{"table": {"family": "ip", "name": "filter", "handle": 1}}]
     check not inetFilterExists(ruleset)
 
+  test "an inet table with another name is not inet filter":
+    let ruleset = %*[{"table": {"family": "inet", "name": "firewalld", "handle": 1}}]
+    check not inetFilterExists(ruleset)
+
   test "only the requested parts are created":
     let rules = createRules(cidrs, NftAttrs(withV6Set: true))["nftables"]
     for command in rules:

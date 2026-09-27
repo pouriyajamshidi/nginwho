@@ -38,6 +38,10 @@ All notable changes to **nginwho** are listed here.
 
 - V1 to V2 database migration (`--migrateV1ToV2Db`, `--v1DbPath` and `--v2DbPath`). Convert a v1 database with v2.4.1 first, then upgrade.
 
+### Fixed
+
+- `--blockUntrustedCidrs` took any `inet` table, like one from firewalld, for `inet filter`, and then failed to add its rules to the missing `inet filter` table.
+
 ## [2.4.1]
 
 ### Fixed
