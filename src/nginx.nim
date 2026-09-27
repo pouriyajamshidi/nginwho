@@ -1,6 +1,6 @@
 from std/times import parse, format
 from std/strutils import splitWhitespace, replace, endsWith, startsWith, strip,
-    contains, join, find, rfind, splitLines
+    contains, join, rfind, splitLines
 from std/os import findExe, fileExists
 from std/osproc import execCmd
 from std/strformat import fmt
@@ -35,22 +35,6 @@ proc isStaticAsset*(requestURI: string): bool =
   # TODO: Decide whether to exclude these or not
   requestURI.endsWith(".woff2") or requestURI.endsWith(".js") or
       requestURI.endsWith(".css")
-
-
-proc mergeSlashes*(uri: string): string =
-  ## nginx serves `//sitemap.xml` as `/sitemap.xml`, so we count them as one path.
-  ## The query keeps its slashes, like `?next=https://example.com`
-  if not uri.startsWith("/"):
-    return uri
-
-  var queryAt = uri.find('?')
-  if queryAt == -1:
-    queryAt = uri.len
-  for i in 0 ..< queryAt:
-    if uri[i] == '/' and result.endsWith("/"):
-      continue
-    result.add(uri[i])
-  result.add(uri[queryAt .. ^1])
 
 
 proc ensureNginxLogExists*(logPath: string) =
@@ -106,7 +90,7 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
 
     log.httpMethod = matches[5].replace("\"", "")
 
-    var requestURI = mergeSlashes(matches[6].replace("\"", ""))
+    var requestURI = matches[6].replace("\"", "")
     # `/posts/x/` and `/posts/x` are one page, so the trailing slash is dropped. The same
     # goes for referrers, which is why a saved referrer never ends with a slash
     if requestURI.endsWith("/") and len(requestURI) > 1:

@@ -2,7 +2,7 @@ import std/[unittest, os, json]
 from std/options import isSome, isNone, get
 from std/strutils import contains
 
-from nginx import Log, parseLogEntry, mergeSlashes, readNewLines, offsetAfterLastInserted
+from nginx import Log, parseLogEntry, readNewLines, offsetAfterLastInserted
 from cdn import Cdn, Cidrs, getCurrentEtag, parseCidrsResponse, populateReverseProxyFile,
     trustRanges, visitorIP
 
@@ -29,15 +29,6 @@ suite "parseLogEntry":
   test "keeps the root URI":
     let log = parseLogEntry("""203.0.113.7 - - [13/Sep/2026:10:15:32 +0000] "GET / HTTP/1.1" 200 1 "-" "curl/8.0"""", "")
     check log.requestURI == "/"
-
-  test "double slashes in the path count as one, like nginx serves them":
-    let log = parseLogEntry("""203.0.113.7 - - [13/Sep/2026:10:15:32 +0000] "GET //sitemap.xml HTTP/1.1" 200 1 "-" "curl/8.0"""", "")
-    check log.requestURI == "/sitemap.xml"
-    check mergeSlashes("//blog///wp-includes/") == "/blog/wp-includes/"
-    check mergeSlashes("//") == "/"
-    # the query keeps its slashes, and a proxy probe keeps its scheme
-    check mergeSlashes("//go?next=https://example.com//x") == "/go?next=https://example.com//x"
-    check mergeSlashes("http://example.com/") == "http://example.com/"
 
   test "a missing referrer is stored as empty":
     let log = parseLogEntry("""203.0.113.7 - - [13/Sep/2026:10:15:32 +0000] "GET / HTTP/1.1" 200 1 "-" "curl/8.0"""", "")

@@ -22,7 +22,7 @@ from std/options import Option, some, none, isSome, isNone, get
 from std/logging import info, error
 from db_connector/db_sqlite import DbConn
 
-from nginx import dateFormat, mergeSlashes
+from nginx import dateFormat
 from server import Request, TrapHook, readRequest, readBody, header,
     responseHead, headTimeout, sendTimed
 from database import TrapHit, getDbConnection, createTables, insertTrapHit, finishTrapHit
@@ -484,10 +484,8 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
   ## Plays with the bot when the request is a probe we could not serve (`miss`), or
   ## comes from a listed user agent. Returns false when it is neither or the trap is
   ## full, so the caller answers as usual
-  # `//.env` is `/.env` to nginx, so it is saved and reported as one path
-  let path = mergeSlashes(req.path)
   let agent = findAgent(req.header("User-Agent"), cfg)
-  var trap = classify(path)
+  var trap = classify(req.path)
   if agent.isNone and (trap == noTrap or not miss):
     return false
   if active >= cfg.maxConnections:
@@ -499,12 +497,12 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
   let save = hits <= maxSavedHits
   let chosen = if agent.isSome: agent.get.tactic else: none(Tactic)
   # "after N hits": the first N get played with, the next one gets the bomb
-  let tactic = tacticFor(trap, path, hits > cfg.bombAfter, cfg, chosen)
+  let tactic = tacticFor(trap, req.path, hits > cfg.bombAfter, cfg, chosen)
   if save:
-    info(fmt"Trapping {ip} in the {tactic} for {path} ({trap})")
+    info(fmt"Trapping {ip} in the {tactic} for {req.path} ({trap})")
 
   # the same bot asking for the same file twice sees the same fake content
-  let rng = newRng(hash(ip & path))
+  let rng = newRng(hash(ip & req.path))
   let started = epochTime()
 
   # the hit is saved before the trap starts, so we know who tried what right away.
@@ -513,7 +511,7 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
     date: now().format(dateFormat),
     remoteIP: ip,
     httpMethod: req.httpMethod,
-    requestURI: substr(path & req.query, 0, maxSavedBytes - 1),
+    requestURI: substr(req.path & req.query, 0, maxSavedBytes - 1),
     userAgent: substr(req.header("User-Agent"), 0, maxSavedBytes - 1),
     trap: $trap,
     tactic: $tactic,

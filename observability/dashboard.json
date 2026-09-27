@@ -865,7 +865,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "topk(20, sum by (path) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` | label_format path=`{{ regexReplaceAll \"(^|[^:])/{2,}\" .path \"${1}/\" }}` [$__range])))",
+          "expr": "topk(20, sum by (path) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` [$__range])))",
           "queryType": "instant",
           "instant": true,
           "range": false
@@ -1011,7 +1011,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "topk(20, sum by (path) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` | label_format path=`{{ regexReplaceAll \"(^|[^:])/{2,}\" .path \"${1}/\" }}` | status = \"404\" [$__range])))",
+          "expr": "topk(20, sum by (path) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` | status = \"404\" [$__range])))",
           "queryType": "instant",
           "instant": true,
           "range": false
