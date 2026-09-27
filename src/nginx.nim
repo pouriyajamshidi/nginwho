@@ -1,6 +1,7 @@
 from std/times import parse, format
 from std/strutils import splitWhitespace, replace, endsWith, startsWith, strip,
-    contains, join, rfind, splitLines
+    contains, join, rfind, splitLines, toLowerAscii
+from std/uri import parseUri
 from std/os import findExe, fileExists
 from std/osproc import execCmd
 from std/strformat import fmt
@@ -71,6 +72,14 @@ proc reloadNginx*() =
     info("nginx process reloaded successfully")
 
 
+proc isFromDomain*(referrer, domain: string): bool =
+  ## True when the referrer is a page on `domain` or one of its subdomains. Only the host
+  ## counts, so a search like `?q=example.com` on another site is kept
+  let host = parseUri(referrer).hostname.toLowerAscii
+  let domain = domain.toLowerAscii
+  return host == domain or host.endsWith("." & domain)
+
+
 proc parseLogEntry*(logLine: string, omit: string): Log =
   var log: Log
 
@@ -101,7 +110,7 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
     log.responseSize = matches[9]
 
     var referrer = matches[10].replace("\"", "")
-    if omit != "" and referrer.contains(omit):
+    if omit != "" and referrer.isFromDomain(omit):
       log.referrer = ""
     elif referrer == "-":
       log.referrer = ""

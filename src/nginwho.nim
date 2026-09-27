@@ -46,7 +46,7 @@ proc usage(errorCode: int = 0) =
   --logPath               : Path to nginx access logs (default: /var/log/nginx/access.log,
                             or /var/log/nginwho/access.log with '--serve')
   --interval              : Refresh interval in seconds (default: 10)
-  --omitReferrer          : Omit a specific referrer from being logged (default: none)
+  --omitReferrer          : Don't save referrers from this domain and its subdomains (default: none)
   --showRealIps           : Show real IP of visitors by getting the CDN's CIDRs to include in nginx config,
                             or with '--serve' to trust the CDN's header. Self-updates every six hours (default: false)
   --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows the CDN's CIDRs (default: false)

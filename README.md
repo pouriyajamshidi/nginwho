@@ -303,7 +303,7 @@ process_logs = false
 log_path = /var/log/nginx/access.log
 # seconds between reads of the access log
 interval = 10
-# don't save this referrer, like your own domain. off when not set
+# don't save referrers from this domain and its subdomains, like your own site. off when not set
 # omit_referrer = example.com
 # the CDN in front of your site: cloudflare or fastly
 cdn = cloudflare
@@ -456,7 +456,7 @@ Flags do the same as the config file and win over it, which is handy for trying 
   --logPath               : Path to nginx access logs (default: /var/log/nginx/access.log,
                             or /var/log/nginwho/access.log with '--serve')
   --interval              : Refresh interval in seconds (default: 10)
-  --omitReferrer          : Omit a specific referrer from being logged (default: none)
+  --omitReferrer          : Don't save referrers from this domain and its subdomains (default: none)
   --showRealIps           : Show real IP of visitors by getting the CDN's CIDRs to include in nginx config,
                             or with '--serve' to trust the CDN's header. Self-updates every six hours (default: false)
   --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows the CDN's CIDRs (default: false)
@@ -482,7 +482,7 @@ Flags do the same as the config file and win over it, which is handy for trying 
 A few examples:
 
 ```bash
-# save visits from the nginx log, but leave out visits that came from your own pages
+# save visits from the nginx log, but not the referrer when it is one of your own pages
 nginwho --processNginxLogs --omitReferrer:example.com
 
 # real visitor IPs behind Fastly

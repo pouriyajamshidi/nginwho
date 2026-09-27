@@ -32,6 +32,7 @@ All notable changes to **nginwho** are listed here.
 - Existing databases are upgraded once on start or when running `--report`, then vacuumed so the file shrinks. This takes a few seconds on big databases. Older versions can't read an upgraded database, so keep a backup if you may go back.
 - A flag value after a space, like `--omitReferrer example.com`, stops nginwho with an error. Before, the value was quietly ignored, so the flag did nothing or `--logPath` fell back to the default log. Give values with `=` or `:`, like `--omitReferrer=example.com`.
 - `nginwho.service` makes `/var/lib/nginwho` `0755` instead of `0700`, so a monitoring tool like Grafana Alloy can see how big the database is.
+- `--omitReferrer` (`omit_referrer`) only drops referrers from that domain and its subdomains. Before, it matched anywhere in the referrer, so a search like `google.com/search?q=example.com` was dropped too.
 
 ## [2.4.1]
 

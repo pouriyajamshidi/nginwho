@@ -2,7 +2,7 @@ import std/[unittest, os, json]
 from std/options import isSome, isNone, get
 from std/strutils import contains
 
-from nginx import Log, parseLogEntry, readNewLines, offsetAfterLastInserted
+from nginx import Log, parseLogEntry, isFromDomain, readNewLines, offsetAfterLastInserted
 from cdn import Cdn, Cidrs, getCurrentEtag, parseCidrsResponse, populateReverseProxyFile,
     trustRanges, visitorIP
 
@@ -43,6 +43,15 @@ suite "parseLogEntry":
   test "omitted referrer is dropped":
     check parseLogEntry(line, "example.com").referrer == ""
     check parseLogEntry(line, "other.org").referrer == "https://example.com"
+
+  test "only the referrer's domain and its subdomains are omitted":
+    check isFromDomain("https://example.com/posts/x/", "example.com")
+    check isFromDomain("https://www.Example.com", "example.com")
+    check isFromDomain("http://blog.example.com:8080/", "example.com")
+    check not isFromDomain("https://google.com/search?q=example.com", "example.com")
+    check not isFromDomain("https://notexample.com", "example.com")
+    check not isFromDomain("https://example.com.evil.org", "example.com")
+    check not isFromDomain("-", "example.com")
 
   test "IPv6 clients":
     let log = parseLogEntry("""2001:db8::1 - - [01/Jan/2026:00:00:00 +0000] "POST /api HTTP/2.0" 201 0 "-" "curl/8.0"""", "")
