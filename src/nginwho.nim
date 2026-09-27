@@ -198,7 +198,7 @@ proc processAndRecordLogs(args: Args) {.async.} =
       continue
 
     for line in lines:
-      if line.len() == 0:
+      if line.len == 0:
         continue
 
       let log = parseLogEntry(line, args.omitReferrer)
@@ -208,9 +208,9 @@ proc processAndRecordLogs(args: Args) {.async.} =
 
       logs.add(log)
 
-    info(fmt"Got {len(logs)} logs to process")
+    info(fmt"Got {logs.len} logs to process")
 
-    if len(logs) == 0:
+    if logs.len == 0:
       info("Database is up to date with the latest logs")
     elif insertLogs(db, logs):
       failedInserts = 0
@@ -221,7 +221,7 @@ proc processAndRecordLogs(args: Args) {.async.} =
         warn(fmt"Will retry these logs in {args.interval div 1000} seconds")
         offset = previousOffset
       else:
-        error(fmt"Dropping {len(logs)} logs after {maxInsertAttempts} failed inserts")
+        error(fmt"Dropping {logs.len} logs after {maxInsertAttempts} failed inserts")
         failedInserts = 0
 
     # a big log is read in chunks, keep going without waiting until it is caught up

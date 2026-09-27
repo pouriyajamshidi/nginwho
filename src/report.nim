@@ -107,8 +107,8 @@ proc formatTable*(columns: seq[string], rows: seq[Row], total: int,
     counts.add(parseInt(row[^1]))
 
   let topCount = max(counts & @[1])
-  let countWidth = max(len(countHeader), len(insertSep($topCount, ',')))
-  let numberWidth = len($len(rows))
+  let countWidth = max(countHeader.len, len(insertSep($topCount, ',')))
+  let numberWidth = len($rows.len)
 
   var header = align("#", numberWidth)
   for i, column in columns:
@@ -117,7 +117,7 @@ proc formatTable*(columns: seq[string], rows: seq[Row], total: int,
 
   for n, row in rows:
     var line = align($(n + 1), numberWidth)
-    for i in 0 ..< len(columns):
+    for i in 0 ..< columns.len:
       line &= "  " & fit(row[i], widths[i])
 
     let percent = if total > 0: counts[n] / total * 100 else: 0.0
@@ -131,7 +131,7 @@ proc formatTotals*(totals: seq[tuple[name: string, count: int, first,
   ## Returns one line per total, with the dates of the first and last entry when there are any
   var nameWidth, countWidth: int
   for total in totals:
-    nameWidth = max(nameWidth, len(total.name))
+    nameWidth = max(nameWidth, total.name.len)
     countWidth = max(countWidth, len(insertSep($total.count, ',')))
 
   for total in totals:
@@ -202,7 +202,7 @@ proc chooseTimeWindow(current: int): int =
   printMenu(lines)
 
   let choice = askNumber("Select a time window (q to keep the current one): ",
-      len(timeWindows))
+      timeWindows.len)
   if choice == 0:
     return current
   return choice - 1
@@ -224,7 +224,7 @@ proc showResults(db: DbConn, report: Report, num: int, window: TimeWindow) =
       fmt"{report.name}, {windowName} ({insertSep($total, ',')} {unit})")
   echo()
 
-  if len(rows) == 0:
+  if rows.len == 0:
     warn("  No records found")
     return
 
@@ -287,7 +287,7 @@ proc report*(dbPath: string) =
       continue
 
     let option = try: parseInt(choice) except ValueError: 0
-    if option < 1 or option > len(reports):
+    if option < 1 or option > reports.len:
       warn("Pick an option from the menu")
       continue
 

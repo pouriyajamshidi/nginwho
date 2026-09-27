@@ -342,12 +342,12 @@ proc inputChainHasPolicy(nftOutput: JsonNode): bool =
       continue
 
     let expression = node["rule"]["expr"]
-    if expression.len() < 3:
+    if expression.len < 3:
       continue
 
     # {} gives nil instead of raising when a rule has another shape
     let service = expression[0]{"match", "right", "set"}.getElems()
-    if service.len() == 2 and
+    if service.len == 2 and
       service[0].getInt() == 80 and
       service[1].getInt() == 443:
       info("input chain already has the required policy")
@@ -380,14 +380,14 @@ proc nginwhoChainHasPolicy(nftOutput: JsonNode, setName: string): bool =
       continue
 
     let expression = node["rule"]["expr"]
-    if expression.len() < 4:
+    if expression.len < 4:
       continue
 
     let destination = expression[0]{"match", "right"}.getStr()
     let service = expression[1]{"match", "right", "set"}.getElems()
 
     if destination == fmt"@{setName}" and
-      service.len() == 2 and
+      service.len == 2 and
       service[0].getInt() == 80 and
       service[1].getInt() == 443:
       info(fmt"nginwho chain already has the required policy for Set {setName}")
@@ -545,7 +545,7 @@ proc acceptOnly*(nftSet: NftSet) =
   ## Raises NftError when the rules can't be checked or applied
   info(fmt"Using `{getRulesetCmd}` to construct nftables rules ")
 
-  if nftSet.ipv4.len() == 0 and nftSet.ipv6.len() == 0:
+  if nftSet.ipv4.len == 0 and nftSet.ipv6.len == 0:
     warn("Received empty NFT Sets")
     return
 

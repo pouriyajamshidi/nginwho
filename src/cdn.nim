@@ -196,7 +196,7 @@ proc getCurrentEtag*(configFile: string = cidrFile): string =
   for line in lines(configFile):
     if line.startsWith("# Last etag:"):
       let etagLine = line.split("# Last etag: ")
-      if len(etagLine) > 1:
+      if etagLine.len > 1:
         return etagLine[1]
 
 

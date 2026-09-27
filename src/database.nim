@@ -372,7 +372,7 @@ proc getLastRow*(db: DbConn): Log =
 proc upsert(db: DbConn, table, column: string, values: seq[string]) =
   info(fmt"Processing {table} table")
 
-  if len(values) < 1:
+  if values.len < 1:
     info(fmt"No values to insert in {table} table")
     return
 
@@ -395,7 +395,7 @@ proc upsert(db: DbConn, table, column: string, values: seq[string]) =
 
 proc insertLogs*(db: DbConn, logs: seq[Log]): bool =
   ## Returns false when the insert failed and nothing was saved
-  let logsLen = len(logs)
+  let logsLen = logs.len
   if logsLen < 1:
     warn("No logs received")
     return true
@@ -415,16 +415,16 @@ proc insertLogs*(db: DbConn, logs: seq[Log]): bool =
     authenticatedUsers: seq[string]
 
   for log in logs:
-    if len(log.remoteIP) > 0: remoteIPs.add(log.remoteIP)
-    if len(log.httpMethod) > 0: httpMethods.add(log.httpMethod)
-    if len(log.requestURI) > 0: requestURIs.add(log.requestURI)
-    if len(log.statusCode) > 0: statusCodes.add(log.statusCode)
-    if len(log.responseSize) > 0: responseSizes.add(log.responseSize)
-    if len(log.referrer) > 0: referrers.add(log.referrer)
-    if len(log.userAgent) > 0: userAgents.add(log.userAgent)
-    if len(log.nonDefault) > 0: nonDefaults.add(log.nonDefault)
-    if len(log.remoteUser) > 0: remoteUsers.add(log.remoteUser)
-    if len(log.authenticatedUser) > 0: authenticatedUsers.add(
+    if log.remoteIP.len > 0: remoteIPs.add(log.remoteIP)
+    if log.httpMethod.len > 0: httpMethods.add(log.httpMethod)
+    if log.requestURI.len > 0: requestURIs.add(log.requestURI)
+    if log.statusCode.len > 0: statusCodes.add(log.statusCode)
+    if log.responseSize.len > 0: responseSizes.add(log.responseSize)
+    if log.referrer.len > 0: referrers.add(log.referrer)
+    if log.userAgent.len > 0: userAgents.add(log.userAgent)
+    if log.nonDefault.len > 0: nonDefaults.add(log.nonDefault)
+    if log.remoteUser.len > 0: remoteUsers.add(log.remoteUser)
+    if log.authenticatedUser.len > 0: authenticatedUsers.add(
         log.authenticatedUser)
 
   try:
