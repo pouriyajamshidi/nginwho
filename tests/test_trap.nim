@@ -216,6 +216,11 @@ suite "live trap":
         "/backup.tar.gz", "/posts/hello"]:
       check "Cache-Control: no-store" in head(path, "45.9.1.11")
 
+  test "double slashes in the path are saved as one":
+    discard get("//.env", "45.9.1.12")
+    check getDbConnection(fastDb).getValue(
+        sql"SELECT request_uri FROM trap_hits WHERE remote_ip = '45.9.1.12'") == "/.env"
+
   test "a file without a secret saves no canary":
     discard get("/.git/HEAD", "45.9.1.10")
     check lastCanary() == ""
