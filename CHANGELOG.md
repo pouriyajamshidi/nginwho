@@ -41,6 +41,7 @@ All notable changes to **nginwho** are listed here.
 ### Fixed
 
 - `--blockUntrustedCidrs` took any `inet` table, like one from firewalld, for `inet filter`, and then failed to add its rules to the missing `inet filter` table.
+- `--report=false` still started report mode. It now turns it off like `=false` does for the other flags.
 
 ## [2.4.1]
 
