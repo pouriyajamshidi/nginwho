@@ -12,14 +12,6 @@ type
   NftError* = object of CatchableError
     ## nftables could not be read or changed. Only the blocking stops, the rest of nginwho keeps going
 
-  SetType = enum
-    IPv4 = "ipv4_addr"
-    IPv6 = "ipv6_addr"
-
-  IPProtocol = enum
-    IPv4 = "ip"
-    IPv6 = "ip6"
-
   NftSet* = object
     name*: string # the CDN, its Sets are <name>_IPv4 and <name>_IPv6
     ipv4*: JsonNode
@@ -178,8 +170,8 @@ proc createNginwhoChain(): JsonNode =
   }
 
 
-proc createNginwhoIPPolicy(protocol: IPProtocol, setName: string,
-    logPrefix: string): JsonNode =
+proc createNginwhoIPPolicy(protocol, setName, logPrefix: string): JsonNode =
+  ## `protocol` is "ip" or "ip6", as nft names them
   info(fmt"Creating nginwho {protocol} policy for Set {setName}")
 
   return %* {
@@ -258,8 +250,9 @@ proc createInputChainPolicy(): JsonNode =
   }
 
 
-proc createSet(cidrs: JsonNode, setName: string, setType: SetType): seq[JsonNode] =
+proc createSet(cidrs: JsonNode, setName, setType: string): seq[JsonNode] =
   ## Returns the commands that create the Set or replace the elements of an existing one.
+  ## `setType` is "ipv4_addr" or "ipv6_addr", as nft names them.
   ## Adding to an existing Set keeps its old elements, so it is flushed first
   info(fmt"Creating {setType} Set")
 
@@ -306,11 +299,11 @@ proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
   var rules: JsonNode = %* {"nftables": []}
 
   if nftAttrs.withV4Set:
-    for command in createSet(nftSet.ipv4, nftSet.setNameV4, SetType.IPv4):
+    for command in createSet(nftSet.ipv4, nftSet.setNameV4, "ipv4_addr"):
       rules["nftables"].add(command)
 
   if nftAttrs.withV6Set:
-    for command in createSet(nftSet.ipv6, nftSet.setNameV6, SetType.IPv6):
+    for command in createSet(nftSet.ipv6, nftSet.setNameV6, "ipv6_addr"):
       rules["nftables"].add(command)
 
   if nftAttrs.withNginwhoChain:
@@ -321,9 +314,9 @@ proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
     # nft applies the file at once, so nothing gets through in between
     rules["nftables"].add(%*{"flush": {"chain": {"family": "inet",
         "table": "filter", "name": nginwhoChain}}})
-    rules["nftables"].add(createNginwhoIPPolicy(IPProtocol.IPv4,
+    rules["nftables"].add(createNginwhoIPPolicy("ip",
         nftSet.setNameV4, logPrefixV4))
-    rules["nftables"].add(createNginwhoIPPolicy(IPProtocol.IPv6,
+    rules["nftables"].add(createNginwhoIPPolicy("ip6",
         nftSet.setNameV6, logPrefixV6))
 
   if nftAttrs.withInputChain:
