@@ -773,6 +773,7 @@
     {
       "type": "table",
       "title": "Top IPs",
+      "description": "Country data from ip66.dev (CC BY 4.0)",
       "datasource": {
         "type": "loki",
         "uid": "${loki}"
@@ -784,7 +785,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "topk(20, sum by (ip) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` [$__range])))",
+          "expr": "topk(20, sum by (ip, country_name) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` [$__range])))",
           "queryType": "instant",
           "instant": true,
           "range": false
@@ -806,9 +807,14 @@
             "excludeByName": {
               "Time": true
             },
+            "indexByName": {
+              "ip": 0,
+              "country_name": 1
+            },
             "renameByName": {
               "Value": "hits",
-              "Value #A": "hits"
+              "Value #A": "hits",
+              "country_name": "country"
             }
           }
         },
@@ -1138,6 +1144,7 @@
     {
       "type": "table",
       "title": "Top IPs with 4xx",
+      "description": "Country data from ip66.dev (CC BY 4.0)",
       "datasource": {
         "type": "loki",
         "uid": "${loki}"
@@ -1149,7 +1156,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "topk(20, sum by (ip) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` | status =~ \"4..\" [$__range])))",
+          "expr": "topk(20, sum by (ip, country_name) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` | status =~ \"4..\" [$__range])))",
           "queryType": "instant",
           "instant": true,
           "range": false
@@ -1171,9 +1178,14 @@
             "excludeByName": {
               "Time": true
             },
+            "indexByName": {
+              "ip": 0,
+              "country_name": 1
+            },
             "renameByName": {
               "Value": "hits",
-              "Value #A": "hits"
+              "Value #A": "hits",
+              "country_name": "country"
             }
           }
         },
@@ -1558,6 +1570,7 @@
     {
       "type": "table",
       "title": "Top trapped IPs",
+      "description": "Country data from ip66.dev (CC BY 4.0)",
       "datasource": {
         "type": "loki",
         "uid": "${loki}"
@@ -1569,7 +1582,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "topk(20, sum by (ip) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` [$__range])))",
+          "expr": "topk(20, sum by (ip, country_name) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` [$__range])))",
           "queryType": "instant",
           "instant": true,
           "range": false
@@ -1591,9 +1604,14 @@
             "excludeByName": {
               "Time": true
             },
+            "indexByName": {
+              "ip": 0,
+              "country_name": 1
+            },
             "renameByName": {
               "Value": "hits",
-              "Value #A": "hits"
+              "Value #A": "hits",
+              "country_name": "country"
             }
           }
         },
