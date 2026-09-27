@@ -132,7 +132,7 @@ proc validCidrs*(cidrs: JsonNode): seq[string] =
 proc applyRules() =
   info("Applying nftables rules")
 
-  let res: int = execCmd(fmt"nft -j -f {rulesFile}")
+  let res = execCmd(fmt"nft -j -f {rulesFile}")
   if res != 0:
     raise newException(NftError, "Failed applying nftables rules - Are you root?")
   else:
@@ -258,7 +258,7 @@ proc createSet(cidrs: JsonNode, setName, setType: string): seq[JsonNode] =
 
   let setId = %* {"family": "inet", "table": "filter", "name": setName}
 
-  var ipSet: JsonNode = %* {
+  var ipSet = %* {
     "add": {
       "set": {
         "family": "inet",
@@ -275,7 +275,7 @@ proc createSet(cidrs: JsonNode, setName, setType: string): seq[JsonNode] =
   }
 
   for cidr in validCidrs(cidrs):
-    let ipAndPrefixLen: seq[string] = cidr.split("/")
+    let ipAndPrefixLen = cidr.split("/")
 
     ipSet["add"]["set"]["elem"].add(%*{
       "prefix": {
@@ -296,7 +296,7 @@ proc createSet(cidrs: JsonNode, setName, setType: string): seq[JsonNode] =
 proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
   info(fmt"Creating nftables rules")
 
-  var rules: JsonNode = %* {"nftables": []}
+  var rules = %* {"nftables": []}
 
   if nftAttrs.withV4Set:
     for command in createSet(nftSet.ipv4, nftSet.setNameV4, "ipv4_addr"):
@@ -531,7 +531,7 @@ proc requiredChanges*(nftOutput: JsonNode, nftSet: NftSet): NftAttrs =
 proc runPrechecks(nftSet: NftSet): NftAttrs =
   info("Running nftables pre-checks")
 
-  let nftOutput: JsonNode = getCurrentRules()
+  let nftOutput = getCurrentRules()
 
   if not inetFilterExists(nftOutput):
     info("Please create one manually using this sample:\n\n",
@@ -549,9 +549,9 @@ proc acceptOnly*(nftSet: NftSet) =
     warn("Received empty NFT Sets")
     return
 
-  let nftAttrs: NftAttrs = runPrechecks(nftSet)
+  let nftAttrs = runPrechecks(nftSet)
 
   if changesRequired(nftAttrs):
-    let rules: JsonNode = createRules(nftSet, nftAttrs)
+    let rules = createRules(nftSet, nftAttrs)
     writeRulesAndApply(rules)
 

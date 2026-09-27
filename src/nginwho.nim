@@ -1,7 +1,7 @@
 import std/asyncdispatch
 from std/strformat import fmt
 from std/strutils import parseBool, splitLines, startsWith, split, strip
-from db_connector/db_sqlite import DbConn, DbError
+from db_connector/db_sqlite import DbError
 from std/os import getFileInfo, FileInfo, FileId, dirExists, fileExists,
     createDir, parentDir
 from std/net import Port
@@ -154,7 +154,7 @@ proc getArgs(): Args =
 proc processAndRecordLogs(args: Args) {.async.} =
   info("Processing log entries")
 
-  let db: DbConn = getDbConnection(args.dbPath)
+  let db = getDbConnection(args.dbPath)
   defer: closeDbConnection(db)
 
   createTables(db)
@@ -263,7 +263,7 @@ proc runPreChecks(args: Args) =
 
 proc main() =
   # parse args first so --help and --version print nothing else
-  let args: Args = getArgs()
+  let args = getArgs()
 
   if args.report:
     # info logs would get mixed with the report output

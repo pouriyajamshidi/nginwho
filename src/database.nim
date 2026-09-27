@@ -100,7 +100,7 @@ proc getDbConnection*(dbPath: string): DbConn =
     # SQLite creates the file but not its folder, such as /var/lib/nginwho
     if isNewFile and dbPath.parentDir != "":
       createDir(dbPath.parentDir)
-    let connection: DbConn = open(dbPath, "", "", "")
+    let connection = open(dbPath, "", "", "")
     # WAL lets --report read while the service writes
     connection.exec(sql"PRAGMA journal_mode = WAL")
     # safe with WAL and much faster than the default FULL

@@ -84,7 +84,7 @@ proc isFromDomain*(referrer, domain: string): bool =
 proc parseLogEntry*(logLine: string, omit: string): Log =
   var log: Log
 
-  let matches: seq[string] = logLine.splitWhitespace()
+  let matches = logLine.splitWhitespace()
 
   if matches.len >= 12:
     log.remoteIP = matches[0]

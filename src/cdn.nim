@@ -1,6 +1,5 @@
 import std/[asyncdispatch, httpcore, json]
-from std/httpclient import AsyncHttpClient, AsyncResponse, newAsyncHttpClient,
-    close, get, code, body
+from std/httpclient import newAsyncHttpClient, close, get, code, body
 from std/strformat import fmt
 from std/options import Option, none, some, isNone, get
 from std/strutils import startsWith, split, join, toHex, capitalizeAscii, parseInt
@@ -68,7 +67,7 @@ proc parseCidrsResponse*(cdn: Cdn, jsonResponse: JsonNode): Option[Cidrs] =
 
   case cdn
   of Cloudflare:
-    let apiSuccess: bool = jsonResponse{"success"}.getBool()
+    let apiSuccess = jsonResponse{"success"}.getBool()
     if not apiSuccess:
       warn(fmt"API `success` is not true: {apiSuccess}")
       return none(Cidrs)
@@ -92,19 +91,19 @@ proc getCdnCIDRs(cdn: Cdn): Future[Option[Cidrs]] {.async.} =
   info(fmt"Getting {cdn.name} CIDRs")
 
   let apiUrl = apiUrls[cdn]
-  let client: AsyncHttpClient = newAsyncHttpClient()
+  let client = newAsyncHttpClient()
   defer: client.close()
 
   var jsonResponse: JsonNode
 
   try:
-    let request: Future[AsyncResponse] = client.get(apiUrl)
+    let request = client.get(apiUrl)
 
     if not await request.withTimeout(timeoutMs):
       error(fmt"Call to {apiUrl} timed out")
       return none(Cidrs)
 
-    let response: AsyncResponse = request.read()
+    let response = request.read()
 
     if response.code != Http200:
       error(fmt"Call to {apiUrl} failed")
@@ -121,10 +120,10 @@ proc getCdnCIDRs(cdn: Cdn): Future[Option[Cidrs]] {.async.} =
 proc populateReverseProxyFile*(filePath: string, cidrs: Cidrs): bool =
   info(fmt"Populating CIDRs file in {filePath}")
 
-  let now: string = getTime().format(dateFormat)
+  let now = getTime().format(dateFormat)
 
   try:
-    let file: File = open(filePath, fmWrite)
+    let file = open(filePath, fmWrite)
     defer: file.close()
 
     file.write("# ", cidrs.cdn.name, " ranges\n")
@@ -196,7 +195,7 @@ proc getCurrentEtag*(configFile: string = cidrFile): string =
 
   for line in lines(configFile):
     if line.startsWith("# Last etag:"):
-      let etagLine: seq[string] = line.split("# Last etag: ")
+      let etagLine = line.split("# Last etag: ")
       if len(etagLine) > 1:
         return etagLine[1]
 
@@ -209,14 +208,14 @@ proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
   info(fmt"Fetching and processing {cdn.name} CIDRs")
 
   while true:
-    let fetched: Option[Cidrs] = await getCdnCIDRs(cdn)
+    let fetched = await getCdnCIDRs(cdn)
     if fetched.isNone:
       # try again soon, a boot without network should not leave the firewall open for six hours
       error("Failed fetching CIDRs, trying again in a minute")
       await sleepAsync(retryMs)
       continue
 
-    let cidrs: Cidrs = fetched.get()
+    let cidrs = fetched.get()
 
     if blockUntrustedCidrs:
       try:
@@ -228,7 +227,7 @@ proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
     if serve:
       trustRanges(cidrs)
     elif showRealIPs:
-      let currentEtag: string = getCurrentEtag()
+      let currentEtag = getCurrentEtag()
       if currentEtag != cidrs.etag:
         # nginx reload is graceful and does not drop open connections
         if populateReverseProxyFile(cidrFile, cidrs):
