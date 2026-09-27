@@ -4,7 +4,7 @@ from db_connector/db_sqlite import DbConn, Row, open, close, exec, getAllRows, g
 
 from nginx import Log, parseLogEntry, readNewLines, offsetAfterLastInserted
 from database import TrapHit, getDbConnection, closeDbConnection, createTables, insertLogs, getLastRow, getTopIPs,
-    getTopURIs, getTopReferres, getTopUserAgents, getTopUnsuccessfulRequests, getNonDefaults, getTotalRequests,
+    getTopURIs, getTopReferrers, getTopUserAgents, getTopUnsuccessfulRequests, getNonDefaults, getTotalRequests,
     getTotalNonDefaults, getSpan, hasOldSchema, insertTrapHit
 
 
@@ -139,7 +139,7 @@ suite "database":
 
     insertLogs(db, @[log(referrer = "https://x.com"), log(referrer = "https://y.com"),
         log(referrer = "https://y.com")])
-    check db.getTopReferres(1) == @[@["https://y.com", "2"]]
+    check db.getTopReferrers(1) == @[@["https://y.com", "2"]]
 
     insertLogs(db, @[log(userAgent = "bot/1.0"), log(userAgent = "bot/1.0")])
     check db.getTopUserAgents(2) == @[@["curl/8.0", "9"], @["bot/1.0", "2"]]
@@ -186,7 +186,7 @@ suite "database":
     check db.getTopIPs(10) == @[@["1.1.1.1", "4"], @["2.2.2.2", "2"]]
     check db.getTopIPs(10, since) == @[@["2.2.2.2", "2"], @["1.1.1.1", "1"]]
     check db.getTopURIs(10, since) == @[@["/new", "3"]]
-    check db.getTopReferres(10, since) == @[@["https://new.com", "1"]]
+    check db.getTopReferrers(10, since) == @[@["https://new.com", "1"]]
     check db.getTopUserAgents(10, since) == @[@["curl/8.0", "3"]]
     check db.getTotalRequests() == 6
     check db.getTotalRequests(since) == 3

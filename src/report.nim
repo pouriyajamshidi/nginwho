@@ -11,7 +11,7 @@ from db_connector/db_sqlite import DbConn, Row
 from nginx import dateFormat
 from database import getDbConnection, closeDbConnection, createTables,
     hasOldSchema, getTopIPs, getTopURIs, getTopUnsuccessfulRequests,
-        getTopReferres, getTopUserAgents, getNonDefaults,
+        getTopReferrers, getTopUserAgents, getNonDefaults,
     getTotalRequests, getTotalNonDefaults, getSpan,
     getTopTrappedIPs, getTopTraps, getTopTrappedURIs, getTrappedCredentials, getTrapTotals
 
@@ -36,7 +36,7 @@ let reports = [
   Report(name: "Top URIs", columns: @["URI"], query: getTopURIs),
   Report(name: "Top unsuccessful requests", columns: @["Status", "URI",
       "User agent"], query: getTopUnsuccessfulRequests),
-  Report(name: "Top referrers", columns: @["Referrer"], query: getTopReferres),
+  Report(name: "Top referrers", columns: @["Referrer"], query: getTopReferrers),
   Report(name: "Top user agents", columns: @["User agent"],
       query: getTopUserAgents),
   # non-default logs are saved without a date
