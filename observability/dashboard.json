@@ -18,13 +18,15 @@
         "name": "loki",
         "label": "Logs",
         "type": "datasource",
-        "query": "loki"
+        "query": "loki",
+        "regex": "/^(?!.*(alert-state-history|usage))/"
       },
       {
         "name": "prometheus",
         "label": "Metrics",
         "type": "datasource",
-        "query": "prometheus"
+        "query": "prometheus",
+        "regex": "/^(?!.*(alert-state-history|usage))/"
       },
       {
         "name": "job",
