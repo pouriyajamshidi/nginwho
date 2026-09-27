@@ -134,7 +134,7 @@ proc anyOf(path: string, needles: openArray[string]): bool =
 
 
 proc classify*(path: string): Trap =
-  ## What the bot was looking for. The patterns come from tmp/TODO.md
+  ## What the bot was looking for
   let p = path.toLowerAscii
 
   # Spring boot endpoints first, so /actuator/env is not read as a plain .env file
