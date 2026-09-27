@@ -142,7 +142,7 @@ proc formatTotals*(totals: seq[tuple[name: string, count: int, first,
     result.add(line)
 
 
-proc warn(message: string) =
+proc printRed(message: string) =
   stdout.styledWriteLine(fgRed, message)
 
 
@@ -170,7 +170,7 @@ proc askNumber(question: string, max: int): int =
     except ValueError:
       discard
 
-    warn(fmt"Pick a number from 1 to {max}, or q to go back")
+    printRed(fmt"Pick a number from 1 to {max}, or q to go back")
 
 
 proc printMenu(lines: seq[string]) =
@@ -225,7 +225,7 @@ proc showResults(db: DbConn, report: Report, num: int, window: TimeWindow) =
   echo()
 
   if rows.len == 0:
-    warn("  No records found")
+    printRed("  No records found")
     return
 
   let countHeader = if report.isTrap: "Hits" else: "Requests"
@@ -288,7 +288,7 @@ proc report*(dbPath: string) =
 
     let option = try: parseInt(choice) except ValueError: 0
     if option < 1 or option > reports.len:
-      warn("Pick an option from the menu")
+      printRed("Pick an option from the menu")
       continue
 
     let num = askNumber("Number of records to show: ", high(int32))
