@@ -227,6 +227,13 @@ suite "CDN CIDRs file":
     # a Cloudflare response is not a Fastly one
     check parseCidrsResponse(Fastly, apiResponse).isNone
 
+  test "a bad range from the CDN is skipped instead of crashing the check":
+    trustRanges(Cidrs(cdn: Fastly, ipv4: %*["23.235.32.0/40", "nope/20", "23.235.32.9"],
+        ipv6: %*["2a04:4e42::/200"]))
+    check visitorIP("23.235.32.9", "203.0.113.7") == "203.0.113.7"
+    check visitorIP("23.235.32.10", "203.0.113.7") == "23.235.32.10"
+    check visitorIP("2a04:4e42::5", "2001:db8::1") == "2a04:4e42::5"
+
   test "written file gives back the same etag and CIDRs":
     # the etag decides if nginx gets reloaded, the CIDRs feed nftables
     let path = tempDir / "nginwho"

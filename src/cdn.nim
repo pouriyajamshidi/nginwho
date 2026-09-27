@@ -13,7 +13,7 @@ from std/os import fileExists
 from std/logging import info, error, warn
 
 from nginx import reloadNginx, dateFormat
-from nftables import acceptOnly, NftSet, NftError
+from nftables import acceptOnly, NftSet, NftError, validCidrs
 
 
 type
@@ -151,14 +151,10 @@ proc trustRanges*(cidrs: Cidrs) =
   ## Replaces the ranges `visitorIP` trusts
   var ranges: seq[tuple[network: IpAddress, bits: int]]
   for list in [cidrs.ipv4, cidrs.ipv6]:
-    for cidr in list:
-      let parts = cidr.getStr().split('/')
-      try:
-        if parts.len != 2:
-          raise newException(ValueError, "no prefix length")
-        ranges.add((parseIpAddress(parts[0]), parseInt(parts[1])))
-      except ValueError:
-        warn(fmt"Skipping bad CIDR {cidr.getStr()}")
+    # the same check as for nftables. a prefix length past the address would crash fromCdn
+    for cidr in validCidrs(list):
+      let parts = cidr.split('/')
+      ranges.add((parseIpAddress(parts[0]), parseInt(parts[1])))
   trustedRanges = ranges
 
 
