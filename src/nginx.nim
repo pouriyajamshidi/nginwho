@@ -39,18 +39,19 @@ proc isStaticAsset*(requestURI: string): bool =
 
 
 proc ensureNginxLogExists*(logPath: string) =
+  ## Raises IOError when the log is missing
   info("Ensuring nginx log exists")
 
   if not fileExists(logPath):
-    error(fmt"nginx log file not found at: {logPath}")
-    quit(1)
+    raise newException(IOError, fmt"nginx log file not found at: {logPath}")
+
 
 proc ensureNginxExists*() =
+  ## Raises OSError when nginx is not installed
   info("Ensuring nginx command exists")
 
   if findExe("nginx") == "":
-    error("nginx command not found")
-    quit(1)
+    raise newException(OSError, "nginx command not found")
 
 
 proc testNginxConfig(): int =

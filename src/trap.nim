@@ -581,8 +581,7 @@ proc trap*(cfg: TrapConfig, dbPath: string, address = "127.0.0.1") {.async.} =
     server.bindAddr(Port(cfg.port), address)
     server.listen()
   except OSError as e:
-    error(fmt"Trap could not listen on {address}:{cfg.port}: {e.msg}")
-    quit(1)
+    raise newException(OSError, fmt"Trap could not listen on {address}:{cfg.port}: {e.msg}")
   info(fmt"Trap is open on {address}:{cfg.port}")
 
   while true:

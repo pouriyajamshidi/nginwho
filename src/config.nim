@@ -94,7 +94,8 @@ proc get[T](config: Config, section, key: string, fallback: T, parse: proc (
 
 
 proc readConfigFile*(path: string, args: var Args) =
-  ## Fills `args` from the config file. A missing file is fine, the defaults stand
+  ## Fills `args` from the config file. A missing file is fine, the defaults stand.
+  ## Raises IOError when the file can't be read
   if not fileExists(path):
     return
 
@@ -104,8 +105,7 @@ proc readConfigFile*(path: string, args: var Args) =
   try:
     config = loadConfig(path)
   except CatchableError as e:
-    error(fmt"Could not read {path}: {e.msg}")
-    quit(1)
+    raise newException(IOError, fmt"Could not read {path}: {e.msg}")
 
   args.dbPath = config.getString("database", "path", args.dbPath)
 

@@ -3,7 +3,7 @@ from std/os import findExe
 from std/strformat import fmt
 from std/strutils import split, parseInt
 from std/algorithm import sorted
-from std/logging import info, error, warn, fatal
+from std/logging import info, error, warn
 from std/osproc import execProcess, execCmd
 from std/net import parseIpAddress, IpAddress, IpAddressFamily
 
@@ -501,11 +501,11 @@ proc writeRulesAndApply(rules: JsonNode) =
 
 
 proc ensureNftExists*() =
+  ## Raises OSError when nftables is not installed
   info("Checking existence of nftables")
 
   if findExe("nft") == "":
-    fatal("nftables command not found")
-    quit(1)
+    raise newException(OSError, "nftables command not found")
 
 
 proc changesRequired(nftAttrs: NftAttrs): bool =

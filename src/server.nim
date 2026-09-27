@@ -367,8 +367,7 @@ proc serve*(root, logPath: string, port: Port, address = "::",
     server.listen()
   except OSError as e:
     # ports below 1024 need root or CAP_NET_BIND_SERVICE
-    error(fmt"Could not listen on [{address}]:{port}: {e.msg}")
-    quit(1)
+    raise newException(OSError, fmt"Could not listen on [{address}]:{port}: {e.msg}")
   info(fmt"Serving {root} on [{address}]:{port}")
 
   while true:
