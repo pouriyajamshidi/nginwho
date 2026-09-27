@@ -153,20 +153,30 @@ let
   fastDb = startTrap(fastPort, 0)
 
 
-proc get(path, ip: string, port = fastPort, userAgent = "curl"): string =
-  ## Asks a trap for a path as `ip` and returns the body once the trap is done
+proc ask(httpMethod, path, ip: string, port: int, userAgent: string): string =
+  ## Asks a trap for a path as `ip` and returns the whole response once the trap is done
   proc run(): Future[string] {.async.} =
     let socket = newAsyncSocket()
     defer: socket.close()
     await socket.connect("127.0.0.1", Port(port))
-    await socket.send("GET " & path & " HTTP/1.1\r\nHost: x\r\nX-Real-IP: " & ip &
+    await socket.send(httpMethod & " " & path & " HTTP/1.1\r\nHost: x\r\nX-Real-IP: " & ip &
         "\r\nUser-Agent: " & userAgent & "\r\n\r\n")
     while true:
       let data = await socket.recv(4096)
       if data == "":
         break
       result.add(data)
-  return waitFor(run()).split("\r\n\r\n", maxsplit = 1)[1]
+  return waitFor(run())
+
+
+proc get(path, ip: string, port = fastPort, userAgent = "curl"): string =
+  ## The body a trap sends for a path
+  return ask("GET", path, ip, port, userAgent).split("\r\n\r\n", maxsplit = 1)[1]
+
+
+proc head(path, ip: string): string =
+  ## The response head a trap sends for a path
+  return ask("HEAD", path, ip, fastPort, "curl")
 
 
 proc lastCanary(): string =
@@ -199,6 +209,12 @@ suite "live trap":
 
     check get("/.git/config", "45.9.1.10").contains(lastCanary())
     check lastCanary().startsWith("ghp_")
+
+  test "no trap can be cached by a CDN":
+    # a drip, a maze, a login, an endless body, a bomb download and a miss
+    for path in ["/.env", "/.git/objects", "/wp-login.php", "/xmlrpc.php",
+        "/backup.tar.gz", "/posts/hello"]:
+      check "Cache-Control: no-store" in head(path, "45.9.1.11")
 
   test "a file without a secret saves no canary":
     discard get("/.git/HEAD", "45.9.1.10")

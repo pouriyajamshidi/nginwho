@@ -634,9 +634,13 @@ so they show up in your reports like any visit. The bots the trap catches are sa
 The lines that do this are in [The nginx config](#the-nginx-config).
 
 > [!NOTE]
-> Behind a CDN, check that the slow drip arrives byte by byte and that the gzip bomb gets
-> through before you rely on either. Cloudflare gives up if an answer doesn't start within 100
-> seconds, so the trap always sends its headers right away.
+> Behind Cloudflare, the gzip bomb gets through. A bot that asks for gzip, or for no
+> compression at all, gets it as it was sent. A client that accepts zstd, like a browser, gets
+> nothing, since Cloudflare unpacks the bomb on its side to compress it again. The trap tells
+> CDNs never to cache what it sends, or a cached bomb would go out to bots the trap never sees.
+> Cloudflare gives up if an answer doesn't start within 100 seconds, so the trap always sends
+> its headers right away. Whether the slow drip arrives byte by byte through Cloudflare, and
+> anything behind Fastly, is not tested yet, so check those before you rely on them.
 
 #### Trapping bots by their name
 

@@ -365,6 +365,12 @@ proc sendBomb(client: AsyncSocket, deadline: float, played: Played) {.async.} =
     played.bytes.inc(zerosGz.len)
 
 
+proc trapHead(status: HttpCode, headers: openArray[(string, string)]): string =
+  ## A CDN must never cache a trap. Cloudflare caches .gz and .zip files, and a cached
+  ## bomb goes out to the next bots without the trap seeing or saving them
+  responseHead(status, false, @headers & ("Cache-Control", "no-store"))
+
+
 proc submittedCredentials(body: string): string =
   ## Pulls the username and password out of a posted login form
   var user, password: string
@@ -397,10 +403,9 @@ proc playLogin(client: AsyncSocket, req: Request, values: Table[string, string],
 
   let body = fill(loginTemplate, page)
   let status = if req.httpMethod == "POST": Http401 else: Http200
-  await client.sendTimed(responseHead(status, false, [
+  await client.sendTimed(trapHead(status, [
     ("Content-Type", "text/html; charset=UTF-8"),
     ("Content-Length", $body.len),
-    ("Cache-Control", "no-store"),
   ]))
   if req.httpMethod != "HEAD":
     await client.sendTimed(body)
@@ -425,24 +430,23 @@ proc play(client: AsyncSocket, req: Request, trap: Trap, tactic: Tactic,
     var headers = @[("Content-Type", if download: "application/gzip" else: "text/plain")]
     if not download:
       headers.add(("Content-Encoding", "gzip"))
-    await client.sendTimed(responseHead(Http200, false, headers))
+    await client.sendTimed(trapHead(Http200, headers))
     if req.httpMethod != "HEAD":
       await client.sendBomb(deadline, played)
   of maze:
     let body = mazePage(rng, req.path)
-    await client.sendTimed(responseHead(Http200, false, [
+    await client.sendTimed(trapHead(Http200, [
       ("Content-Type", "text/html"), ("Content-Length", $body.len)]))
     if req.httpMethod != "HEAD":
       await client.dripBody(body, cfg, rng, deadline, played)
   of endless:
-    await client.sendTimed(responseHead(Http200, false, [("Content-Type",
-        "text/plain")]))
+    await client.sendTimed(trapHead(Http200, [("Content-Type", "text/plain")]))
     if req.httpMethod != "HEAD":
       await client.dripEndless(trap, values, cfg, rng, deadline, played)
   of drip:
     let (body, contentType, canary) = fakeFile(trap, req.path, values, rng)
     played.detail = canary
-    await client.sendTimed(responseHead(Http200, false, [
+    await client.sendTimed(trapHead(Http200, [
       ("Content-Type", contentType), ("Content-Length", $body.len)]))
     if req.httpMethod != "HEAD":
       await client.dripBody(body, cfg, rng, deadline, played)
@@ -451,7 +455,7 @@ proc play(client: AsyncSocket, req: Request, trap: Trap, tactic: Tactic,
 proc sendNotFound(client: AsyncSocket) {.async.} =
   ## nginx turns this into the real 404 page of the site
   const body = "404 Not Found\n"
-  await client.sendTimed(responseHead(Http404, false, [
+  await client.sendTimed(trapHead(Http404, [
     ("Content-Type", "text/plain"), ("Content-Length", $body.len)]))
   await client.sendTimed(body)
 
