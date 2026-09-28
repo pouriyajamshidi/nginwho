@@ -1,7 +1,7 @@
 import std/json
 from std/os import findExe
 from std/strformat import fmt
-from std/strutils import split, parseInt
+from std/strutils import split, rsplit, parseInt, splitLines, splitWhitespace, contains
 from std/algorithm import sorted
 from std/logging import info, error, warn
 from std/osproc import execProcess, execCmd
@@ -36,6 +36,8 @@ const
   inputChain = "input"
   logPrefixV4 = "NGINWHO_DROPPED_v4 "
   logPrefixV6 = "NGINWHO_DROPPED_v6 "
+  lockdownChain = "nginwho_input"
+  logPrefixLockdown = "NGINWHO_INPUT_DROPPED "
 
 
 proc setNameV4(nftSet: NftSet): string = nftSet.name & "_IPv4"
@@ -166,6 +168,68 @@ proc createNginwhoIPPolicy(protocol, setName, logPrefix: string): seq[JsonNode] 
 proc nginwhoRules(nftSet: NftSet): seq[JsonNode] =
   createNginwhoIPPolicy("ip", nftSet.setNameV4, logPrefixV4) &
     createNginwhoIPPolicy("ip6", nftSet.setNameV6, logPrefixV6)
+
+
+proc lockdownBaseChain(): JsonNode = baseChain(lockdownChain, "input", 0, "drop")
+
+
+proc lockdownRules(sshPorts: seq[int]): seq[JsonNode] =
+  ## What a web server lets in. The rest is logged and dropped
+  let accept = %*{"accept": nil}
+
+  result = @[
+    addRule(lockdownChain, @[%*{"match": {"op": "==", "left": {"meta": {"key": "iif"}},
+        "right": "lo"}}, accept]),
+    # replies to connections the server made, like DNS lookups and updates
+    addRule(lockdownChain, @[%*{"match": {"op": "in", "left": {"ct": {"key": "state"}},
+        "right": ["established", "related"]}}, accept]),
+    # ping, and IPv6 can't find the router or its neighbours without ICMPv6
+    addRule(lockdownChain, @[%*{"match": {"op": "==", "left": {"meta": {"key": "l4proto"}},
+        "right": {"set": ["icmp", "ipv6-icmp"]}}}, accept]),
+    # DHCPv6 answers from another address than it was asked on, so it is not seen as a reply
+    addRule(lockdownChain, @[
+      %*{"match": {"op": "==", "left": {"meta": {"key": "nfproto"}}, "right": "ipv6"}},
+      %*{"match": {"op": "==", "left": {"payload": {"protocol": "udp", "field": "dport"}},
+          "right": 546}},
+      accept])
+  ]
+
+  for port in sshPorts:
+    result.add(addRule(lockdownChain, @[%*{"match": {"op": "==",
+        "left": {"payload": {"protocol": "tcp", "field": "dport"}}, "right": port}}, accept]))
+
+  result.add(addRule(lockdownChain, webTraffic() & @[accept]))
+  result.add(addRule(lockdownChain, @[%*{"counter": {"packets": 0, "bytes": 0}}] &
+      limitedLog(logPrefixLockdown)))
+
+
+proc createLockdown*(sshPorts: seq[int]): JsonNode =
+  result = %* {"nftables": [{"add": {"table": {"family": "inet", "name": "filter"}}}]}
+  for command in replaceChain(lockdownBaseChain()) & lockdownRules(sshPorts):
+    result["nftables"].add(command)
+
+
+proc parseSshPorts*(ssOutput: string): seq[int] =
+  ## The ports sshd listens on, from the output of `ss -Htlnp`
+  for line in ssOutput.splitLines():
+    if not line.contains("((\"sshd\","):
+      continue
+    let fields = line.splitWhitespace()
+    if fields.len < 4:
+      continue
+    # 0.0.0.0:22 or [::]:22
+    try:
+      let port = parseInt(fields[3].rsplit(':', 1)[^1])
+      if port notin result:
+        result.add(port)
+    except ValueError:
+      discard
+
+
+proc findSshPorts*(): seq[int] =
+  ## Empty when sshd is not running, not found, or started by systemd's ssh.socket
+  info("Looking for the ports sshd listens on")
+  parseSshPorts(execProcess("ss -Htlnp"))
 
 
 proc createInputChain(): JsonNode =
@@ -453,3 +517,18 @@ proc acceptOnly*(nftSet: NftSet) =
     let rules = createRules(nftSet, nftAttrs)
     writeRulesAndApply(rules)
 
+
+proc lockdownIsCurrent*(nftOutput: JsonNode, sshPorts: seq[int]): bool =
+  chainIsCurrent(inetFilterOnly(nftOutput), lockdownBaseChain(), lockdownRules(sshPorts))
+
+
+proc lockDown*(sshPorts: seq[int]) =
+  ## Drops everything coming in but SSH on `sshPorts`, the web ports and what a server needs.
+  ## Raises NftError when the rules can't be checked or applied, or when no SSH port is given
+  if sshPorts.len == 0:
+    # a wrong guess would lock the user out of their own server
+    raise newException(NftError, "Not locking down, the SSH port is not known. " &
+        "Set ssh_port under [firewall] or --sshPort")
+
+  if not lockdownIsCurrent(getCurrentRules(), sshPorts):
+    writeRulesAndApply(createLockdown(sshPorts))

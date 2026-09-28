@@ -1,7 +1,8 @@
 import std/[unittest, json, os]
 from std/osproc import execCmdEx
 
-from nftables import NftSet, NftAttrs, createRules, requiredChanges, validCidrs
+from nftables import NftSet, NftAttrs, NftError, createRules, requiredChanges, validCidrs,
+    createLockdown, lockdownIsCurrent, parseSshPorts, lockDown
 
 const allChanges = NftAttrs(withV4Set: true, withV6Set: true,
     withNginwhoChain: true,
@@ -213,3 +214,51 @@ suite "nftables":
           "nft add rule inet filter input tcp dport '{ 80, 443 }' counter accept"
       let before = applyInNamespace(@[], setup)
       check not requiredChanges(before, cidrs).withInputPolicy
+
+  test "the ports sshd listens on are read from ss":
+    let ss = """
+LISTEN 0      128    0.0.0.0:65222 0.0.0.0:* users:(("sshd",pid=1118,fd=5))
+LISTEN 0      128    0.0.0.0:2222  0.0.0.0:* users:(("sshd",pid=1118,fd=3))
+LISTEN 0      128       [::]:65222    [::]:* users:(("sshd",pid=1118,fd=6))
+LISTEN 0      511    0.0.0.0:80    0.0.0.0:* users:(("nginx",pid=900,fd=6))
+LISTEN 0      4096         *:22          *:* users:(("systemd",pid=1,fd=86))
+"""
+    check parseSshPorts(ss) == @[65222, 2222]
+    # ss without root shows no processes
+    check parseSshPorts("LISTEN 0 128 0.0.0.0:22 0.0.0.0:*") == newSeq[int]()
+
+  test "no lockdown without an SSH port":
+    expect NftError:
+      lockDown(@[])
+
+  test "real nft accepts the lockdown and the next run sees nothing to change":
+    if not canRunNft():
+      skip()
+    else:
+      let ruleset = applyInNamespace(@[createLockdown(@[65222])])
+      check lockdownIsCurrent(ruleset, @[65222])
+      check not lockdownIsCurrent(ruleset, @[22])
+
+  test "a new SSH port replaces the old one":
+    if not canRunNft():
+      skip()
+    else:
+      let ruleset = applyInNamespace(@[createLockdown(@[22]), createLockdown(@[65222])])
+      check lockdownIsCurrent(ruleset, @[65222])
+
+  test "the lockdown leaves the user's input chain and the nginwho chain alone":
+    if not canRunNft():
+      skip()
+    else:
+      let setup = "nft add table inet filter && " &
+          "nft 'add chain inet filter input { type filter hook input priority filter; policy accept; }' && " &
+          "nft add rule inet filter input udp dport 51820 accept"
+      let ruleset = applyInNamespace(@[createRules(cidrs, allChanges), createLockdown(@[65222])], setup)
+      check requiredChanges(ruleset, cidrs) == NftAttrs()
+      check lockdownIsCurrent(ruleset, @[65222])
+      var userRule = false
+      for node in ruleset:
+        if node{"rule", "chain"}.getStr() == "input" and
+            node["rule"]["expr"][0]{"match", "right"} == %51820:
+          userRule = true
+      check userRule
