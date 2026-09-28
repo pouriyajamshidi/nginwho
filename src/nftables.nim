@@ -22,7 +22,6 @@ type
     withV4Set*: bool
     withV6Set*: bool
     withNginwhoChain*: bool
-    withNginwhoPolicies*: bool
     withInputChain*: bool
     withInputPolicy*: bool
 
@@ -31,6 +30,8 @@ const
   getRulesetCmd = "nft -j list ruleset"
   rulesFile = "/run/nginwho.nft"
   nginwhoChain = "nginwho"
+  nginwhoHook = "prerouting"
+  nginwhoPrio = -10
   inputChain = "input"
   logPrefixV4 = "NGINWHO_DROPPED_v4 "
   logPrefixV6 = "NGINWHO_DROPPED_v6 "
@@ -100,36 +101,39 @@ proc writeRules(rules: JsonNode): bool =
     return false
 
 
-proc createNginwhoChain(): JsonNode =
+proc createNginwhoChain(): seq[JsonNode] =
+  ## Returns the commands that make the chain from scratch. A chain's hook and priority can't
+  ## be changed in place, and the rules of another CDN would drop this one's traffic, so the
+  ## old chain is deleted first. Adding a chain that exists does nothing, so this makes sure
+  ## there is one to delete. nft applies the file at once, so nothing gets through in between
   info("Creating nginwho chain")
 
-  return %* {
-    "add": {
-      "chain": {
-        "family": "inet",
-        "table": "filter",
-        "name": nginwhoChain,
-        "handle": 1,
-        "type": "filter",
-        "hook": "prerouting",
-        "prio": -10,
-        "policy": "accept"
-    }
-  }
-  }
+  let chainId = %* {"family": "inet", "table": "filter", "name": nginwhoChain}
+
+  return @[
+    %*{"add": {"chain": chainId}},
+    %*{"flush": {"chain": chainId}},
+    %*{"delete": {"chain": chainId}},
+    %*{"add": {"chain": {
+      "family": "inet",
+      "table": "filter",
+      "name": nginwhoChain,
+      "type": "filter",
+      "hook": nginwhoHook,
+      "prio": nginwhoPrio,
+      "policy": "accept"
+    }}}
+  ]
 
 
 proc createNginwhoIPPolicy(protocol, setName, logPrefix: string): JsonNode =
   ## `protocol` is "ip" or "ip6", as nft names them
-  info(fmt"Creating nginwho {protocol} policy for Set {setName}")
-
   return %* {
     "add": {
       "rule": {
         "family": "inet",
         "table": "filter",
         "chain": nginwhoChain,
-        "handle": 3,
         "expr": [
           {
             "match": {
@@ -152,6 +156,11 @@ proc createNginwhoIPPolicy(protocol, setName, logPrefix: string): JsonNode =
       }
     }
   }
+
+
+proc nginwhoRules(nftSet: NftSet): seq[JsonNode] =
+  @[createNginwhoIPPolicy("ip", nftSet.setNameV4, logPrefixV4),
+    createNginwhoIPPolicy("ip6", nftSet.setNameV6, logPrefixV6)]
 
 
 proc createInputChain(): JsonNode =
@@ -257,17 +266,8 @@ proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
       rules["nftables"].add(command)
 
   if nftAttrs.withNginwhoChain:
-    rules["nftables"].add(createNginwhoChain())
-
-  if nftAttrs.withNginwhoPolicies:
-    # the rules of another CDN would drop this one's traffic, so the chain is emptied first.
-    # nft applies the file at once, so nothing gets through in between
-    rules["nftables"].add(%*{"flush": {"chain": {"family": "inet",
-        "table": "filter", "name": nginwhoChain}}})
-    rules["nftables"].add(createNginwhoIPPolicy("ip",
-        nftSet.setNameV4, logPrefixV4))
-    rules["nftables"].add(createNginwhoIPPolicy("ip6",
-        nftSet.setNameV6, logPrefixV6))
+    for command in createNginwhoChain() & nginwhoRules(nftSet):
+      rules["nftables"].add(command)
 
   if nftAttrs.withInputChain:
     rules["nftables"].add(createInputChain())
@@ -318,56 +318,36 @@ proc inputChainExists(nftOutput: JsonNode): bool =
   warn(fmt"{inputChain} does not exist")
 
 
-proc nginwhoChainHasPolicy(nftOutput: JsonNode, setName: string): bool =
-  info(fmt"Checking nftables nginwho chain for existing policy on Set `{setName}`")
-
-  for node in nftOutput:
-    if not node.contains("rule"):
-      continue
-
-    let chainName = node["rule"]["chain"].getStr()
-    if chainName != nginwhoChain:
-      continue
-
-    let expression = node["rule"]["expr"]
-    if expression.len < 4:
-      continue
-
-    let destination = expression[0]{"match", "right"}.getStr()
-    let service = expression[1]{"match", "right", "set"}.getElems()
-
-    if destination == fmt"@{setName}" and
-      service.len == 2 and
-      service[0].getInt() == 80 and
-      service[1].getInt() == 443:
-      info(fmt"nginwho chain already has the required policy for Set {setName}")
-      return true
-
-  warn(fmt"{nginwhoChain} chain does not have the required policy for Set {setName}")
+proc withoutCounters(expr: JsonNode): JsonNode =
+  ## The rule without its counters, which grow as packets pass
+  result = newJArray()
+  for item in expr:
+    if not item.hasKey("counter"):
+      result.add(item)
 
 
 proc nginwhoChainIsCurrent(nftOutput: JsonNode, nftSet: NftSet): bool =
-  ## True when the chain only has the drop rules for this CDN's Sets
-  var rules = 0
+  ## True when the chain is hooked as nginwho makes it and has only the rules
+  ## nginwho would add for this CDN, in the same order
+  info("Checking nftables nginwho chain")
+
+  var hooked = false
+  var current, wanted: seq[JsonNode]
   for node in nftOutput:
-    if node.contains("rule") and node["rule"]["chain"].getStr() == nginwhoChain:
-      rules += 1
+    if node{"chain", "name"}.getStr() == nginwhoChain:
+      hooked = node["chain"]{"hook"}.getStr() == nginwhoHook and
+          node["chain"]{"prio"}.getInt() == nginwhoPrio
+    elif node{"rule", "chain"}.getStr() == nginwhoChain:
+      current.add(withoutCounters(node["rule"]["expr"]))
 
-  return rules == 2 and
-    nginwhoChainHasPolicy(nftOutput, nftSet.setNameV4) and
-    nginwhoChainHasPolicy(nftOutput, nftSet.setNameV6)
+  for rule in nginwhoRules(nftSet):
+    wanted.add(withoutCounters(rule["add"]["rule"]["expr"]))
 
+  if hooked and current == wanted:
+    info("nginwho chain is up to date")
+    return true
 
-proc nginwhoChainExists(nftOutput: JsonNode): bool =
-  info("Checking nftables nginwho chain existence")
-
-  for node in nftOutput:
-    if node.contains("chain"):
-      if node["chain"]["name"].getStr() == nginwhoChain:
-        info(fmt"Found nftables {nginwhoChain} chain")
-        return true
-
-  warn(fmt"Chain {nginwhoChain} does not exist")
+  warn(fmt"{nginwhoChain} chain is missing or not up to date")
 
 
 proc setChanged(nftOutput: JsonNode, newCidrs: JsonNode,
@@ -472,8 +452,7 @@ proc requiredChanges*(nftOutput: JsonNode, nftSet: NftSet): NftAttrs =
         nftOutput, nftSet.ipv4, nftSet.setNameV4),
     withV6Set: not setExists(nftOutput, nftSet.setNameV6) or setChanged(
         nftOutput, nftSet.ipv6, nftSet.setNameV6),
-    withNginwhoChain: not nginwhoChainExists(nftOutput),
-    withNginwhoPolicies: not nginwhoChainIsCurrent(nftOutput, nftSet),
+    withNginwhoChain: not nginwhoChainIsCurrent(nftOutput, nftSet),
     withInputChain: not inputChainExists(nftOutput),
     withInputPolicy: not inputChainHasPolicy(nftOutput),
   )

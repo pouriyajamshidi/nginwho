@@ -4,7 +4,7 @@ from std/osproc import execCmdEx
 from nftables import NftSet, NftAttrs, createRules, requiredChanges, validCidrs
 
 const allChanges = NftAttrs(withV4Set: true, withV6Set: true,
-    withNginwhoChain: true, withNginwhoPolicies: true,
+    withNginwhoChain: true,
     withInputChain: true, withInputPolicy: true)
 
 let tempDir = getTempDir() / "nginwho_test_nftables"
@@ -106,7 +106,7 @@ suite "nftables":
       let fastly = NftSet(name: "Fastly", ipv4: %*["151.101.0.0/16"], ipv6: %*["2a04:4e42::/32"])
       let first = applyInNamespace(@[createRules(cidrs, allChanges)])
       let changes = requiredChanges(first, fastly)
-      check changes == NftAttrs(withV4Set: true, withV6Set: true, withNginwhoPolicies: true)
+      check changes == NftAttrs(withV4Set: true, withV6Set: true, withNginwhoChain: true)
 
       let after = applyInNamespace(@[createRules(cidrs, allChanges), createRules(fastly, changes)])
       check requiredChanges(after, fastly) == NftAttrs()
@@ -175,3 +175,12 @@ suite "nftables":
         if node{"chain", "name"}.getStr() == "input":
           policy = node["chain"]["policy"].getStr()
       check policy == "drop"
+
+  test "a rule put in the nginwho chain by hand is removed":
+    if not canRunNft():
+      skip()
+    else:
+      var ruleset = applyInNamespace(@[createRules(cidrs, allChanges)])
+      ruleset.add(%*{"rule": {"family": "inet", "table": "filter", "chain": "nginwho",
+          "expr": [{"drop": nil}]}})
+      check requiredChanges(ruleset, cidrs) == NftAttrs(withNginwhoChain: true)
