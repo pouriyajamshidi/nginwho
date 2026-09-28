@@ -17,6 +17,7 @@ All notable changes to **nginwho** are listed here.
 - Report mode has a top user agents report, and `t` shows how many requests, non-default logs and trap hits are saved in the database, with the dates of the first and last one.
 - Fastly support. `--cdn:fastly` (or `cdn = fastly` under `[nginx]` in the config file) makes `--showRealIps` and `--blockUntrustedCidrs` use Fastly's ranges instead of Cloudflare's. nginx then reads the visitor IP from the `Fastly-Client-IP` header, see the README to stop visitors from faking it.
 - A config file at `/etc/nginwho/nginwho.conf` (`--config` to point elsewhere). Command line flags override it. A sample `nginwho.conf` is in the repository.
+- `--lockdown` (or `lockdown = true` under `[firewall]` in the config file) closes the server to everything but SSH, ports 80 and 443, ping, and replies to the server's own connections. It adds its own `nginwho_input` nftables chain that drops the rest and logs it at most 10 times a minute, and leaves your own rules alone. The SSH port comes from `--sshPort` (or `ssh_port`), or else from the ports `sshd` listens on. With no SSH port known, nothing is locked down.
 - An `observability` folder to see nginwho on Grafana, including the free tier of Grafana Cloud: a Grafana Alloy config that sends the access logs, trap hits, database size, nginx and server metrics, with each visitor's country and network from the free ip66.dev database, a dashboard, and a Docker Compose setup that runs it all on your machine with fake visitors and bots.
 
 ### Changed

@@ -66,6 +66,7 @@ See what it does with `sudo journalctl -u nginwho -f`, and the numbers with
     - [I want to know who visits my site](#i-want-to-know-who-visits-my-site)
     - [My site is behind Cloudflare or Fastly and I see their IPs instead of my visitors'](#my-site-is-behind-cloudflare-or-fastly-and-i-see-their-ips-instead-of-my-visitors)
     - [I want only my CDN to reach my server](#i-want-only-my-cdn-to-reach-my-server)
+    - [I want my server closed to everything but SSH and my site](#i-want-my-server-closed-to-everything-but-ssh-and-my-site)
     - [Bots keep scanning my site for .env files and WordPress logins](#bots-keep-scanning-my-site-for-env-files-and-wordpress-logins)
     - [I want to punish AI crawlers or other bots by their name](#i-want-to-punish-ai-crawlers-or-other-bots-by-their-name)
     - [I have a small static site and don't want to run nginx](#i-have-a-small-static-site-and-dont-want-to-run-nginx)
@@ -81,6 +82,7 @@ See what it does with `sudo journalctl -u nginwho -f`, and the numbers with
     - [Saving your logs](#saving-your-logs)
     - [Real visitor IPs behind a CDN](#real-visitor-ips-behind-a-cdn)
     - [Blocking everyone but your CDN](#blocking-everyone-but-your-cdn)
+    - [Locking down your server](#locking-down-your-server)
     - [The trap](#the-trap)
       - [Trapping bots by their name](#trapping-bots-by-their-name)
     - [Serving your site without nginx](#serving-your-site-without-nginx)
@@ -98,6 +100,7 @@ See what it does with `sudo journalctl -u nginwho -f`, and the numbers with
 | Reports                | Shows your top pages, top visitors, failed requests, referrers and what the bots tried          |
 | Real visitor IPs       | Behind Cloudflare or Fastly, makes nginx log your visitors' IPs instead of the CDN's            |
 | Block everyone but CDN | Uses the firewall so only your CDN can reach your website ports                                 |
+| Lock down the server   | Uses the firewall to drop everything coming in but SSH and your website                         |
 | The trap               | Bots looking for secrets get fake files, fake logins and endless answers instead of a plain 404 |
 | Serve your site        | A simple web server for static sites, so you don't need nginx at all                            |
 
@@ -161,6 +164,22 @@ block_untrusted_cidrs = true
 nginwho sets up the firewall (nftables) so only the CDN can reach ports 80 and 443. Your SSH
 and everything else stay as they are. See
 [Blocking everyone but your CDN](#blocking-everyone-but-your-cdn) before you turn this on.
+
+### I want my server closed to everything but SSH and my site
+
+A web server only needs SSH and ports 80 and 443 open. Anything else listening on it, like a
+database left open by mistake, should not be reachable from the internet.
+
+```ini
+[firewall]
+lockdown = true
+ssh_port = 22    # the port your SSH listens on
+```
+
+nginwho sets up the firewall so everything coming in is dropped, except SSH, ports 80 and 443,
+and what the server needs to work. Use it with `block_untrusted_cidrs` to also keep everyone
+but your CDN away from your site. See [Locking down your server](#locking-down-your-server)
+before you turn this on.
 
 ### Bots keep scanning my site for .env files and WordPress logins
 
@@ -319,6 +338,12 @@ enabled = false
 root = /var/www/html
 port = 80
 
+[firewall]
+# drop everything coming in but SSH, ports 80 and 443, and what the server needs to work
+lockdown = false
+# the SSH port to keep open. when not set, the port sshd listens on
+# ssh_port = 22
+
 [trap]
 enabled = false
 # the port nginx sends its 403s and 404s to. it only listens on 127.0.0.1
@@ -460,6 +485,9 @@ Flags do the same as the config file and win over it, which is handy for trying 
   --showRealIps           : Show real IP of visitors by getting the CDN's CIDRs to include in nginx config,
                             or with '--serve' to trust the CDN's header. Self-updates every six hours (default: false)
   --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows the CDN's CIDRs (default: false)
+  --lockdown              : Drop everything coming in but SSH, ports 80 and 443, ping and replies
+                            to the server's own connections, using nftables (default: false)
+  --sshPort               : SSH port to keep open with '--lockdown' (default: the port sshd listens on)
   --cdn                   : The CDN in front of your site, cloudflare or fastly (default: cloudflare)
   --processNginxLogs      : Process nginx logs (default: false)
   --serve                 : Serve static files and write nginx style logs to '--logPath' (default: false)
@@ -568,6 +596,43 @@ don't block the new one.
 > ports 80 and 443, so SSH and everything else stay as your own rules have them.
 
 If something goes wrong with nftables, nginwho logs it and keeps the other features running.
+
+### Locking down your server
+
+With `lockdown` on, nginwho adds a chain called `nginwho_input` to the `inet filter` table. It
+drops everything coming in, except:
+
+- Traffic from the server to itself, like nginx sending bots to the trap.
+- Replies to connections the server made, like DNS lookups and updates.
+- Ping, and the ICMPv6 messages IPv6 needs to work.
+- DHCPv6 replies, so the server keeps its IPv6 address.
+- SSH on `ssh_port`.
+- Ports 80 and 443, over TCP and UDP. With `block_untrusted_cidrs` on too, only your CDN gets
+  this far.
+
+The rest is dropped and logged with the prefix `NGINWHO_INPUT_DROPPED`, at most 10 times a
+minute. Like the CDN rules, the chain is checked every five minutes and put back if a firewall
+reload wipes it.
+
+The chain is nginwho's alone, and your own rules stay as they are. But a packet has to get
+through every chain, so a port you open in your own `input` chain is still dropped by
+`nginwho_input`. Anything else that needs to be reached from outside, like a VPN or the
+[built-in server](#serving-your-site-without-nginx) on a port other than 80, stops working.
+
+When `ssh_port` is not set, nginwho uses the ports `sshd` listens on. It can't see them when
+systemd starts SSH through `ssh.socket`, like on newer Ubuntu, so set `ssh_port` there. With no
+SSH port known, nginwho does not lock down at all and logs an error, so a guess never locks
+you out.
+
+> [!IMPORTANT]
+> A wrong SSH port locks you out. Your open SSH session stays up, since it is a reply to a
+> connection that already exists, so check that a new SSH session gets in before you close it.
+
+To undo it, set `lockdown = false`, then restart nginwho and remove the chain:
+
+```bash
+sudo systemctl restart nginwho && sudo nft delete chain inet filter nginwho_input
+```
 
 ### The trap
 
@@ -761,7 +826,7 @@ use `sudo`.
 | `/var/lib/nginwho/nginwho.db` | The database with visits and trap hits                         |
 | `/etc/nginx/nginwho`          | The CDN's addresses for nginx, with real visitor IPs turned on |
 | `/var/log/nginwho/access.log` | The access log of the built-in server                          |
-| `/run/nginwho.nft`            | The last firewall change, with blocking turned on              |
+| `/run/nginwho.nft`            | The last firewall change, with blocking or lockdown turned on  |
 
 ## See it on Grafana
 
