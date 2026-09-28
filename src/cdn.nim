@@ -39,7 +39,7 @@ const
     Fastly: "Fastly-Client-IP"]
   timeoutMs = 10_000
   refreshMs = 6 * 60 * 60 * 1000
-  firewallCheckMs = 5 * 60 * 1000
+  firewallCheckMs* = 5 * 60 * 1000
   retryMs = 60 * 1000
 
 # the ranges fetched last. --serve trusts the CDN's real IP header only from these,

@@ -35,6 +35,8 @@ type
     root*: string = "/var/www/html"
     port*: int = 80
     report*: bool
+    lockdown*: bool
+    sshPort*: int           # 0 means the port sshd listens on
     trap*: TrapConfig
 
 
@@ -123,6 +125,9 @@ proc readConfigFile*(path: string, args: var Args) =
   args.serve = config.get("server", "enabled", args.serve, parseBool)
   args.root = config.getString("server", "root", args.root)
   args.port = config.get("server", "port", args.port, parsePort)
+
+  args.lockdown = config.get("firewall", "lockdown", args.lockdown, parseBool)
+  args.sshPort = config.get("firewall", "ssh_port", args.sshPort, parsePort)
 
   args.trap.enabled = config.get("trap", "enabled", args.trap.enabled, parseBool)
   args.trap.port = config.get("trap", "port", args.trap.port, parsePort)

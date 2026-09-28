@@ -37,6 +37,10 @@ enabled = true
 root = /srv/site
 port = 8080
 
+[firewall]
+lockdown = true
+ssh_port = 65222
+
 [trap]
 enabled = true
 port = 7000
@@ -58,6 +62,8 @@ bomb_after = 5
     check args.serve
     check args.root == "/srv/site"
     check args.port == 8080
+    check args.lockdown
+    check args.sshPort == 65222
     check args.trap.enabled
     check args.trap.port == 7000
     check args.trap.maxConnections == 50
