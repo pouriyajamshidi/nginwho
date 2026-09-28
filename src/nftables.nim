@@ -127,36 +127,28 @@ proc createNginwhoChain(): seq[JsonNode] =
   ]
 
 
+proc webTraffic(): seq[JsonNode] =
+  ## Matches TCP and UDP to ports 80 and 443. UDP 443 is HTTP/3
+  @[
+    %*{"match": {"op": "==", "left": {"meta": {"key": "l4proto"}}, "right": {"set": ["tcp", "udp"]}}},
+    %*{"match": {"op": "==", "left": {"payload": {"protocol": "th", "field": "dport"}},
+        "right": {"set": [80, 443]}}}
+  ]
+
+
 proc createNginwhoIPPolicy(protocol, setName, logPrefix: string): JsonNode =
-  ## `protocol` is "ip" or "ip6", as nft names them
-  return %* {
-    "add": {
-      "rule": {
-        "family": "inet",
-        "table": "filter",
-        "chain": nginwhoChain,
-        "expr": [
-          {
-            "match": {
-              "op": "!=",
-              "left": {"payload": {"protocol": protocol, "field": "saddr"}},
-              "right": fmt"@{setName}"
-            }
-          },
-          {
-            "match": {
-              "op": "==",
-              "left": {"payload": {"protocol": "tcp", "field": "dport"}},
-              "right": {"set": [80, 443]}
-            }
-          },
-          {"counter": {"packets": 0, "bytes": 0}},
-          {"log": {"prefix": logPrefix}},
-          {"drop": newJNull()}
-        ]
-      }
-    }
-  }
+  ## `protocol` is "ip" or "ip6", as nft names them.
+  ## The port comes first, so traffic to other ports, like SSH, skips the Set lookup
+  let expr = webTraffic() & @[
+    %*{"match": {"op": "!=", "left": {"payload": {"protocol": protocol, "field": "saddr"}},
+        "right": fmt"@{setName}"}},
+    %*{"counter": {"packets": 0, "bytes": 0}},
+    %*{"log": {"prefix": logPrefix}},
+    %*{"drop": nil}
+  ]
+
+  return %* {"add": {"rule": {"family": "inet", "table": "filter", "chain": nginwhoChain,
+      "expr": expr}}}
 
 
 proc nginwhoRules(nftSet: NftSet): seq[JsonNode] =
@@ -186,27 +178,10 @@ proc createInputChain(): JsonNode =
 proc createInputChainPolicy(): JsonNode =
   info("Creating input chain policy")
 
-  return %* {
-    "add": {
-      "rule": {
-        "family": "inet",
-        "table": "filter",
-        "chain": inputChain,
-        "handle": 2,
-        "expr": [
-          {
-            "match": {
-              "op": "==",
-              "left": {"payload": {"protocol": "tcp", "field": "dport"}},
-              "right": {"set": [80, 443]}
-            }
-          },
-          {"counter": {"packets": 0, "bytes": 0}},
-          {"accept": newJNull()}
-        ]
-      }
-    }
-  }
+  let expr = webTraffic() & @[%*{"counter": {"packets": 0, "bytes": 0}}, %*{"accept": nil}]
+
+  return %* {"add": {"rule": {"family": "inet", "table": "filter", "chain": inputChain,
+      "expr": expr}}}
 
 
 proc createSet(cidrs: JsonNode, setName, setType: string): seq[JsonNode] =
@@ -282,27 +257,19 @@ proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
 
 
 proc inputChainHasPolicy(nftOutput: JsonNode): bool =
+  ## Any rule in the input chain for ports 80 and 443 counts, like `tcp dport { 80, 443 } accept`
+  ## from older versions or the user's own
   info("Checking nftables input chain for existing policy")
 
   for node in nftOutput:
-    if not node.contains("rule"):
+    if node{"rule", "chain"}.getStr() != inputChain:
       continue
 
-    let chainName = node["rule"]["chain"].getStr()
-    if chainName != inputChain:
-      continue
-
-    let expression = node["rule"]["expr"]
-    if expression.len < 3:
-      continue
-
-    # {} gives nil instead of raising when a rule has another shape
-    let service = expression[0]{"match", "right", "set"}.getElems()
-    if service.len == 2 and
-      service[0].getInt() == 80 and
-      service[1].getInt() == 443:
-      info("input chain already has the required policy")
-      return true
+    for item in node["rule"]["expr"]:
+      # {} gives nil instead of raising when a rule has another shape
+      if item{"match", "right", "set"} == %*[80, 443]:
+        info("input chain already has the required policy")
+        return true
 
   warn(fmt"{inputChain} chain does not have the required policy")
 

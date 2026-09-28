@@ -114,7 +114,8 @@ suite "nftables":
       var rules: seq[string]
       for node in after:
         if node.contains("rule") and node["rule"]["chain"].getStr() == "nginwho":
-          rules.add(node["rule"]["expr"][0]["match"]["right"].getStr())
+          # the ports come first, then the Set
+          rules.add(node["rule"]["expr"][2]["match"]["right"].getStr())
       check rules == @["@Fastly_IPv4", "@Fastly_IPv6"]
 
   test "a missing inet filter table is created":
@@ -201,3 +202,13 @@ suite "nftables":
       for node in after:
         if node{"chain", "name"}.getStr() == "nginwho":
           check node["chain"]["prio"].getInt() == -300
+
+  test "the tcp only web rule of older versions in the input chain is kept":
+    if not canRunNft():
+      skip()
+    else:
+      let setup = "nft add table inet filter && " &
+          "nft 'add chain inet filter input { type filter hook input priority filter; policy drop; }' && " &
+          "nft add rule inet filter input tcp dport '{ 80, 443 }' counter accept"
+      let before = applyInNamespace(@[], setup)
+      check not requiredChanges(before, cidrs).withInputPolicy
