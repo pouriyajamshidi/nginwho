@@ -25,6 +25,7 @@ All notable changes to **nginwho** are listed here.
 - `--blockUntrustedCidrs` fetches Cloudflare's ranges itself. Before, without `--showRealIps` it read them once from `/etc/nginx/nginwho`, a file only `--showRealIps` writes. A failed fetch is retried after a minute instead of six hours.
 - The `etag` in `/etc/nginx/nginwho` is now a hash of the CIDRs, since Fastly's API has no etag. nginx is reloaded once after upgrading.
 - The `nginwho` nftables chain only keeps the drop rules for the current CDN. Any other rule in it is removed.
+- The `nginwho` nftables chain runs at the `raw` priority (`-300`) instead of `-10`, before connection tracking, so dropped packets cost less. The old chain is replaced on the first run.
 - An nftables error is logged and no longer stops nginwho, so log collection, the trap and the server keep running.
 - The database moved from `/var/log/nginwho.db` to `/var/lib/nginwho/nginwho.db`, where program data belongs on Linux. If `/var/log/nginwho.db` exists and the new one does not, nginwho keeps using the old one and warns you to move it. A `path` set in the config file or `--dbPath` is used as is.
 - Dates are saved in the `nginwho` table as unix seconds instead of in their own `dates` table. Nearly every log has its own date, so that table and its index were bigger than the logs themselves. A real 90.7 MB database went down to 54.9 MB.

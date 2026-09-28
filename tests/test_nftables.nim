@@ -184,3 +184,20 @@ suite "nftables":
       ruleset.add(%*{"rule": {"family": "inet", "table": "filter", "chain": "nginwho",
           "expr": [{"drop": nil}]}})
       check requiredChanges(ruleset, cidrs) == NftAttrs(withNginwhoChain: true)
+
+  test "the nginwho chain of older versions is moved to the raw priority":
+    if not canRunNft():
+      skip()
+    else:
+      let setup = "nft add table inet filter && " &
+          "nft 'add set inet filter Cloudflare_IPv4 { type ipv4_addr; flags interval; }' && " &
+          "nft 'add chain inet filter nginwho { type filter hook prerouting priority -10; policy accept; }' && " &
+          "nft add rule inet filter nginwho ip saddr != @Cloudflare_IPv4 tcp dport '{ 80, 443 }' counter log prefix NGINWHO_DROPPED_v4 drop"
+      let before = applyInNamespace(@[], setup)
+      check requiredChanges(before, cidrs).withNginwhoChain
+
+      let after = applyInNamespace(@[createRules(cidrs, requiredChanges(before, cidrs))], setup)
+      check requiredChanges(after, cidrs) == NftAttrs()
+      for node in after:
+        if node{"chain", "name"}.getStr() == "nginwho":
+          check node["chain"]["prio"].getInt() == -300

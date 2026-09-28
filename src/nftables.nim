@@ -31,7 +31,8 @@ const
   rulesFile = "/run/nginwho.nft"
   nginwhoChain = "nginwho"
   nginwhoHook = "prerouting"
-  nginwhoPrio = -10
+  # raw, before conntrack (-200), so a dropped packet costs no connection tracking lookup
+  nginwhoPrio = -300
   inputChain = "input"
   logPrefixV4 = "NGINWHO_DROPPED_v4 "
   logPrefixV6 = "NGINWHO_DROPPED_v6 "
