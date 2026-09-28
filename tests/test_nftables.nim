@@ -116,7 +116,8 @@ suite "nftables":
         if node.contains("rule") and node["rule"]["chain"].getStr() == "nginwho":
           # the ports come first, then the Set
           rules.add(node["rule"]["expr"][2]["match"]["right"].getStr())
-      check rules == @["@Fastly_IPv4", "@Fastly_IPv6"]
+      # a rule that logs and a rule that drops for each
+      check rules == @["@Fastly_IPv4", "@Fastly_IPv4", "@Fastly_IPv6", "@Fastly_IPv6"]
 
   test "a missing inet filter table is created":
     if not canRunNft():

@@ -27,6 +27,7 @@ All notable changes to **nginwho** are listed here.
 - The `nginwho` nftables chain only keeps the drop rules for the current CDN. Any other rule in it is removed.
 - The `nginwho` nftables chain runs at the `raw` priority (`-300`) instead of `-10`, before connection tracking, so dropped packets cost less. The old chain is replaced on the first run.
 - `--blockUntrustedCidrs` blocks UDP to ports 80 and 443 too, so HTTP/3 (QUIC) can't reach the server without going through the CDN. The port is checked before the CDN's addresses, so traffic to other ports, like SSH, skips that lookup.
+- The `NGINWHO_DROPPED_v4` and `NGINWHO_DROPPED_v6` log lines are limited to 10 a minute each, so a flood no longer writes one line per packet. Every dropped packet is still counted.
 - An nftables error is logged and no longer stops nginwho, so log collection, the trap and the server keep running.
 - The database moved from `/var/log/nginwho.db` to `/var/lib/nginwho/nginwho.db`, where program data belongs on Linux. If `/var/log/nginwho.db` exists and the new one does not, nginwho keeps using the old one and warns you to move it. A `path` set in the config file or `--dbPath` is used as is.
 - Dates are saved in the `nginwho` table as unix seconds instead of in their own `dates` table. Nearly every log has its own date, so that table and its index were bigger than the logs themselves. A real 90.7 MB database went down to 54.9 MB.

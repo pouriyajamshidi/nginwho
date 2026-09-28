@@ -136,24 +136,35 @@ proc webTraffic(): seq[JsonNode] =
   ]
 
 
-proc createNginwhoIPPolicy(protocol, setName, logPrefix: string): JsonNode =
+proc limitedLog(prefix: string): seq[JsonNode] =
+  ## Logs at most 10 packets a minute, so a flood can't fill the system log.
+  ## A packet over the limit does not match, so this must be its own rule and never
+  ## part of a drop rule, or the packet would get through
+  @[%*{"limit": {"rate": 10, "burst": 5, "per": "minute"}}, %*{"log": {"prefix": prefix}}]
+
+
+proc nginwhoRule(expr: seq[JsonNode]): JsonNode =
+  %*{"add": {"rule": {"family": "inet", "table": "filter", "chain": nginwhoChain, "expr": expr}}}
+
+
+proc createNginwhoIPPolicy(protocol, setName, logPrefix: string): seq[JsonNode] =
+  ## A rule that logs and a rule that drops web traffic from outside the Set.
   ## `protocol` is "ip" or "ip6", as nft names them.
   ## The port comes first, so traffic to other ports, like SSH, skips the Set lookup
-  let expr = webTraffic() & @[
+  let notFromCdn = webTraffic() & @[
     %*{"match": {"op": "!=", "left": {"payload": {"protocol": protocol, "field": "saddr"}},
-        "right": fmt"@{setName}"}},
-    %*{"counter": {"packets": 0, "bytes": 0}},
-    %*{"log": {"prefix": logPrefix}},
-    %*{"drop": nil}
+        "right": fmt"@{setName}"}}
   ]
 
-  return %* {"add": {"rule": {"family": "inet", "table": "filter", "chain": nginwhoChain,
-      "expr": expr}}}
+  return @[
+    nginwhoRule(notFromCdn & limitedLog(logPrefix)),
+    nginwhoRule(notFromCdn & @[%*{"counter": {"packets": 0, "bytes": 0}}, %*{"drop": nil}])
+  ]
 
 
 proc nginwhoRules(nftSet: NftSet): seq[JsonNode] =
-  @[createNginwhoIPPolicy("ip", nftSet.setNameV4, logPrefixV4),
-    createNginwhoIPPolicy("ip6", nftSet.setNameV6, logPrefixV6)]
+  createNginwhoIPPolicy("ip", nftSet.setNameV4, logPrefixV4) &
+    createNginwhoIPPolicy("ip6", nftSet.setNameV6, logPrefixV6)
 
 
 proc createInputChain(): JsonNode =

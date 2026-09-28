@@ -542,8 +542,9 @@ written to `/etc/nginx`. The server reads the real IP from the CDN's header itse
 Every six hours, nginwho gets your CDN's address list and updates your nftables firewall so
 that only those addresses can reach ports 80 and 443, over TCP and over UDP for HTTP/3.
 Anyone else is dropped, and the drop is logged with the prefix `NGINWHO_DROPPED_v4` or
-`NGINWHO_DROPPED_v6`. If the list can't be fetched, for example right after a boot with no
-network yet, it tries again every minute.
+`NGINWHO_DROPPED_v6`, at most 10 times a minute each, so a flood can't fill your logs. If the
+list can't be fetched, for example right after a boot with no network yet, it tries again
+every minute.
 
 nginwho does not touch the rules you already have. It only adds its own parts next to them:
 
