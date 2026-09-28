@@ -544,7 +544,8 @@ that only those addresses can reach ports 80 and 443, over TCP and over UDP for 
 Anyone else is dropped, and the drop is logged with the prefix `NGINWHO_DROPPED_v4` or
 `NGINWHO_DROPPED_v6`, at most 10 times a minute each, so a flood can't fill your logs. If the
 list can't be fetched, for example right after a boot with no network yet, it tries again
-every minute.
+every minute. The rules are also checked every five minutes, so if a firewall reload wipes
+them, they are back soon.
 
 nginwho does not touch the rules you already have. It only adds its own parts next to them:
 

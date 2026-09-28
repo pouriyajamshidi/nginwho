@@ -39,6 +39,7 @@ const
     Fastly: "Fastly-Client-IP"]
   timeoutMs = 10_000
   refreshMs = 6 * 60 * 60 * 1000
+  firewallCheckMs = 5 * 60 * 1000
   retryMs = 60 * 1000
 
 # the ranges fetched last. --serve trusts the CDN's real IP header only from these,
@@ -200,6 +201,14 @@ proc getCurrentEtag*(configFile: string = cidrFile): string =
         return etagLine[1]
 
 
+proc blockOthers(cdn: Cdn, cidrs: Cidrs) =
+  try:
+    acceptOnly(NftSet(name: cdn.name, ipv4: cidrs.ipv4, ipv6: cidrs.ipv6))
+  except NftError as e:
+    # a firewall problem must not stop the real IPs or anything else nginwho runs
+    error(e.msg)
+
+
 proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
     blockUntrustedCidrs, serve: bool) {.async.} =
   ## Fetches the CDN's ranges every six hours. `showRealIPs` writes them for nginx.
@@ -218,11 +227,7 @@ proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
     let cidrs = fetched.get()
 
     if blockUntrustedCidrs:
-      try:
-        acceptOnly(NftSet(name: cdn.name, ipv4: cidrs.ipv4, ipv6: cidrs.ipv6))
-      except NftError as e:
-        # a firewall problem must not stop the real IPs or anything else nginwho runs
-        error(e.msg)
+      blockOthers(cdn, cidrs)
 
     if serve:
       trustRanges(cidrs)
@@ -235,4 +240,9 @@ proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
       else:
         info(fmt"etag has not changed {currentEtag}")
 
-    await sleepAsync(refreshMs)
+    # reloading the firewall with `flush ruleset` wipes our rules too, so they are checked
+    # every few minutes until the next fetch. Only what changed is applied, so this is cheap
+    for _ in 1 .. refreshMs div firewallCheckMs:
+      await sleepAsync(firewallCheckMs)
+      if blockUntrustedCidrs:
+        blockOthers(cdn, cidrs)
