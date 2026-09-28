@@ -34,6 +34,8 @@ type
     serve*: bool
     root*: string = "/var/www/html"
     port*: int = 80
+    cert*: string           # both empty means plain HTTP
+    key*: string
     report*: bool
     lockdown*: bool
     sshPort*: int           # 0 means the port sshd listens on
@@ -125,6 +127,8 @@ proc readConfigFile*(path: string, args: var Args) =
   args.serve = config.get("server", "enabled", args.serve, parseBool)
   args.root = config.getString("server", "root", args.root)
   args.port = config.get("server", "port", args.port, parsePort)
+  args.cert = config.getString("server", "cert", args.cert)
+  args.key = config.getString("server", "key", args.key)
 
   args.lockdown = config.get("firewall", "lockdown", args.lockdown, parseBool)
   args.sshPort = config.get("firewall", "ssh_port", args.sshPort, parsePort)

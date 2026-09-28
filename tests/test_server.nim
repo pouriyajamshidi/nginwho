@@ -1,8 +1,10 @@
 ## Runs the static server in this process and talks to it over a real socket
 
 import std/[unittest, asyncdispatch, os]
-from std/asyncnet import AsyncSocket, newAsyncSocket, connect, send, recv, close
-from std/net import Port
+from std/asyncnet import AsyncSocket, newAsyncSocket, connect, send, recv, close, wrapSocket,
+    getPeerCertificates
+from std/net import Port, newContext
+from std/osproc import execCmd
 from std/strutils import split, splitLines, startsWith, endsWith, strip, contains, count,
     repeat
 
@@ -211,3 +213,59 @@ suite "server behind a CDN":
     let idle = openIdle(32, cdnPort)
     check get("/", port = cdnPort).startsWith("HTTP/1.1 200")
     closeAll(idle)
+
+
+# the same site over HTTPS, with a certificate made for the test
+const tlsPort = Port(18097)
+let cert = tempDir / "cert.pem"
+let key = tempDir / "key.pem"
+let trusted = tempDir / "trusted.pem" # the certificate the client trusts
+
+proc makeCert(name: string) =
+  doAssert execCmd("openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=" & name &
+      " -addext subjectAltName=IP:127.0.0.1 -keyout " & key & " -out " & cert &
+      " 2>/dev/null") == 0
+  copyFile(cert, trusted)
+
+makeCert("first")
+asyncCheck serve(root, tempDir / "tls_access.log", tlsPort, "127.0.0.1", cert = cert, key = key)
+
+
+proc tlsGet(path: string): tuple[response, cert: string] =
+  ## Also returns the certificate the server sent, or "" when it is not the trusted one
+  proc run(): Future[tuple[response, cert: string]] {.async.} =
+    let socket = newAsyncSocket()
+    defer: socket.close()
+    newContext(caFile = trusted).wrapSocket(socket)
+    await socket.connect("127.0.0.1", tlsPort)
+    await socket.send("GET " & path & " HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    while true:
+      let data = await socket.recv(4096)
+      if data == "":
+        break
+      result.response.add(data)
+    for cert in socket.getPeerCertificates():
+      result.cert = cert
+  waitFor run()
+
+
+suite "server with HTTPS":
+  test "serves the site over HTTPS":
+    let (response, cert) = tlsGet("/")
+    check response.startsWith("HTTP/1.1 200 OK")
+    check response.body == "home"
+    check cert != ""
+
+  test "plain HTTP gets nothing":
+    check not get("/", port = tlsPort).startsWith("HTTP/1.1")
+
+  test "a renewed certificate is used without a restart":
+    let before = tlsGet("/").cert
+    makeCert("second")
+    let after = tlsGet("/").cert
+    check after != ""
+    check after != before
+
+    # a broken one is not used, the last good one stays
+    writeFile(cert, "not a certificate")
+    check tlsGet("/").cert == after

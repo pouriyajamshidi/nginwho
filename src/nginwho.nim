@@ -59,7 +59,10 @@ proc usage(errorCode: int = 0) =
   --serve                 : Serve static files and write nginx style logs to '--logPath' (default: false)
   --root                  : Directory to serve files from (default: /var/www/html)
   --port                  : Port to serve on, IPv4 and IPv6 (default: 80)
-  --report                : Enter report mode and query the database for statistics
+  --cert                  : Certificate file to serve HTTPS with, like nginx's ssl_certificate.
+                            Loaded again when it changes, so renewals need no restart
+  --key                   : Key file for '--cert', like nginx's ssl_certificate_key
+  --report               : Enter report mode and query the database for statistics
   --config                : Path to the config file (default: /etc/nginwho/nginwho.conf).
                             Command line flags win over it
   --trap                  : Play with bots that probe for files we do not have.
@@ -80,6 +83,10 @@ proc validateArgs(args: Args) =
   not args.serve and
   not args.trap.enabled:
     error("Provided flags say do nothing... Exiting")
+    usage(1)
+
+  if (args.cert == "") != (args.key == ""):
+    error("HTTPS needs both --cert and --key")
     usage(1)
 
 
@@ -135,6 +142,8 @@ proc getArgs(): Args =
         of "serve": args.serve = isOn(p.val)
         of "root": args.root = p.val
         of "port": args.port = parsePort(p.val)
+        of "cert": args.cert = p.val
+        of "key": args.key = p.val
       except ValueError as e:
         error(fmt"Bad value '{p.val}' for --{p.key}: {e.msg}")
         usage(1)
@@ -307,7 +316,7 @@ proc main() =
           visitorIP(peer, req.header(realIpHeaders[cdn]))
       else: nil
     asyncCheck serve(args.root, args.logPath, Port(args.port), trapHook = hook,
-        realIP = realIP, fromCdn = fromCdn)
+        realIP = realIP, fromCdn = fromCdn, cert = args.cert, key = args.key)
 
   if args.trap.enabled and not args.serve:
     asyncCheck trap(args.trap, args.dbPath)

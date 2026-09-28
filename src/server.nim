@@ -3,9 +3,9 @@
 import std/[asyncdispatch, net, httpcore, os]
 from std/strutils import find, contains, strip, split, startsWith, endsWith,
     toHex, replace, removePrefix, toLowerAscii, parseInt
-from std/times import fromUnix, utc, format, now, getTime, toUnix
+from std/times import fromUnix, utc, format, now, getTime, toUnix, Time, `==`
 from std/asyncnet import AsyncSocket, recvLine, recv, send, close, getPeerAddr,
-    newAsyncSocket, setSockOpt, bindAddr, listen, accept
+    newAsyncSocket, setSockOpt, bindAddr, listen, accept, wrapConnectedSocket
 from std/uri import decodeUrl
 from std/strformat import fmt
 from std/mimetypes import newMimetypes, getMimetype
@@ -50,6 +50,12 @@ type
 
   FromCdn* = proc (ip: string): bool
     ## Whether a connection comes from the CDN in front
+
+  Tls = object
+    ## The certificate and key for HTTPS, loaded again when they change, like after a renewal
+    cert, key: string
+    changed: (Time, Time)
+    context: SslContext
 
 
 let mimes = newMimetypes()
@@ -296,7 +302,9 @@ proc handleClient(client: AsyncSocket, root, logPath: string,
   inc visitors
   defer:
     dec visitors
-    client.close()
+    # with HTTPS, closing raises when the client left in the middle
+    try: client.close()
+    except CatchableError: discard
 
   try:
     var peer = client.getPeerAddr()[0]
@@ -357,9 +365,54 @@ proc handleClient(client: AsyncSocket, root, logPath: string,
     discard
 
 
+proc lastChanged(cert, key: string): (Time, Time) =
+  (getLastModificationTime(cert), getLastModificationTime(key))
+
+
+proc loadTls(cert, key: string): SslContext =
+  ## Raises IOError when the files can't be used
+  try:
+    # CVerifyNone, or browsers may ask visitors for a certificate of their own
+    return newContext(verifyMode = CVerifyNone, certFile = cert, keyFile = key)
+  except CatchableError as e:
+    raise newException(IOError, fmt"Could not load the certificate {cert} and key {key}: {e.msg}")
+
+
+proc newTls(cert, key: string): Tls =
+  result = Tls(cert: cert, key: key, context: loadTls(cert, key))
+  result.changed = lastChanged(cert, key)
+
+
+proc context(tls: var Tls): SslContext =
+  ## A renewed certificate is used from the next visitor on, no restart needed.
+  ## A bad one is logged once and the old one kept until the files change again
+  var changed: (Time, Time)
+  try:
+    changed = lastChanged(tls.cert, tls.key)
+  except OSError:
+    # in the middle of a renewal, or gone. the loaded one still works
+    return tls.context
+  if changed != tls.changed:
+    tls.changed = changed
+    try:
+      let old = tls.context
+      tls.context = loadTls(tls.cert, tls.key)
+      # connections still using the old one keep it alive inside OpenSSL
+      old.destroyContext()
+      info(fmt"Loaded the new certificate {tls.cert}")
+    except IOError as e:
+      error(fmt"{e.msg}. Keeping the old one")
+  return tls.context
+
+
 proc serve*(root, logPath: string, port: Port, address = "::",
     trapHook: TrapHook = nil, realIP: RealIP = nil,
-        fromCdn: FromCdn = nil) {.async.} =
+        fromCdn: FromCdn = nil, cert = "", key = "") {.async.} =
+  ## Speaks HTTPS when `cert` and `key` are given, plain HTTP otherwise
+  var tls: Tls
+  if cert != "":
+    tls = newTls(cert, key)
+
   let server = newAsyncSocket(if ':' in address: Domain.AF_INET6 else: Domain.AF_INET)
   server.setSockOpt(OptReuseAddr, true)
   try:
@@ -368,7 +421,7 @@ proc serve*(root, logPath: string, port: Port, address = "::",
   except OSError as e:
     # ports below 1024 need root or CAP_NET_BIND_SERVICE
     raise newException(OSError, fmt"Could not listen on [{address}]:{port}: {e.msg}")
-  info(fmt"Serving {root} on [{address}]:{port}")
+  info(fmt"Serving {root} on [{address}]:{port}" & (if cert != "": " over HTTPS" else: ""))
 
   while true:
     try:
@@ -376,6 +429,8 @@ proc serve*(root, logPath: string, port: Port, address = "::",
       if visitors >= maxVisitors:
         client.close()
       else:
+        if cert != "":
+          wrapConnectedSocket(tls.context(), client, handshakeAsServer)
         asyncCheck handleClient(client, root, logPath, trapHook, realIP, fromCdn)
     except CatchableError as e:
       # like running out of open files. wait a bit instead of spinning on it

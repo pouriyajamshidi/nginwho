@@ -36,6 +36,8 @@ block_untrusted_cidrs = true
 enabled = true
 root = /srv/site
 port = 8080
+cert = /etc/ssl/site.pem
+key = /etc/ssl/site.key
 
 [firewall]
 lockdown = true
@@ -62,6 +64,8 @@ bomb_after = 5
     check args.serve
     check args.root == "/srv/site"
     check args.port == 8080
+    check args.cert == "/etc/ssl/site.pem"
+    check args.key == "/etc/ssl/site.key"
     check args.lockdown
     check args.sshPort == 65222
     check args.trap.enabled
