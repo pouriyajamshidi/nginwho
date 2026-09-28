@@ -47,6 +47,7 @@ All notable changes to **nginwho** are listed here.
 
 ### Fixed
 
+- `nimble install nginwho` built nginwho without SSL, so it could not fetch the CDN ranges over HTTPS. Every build has SSL now, not only the release build.
 - `--blockUntrustedCidrs` took a chain or Set with the same name in another table, like the `input` chain of an `ip filter` table, for its own. It then added a rule to a chain that did not exist, and nothing was blocked.
 - An empty `Cloudflare_IPv4` or `Cloudflare_IPv6` Set in nftables crashed nginwho instead of being filled.
 - `--report=false` still started report mode. It now turns it off like `=false` does for the other flags.
