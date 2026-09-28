@@ -485,7 +485,7 @@ Flags do the same as the config file and win over it, which is handy for trying 
   --showRealIps           : Show real IP of visitors by getting the CDN's CIDRs to include in nginx config,
                             or with '--serve' to trust the CDN's header. Self-updates every six hours (default: false)
   --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows the CDN's CIDRs (default: false)
-  --lockdown              : Drop everything coming in but SSH, ports 80 and 443, ping and replies
+  --lockdown              : Drop everything coming in but SSH, ports 80 and 443 and replies
                             to the server's own connections, using nftables (default: false)
   --sshPort               : SSH port to keep open with '--lockdown' (default: the port sshd listens on)
   --cdn                   : The CDN in front of your site, cloudflare or fastly (default: cloudflare)
@@ -604,7 +604,7 @@ drops everything coming in, except:
 
 - Traffic from the server to itself, like nginx sending bots to the trap.
 - Replies to connections the server made, like DNS lookups and updates.
-- Ping, and the ICMPv6 messages IPv6 needs to work.
+- The ICMPv6 messages IPv6 needs to find the router and its neighbours. Ping is dropped.
 - DHCPv6 replies, so the server keeps its IPv6 address.
 - SSH on `ssh_port`.
 - Ports 80 and 443, over TCP and UDP. With `block_untrusted_cidrs` on too, only your CDN gets

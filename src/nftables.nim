@@ -183,9 +183,12 @@ proc lockdownRules(sshPorts: seq[int]): seq[JsonNode] =
     # replies to connections the server made, like DNS lookups and updates
     addRule(lockdownChain, @[%*{"match": {"op": "in", "left": {"ct": {"key": "state"}},
         "right": ["established", "related"]}}, accept]),
-    # ping, and IPv6 can't find the router or its neighbours without ICMPv6
-    addRule(lockdownChain, @[%*{"match": {"op": "==", "left": {"meta": {"key": "l4proto"}},
-        "right": {"set": ["icmp", "ipv6-icmp"]}}}, accept]),
+    # IPv6 can't find the router or its neighbours without these. ICMP errors about a
+    # connection are let in as related. in the order nft lists them
+    addRule(lockdownChain, @[%*{"match": {"op": "==",
+        "left": {"payload": {"protocol": "icmpv6", "field": "type"}},
+        "right": {"set": ["nd-router-advert", "nd-neighbor-solicit", "nd-neighbor-advert"]}}},
+        accept]),
     # DHCPv6 answers from another address than it was asked on, so it is not seen as a reply
     addRule(lockdownChain, @[
       %*{"match": {"op": "==", "left": {"meta": {"key": "nfproto"}}, "right": "ipv6"}},

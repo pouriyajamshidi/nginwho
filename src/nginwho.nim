@@ -51,7 +51,7 @@ proc usage(errorCode: int = 0) =
   --showRealIps           : Show real IP of visitors by getting the CDN's CIDRs to include in nginx config,
                             or with '--serve' to trust the CDN's header. Self-updates every six hours (default: false)
   --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows the CDN's CIDRs (default: false)
-  --lockdown              : Drop everything coming in but SSH, ports 80 and 443, ping and replies
+  --lockdown              : Drop everything coming in but SSH, ports 80 and 443 and replies
                             to the server's own connections, using nftables (default: false)
   --sshPort               : SSH port to keep open with '--lockdown' (default: the port sshd listens on)
   --cdn                   : The CDN in front of your site, cloudflare or fastly (default: cloudflare)
