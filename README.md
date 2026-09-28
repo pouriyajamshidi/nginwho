@@ -18,7 +18,8 @@ so you only use what you need.
 Every feature on, for a static site in `/var/www/html` behind Cloudflare. nginwho serves the
 site itself, so stop nginx first if it uses port 80.
 
-- The server speaks plain HTTP, so set Cloudflare's SSL mode to Flexible.
+- The server speaks plain HTTP here, so set Cloudflare's SSL mode to Flexible. For HTTPS, see
+  [Serving your site without nginx](#serving-your-site-without-nginx).
 - On Fastly, change `cdn = cloudflare` to `cdn = fastly`.
 - Not behind a CDN? Remove the `show_real_ips` and `block_untrusted_cidrs` lines, or only the
   CDN could reach your site.
@@ -337,6 +338,10 @@ block_untrusted_cidrs = false
 enabled = false
 root = /var/www/html
 port = 80
+# serve HTTPS with this certificate and key, like nginx's ssl_certificate and
+# ssl_certificate_key. both empty means plain HTTP
+# cert = /etc/ssl/example.com.pem
+# key = /etc/ssl/example.com.key
 
 [firewall]
 # drop everything coming in but SSH, ports 80 and 443, and what the server needs to work
@@ -493,6 +498,9 @@ Flags do the same as the config file and win over it, which is handy for trying 
   --serve                 : Serve static files and write nginx style logs to '--logPath' (default: false)
   --root                  : Directory to serve files from (default: /var/www/html)
   --port                  : Port to serve on, IPv4 and IPv6 (default: 80)
+  --cert                  : Certificate file to serve HTTPS with, like nginx's ssl_certificate.
+                            Loaded again when it changes, so renewals need no restart
+  --key                   : Key file for '--cert', like nginx's ssl_certificate_key
   --report                : Enter report mode and query the database for statistics
   --config                : Path to the config file (default: /etc/nginwho/nginwho.conf).
                             Command line flags win over it
@@ -758,8 +766,24 @@ port = 80
   is counted by their /64. The CDN's own addresses have no limit, as long as `show_real_ips`
   or `block_untrusted_cidrs` is on so nginwho knows them.
 
-The server speaks plain HTTP only, so HTTPS has to come from a CDN in front of it. Behind a
-CDN, every request comes from the CDN's address. Turn on `show_real_ips` under `[nginx]` and
+The server speaks plain HTTP unless you give it a certificate and key, the same files nginx
+takes:
+
+```ini
+[server]
+enabled = true
+root = /var/www/html
+port = 443
+cert = /etc/ssl/example.com.pem
+key = /etc/ssl/example.com.key
+```
+
+It then speaks only HTTPS on that port. When the files change, like after a Let's Encrypt
+renewal, new visitors get the new certificate without a restart. A broken new certificate is
+logged and the old one is kept. Behind Cloudflare, a free Cloudflare origin certificate works
+with the Full (strict) SSL mode.
+
+Behind a CDN, every request comes from the CDN's address. Turn on `show_real_ips` under `[nginx]` and
 the server takes the visitor's IP from the CDN's header (`CF-Connecting-IP` or
 `Fastly-Client-IP`) instead, for the log and the trap. Anyone can send that header, so it is
 only believed when the request really comes from one of the CDN's addresses.
