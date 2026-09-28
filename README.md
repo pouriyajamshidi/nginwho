@@ -265,7 +265,7 @@ Requires [Nimble](https://github.com/nim-lang/nimble). It downloads the latest s
 git clone https://github.com/pouriyajamshidi/nginwho.git &&
 cd nginwho &&
 nimble install -y --depsOnly &&
-nimble c -d:release --opt:speed -d:ssl -o:nginwho src/nginwho.nim &&
+nimble c -d:release --opt:speed -o:nginwho src/nginwho.nim &&
 sudo install nginwho -D -t /usr/local/bin/
 ```
 
