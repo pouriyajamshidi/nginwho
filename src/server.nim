@@ -64,94 +64,12 @@ var
   openFrom: Table[string, int] # connections open right now, per IP
 
 
-proc brokenLine(line: string): bool =
-  ## recvLine gives back one byte more than maxLength when a line is too long,
-  ## and the rest of the line would be read as the next one
-  line.len >= maxLine or line.contains(controlChars)
-
-
-proc readRequest*(client: AsyncSocket): Future[Request] {.async.} =
-  ## Reads the request line and headers. An empty `line` means the client left,
-  ## an empty `httpMethod` means the request is broken
-  result.headers = newHttpHeaders()
-  result.line = await client.recvLine(maxLength = maxLine)
-  if result.line in ["", "\r\n"] or brokenLine(result.line):
-    return
-
-  var headerBytes = 0
-  for i in 0 .. maxHeaders:
-    let line = await client.recvLine(maxLength = maxLine)
-    if line == "\r\n":
-      break
-    headerBytes += line.len
-    let colon = line.find(':')
-    if line == "" or brokenLine(line) or colon < 1 or i == maxHeaders or
-        headerBytes > maxHeaderBytes:
-      return
-    result.headers.add(line[0 ..< colon].strip(), line[colon + 1 .. ^1].strip())
-
-  let parts = result.line.split(' ')
-  if parts.len != 3 or not parts[1].startsWith("/") or not parts[2].startsWith("HTTP/1."):
-    return
-
-  let target = parts[1].split('?', maxsplit = 1)
-  result.path = decodeUrl(target[0], decodePlus = false)
-  if result.path.contains(controlChars):
-    return
-  if target.len == 2:
-    result.query = "?" & target[1]
-  result.version = parts[2]
-  result.httpMethod = parts[0]
-
-
 proc header*(req: Request, name: string): string =
   if req.headers.hasKey(name): $req.headers[name] else: ""
 
 
-proc readBody*(client: AsyncSocket, req: Request, limit: int): Future[
-    string] {.async.} =
-  ## Reads a small request body, such as a submitted login form. Bigger bodies are cut short
-  var length = 0
-  try:
-    length = min(parseInt(req.header("Content-Length")), limit)
-  except ValueError:
-    return
-  if length > 0:
-    let reading = client.recv(length)
-    if await reading.withTimeout(headTimeout):
-      result = reading.read()
-
-
 proc httpDate*(unixTime: int64): string =
   times.fromUnix(unixTime).utc.format("ddd, dd MMM yyyy HH:mm:ss 'GMT'")
-
-
-proc escapeLog(value: string): string =
-  ## Escapes quotes and unprintable bytes the same way nginx does
-  for c in value:
-    if c == '"' or c == '\\' or c < ' ' or c > '~':
-      result.add("\\x" & toHex(ord(c), 2))
-    else:
-      result.add(c)
-
-
-proc accessLogLine*(remoteIP, request: string, status, bytesSent: int,
-    referrer, userAgent: string): string =
-  ## Builds a line in nginx's default "combined" format
-  let now = now()
-  let time = now.format("dd/MMM/yyyy:HH:mm:ss ") & now.format("zzz").replace(":", "")
-  let referrer = if referrer == "": "-" else: escapeLog(referrer)
-  fmt"""{remoteIP} - - [{time}] "{escapeLog(request)}" {status} {bytesSent} "{referrer}" "{escapeLog(userAgent)}"""" & "\n"
-
-
-proc writeAccessLog(path, line: string) =
-  # opening the file each time keeps working after logrotate moves it
-  try:
-    let file = open(path, fmAppend)
-    defer: file.close()
-    file.write(line)
-  except IOError as e:
-    error(fmt"Could not write to {path}: {e.msg}")
 
 
 proc responseHead*(status: HttpCode, keepAlive: bool, headers: openArray[(
@@ -284,6 +202,88 @@ proc respond(client: AsyncSocket, req: Request, root: string, keepAlive: bool):
   if isFile(root / "404.html"):
     return await client.sendFile(req, root / "404.html", Http404, keepAlive)
   return (Http404, await client.sendText(req, Http404, keepAlive))
+
+
+proc escapeLog(value: string): string =
+  ## Escapes quotes and unprintable bytes the same way nginx does
+  for c in value:
+    if c == '"' or c == '\\' or c < ' ' or c > '~':
+      result.add("\\x" & toHex(ord(c), 2))
+    else:
+      result.add(c)
+
+
+proc accessLogLine*(remoteIP, request: string, status, bytesSent: int,
+    referrer, userAgent: string): string =
+  ## Builds a line in nginx's default "combined" format
+  let now = now()
+  let time = now.format("dd/MMM/yyyy:HH:mm:ss ") & now.format("zzz").replace(":", "")
+  let referrer = if referrer == "": "-" else: escapeLog(referrer)
+  fmt"""{remoteIP} - - [{time}] "{escapeLog(request)}" {status} {bytesSent} "{referrer}" "{escapeLog(userAgent)}"""" & "\n"
+
+
+proc writeAccessLog(path, line: string) =
+  # opening the file each time keeps working after logrotate moves it
+  try:
+    let file = open(path, fmAppend)
+    defer: file.close()
+    file.write(line)
+  except IOError as e:
+    error(fmt"Could not write to {path}: {e.msg}")
+
+
+proc brokenLine(line: string): bool =
+  ## recvLine gives back one byte more than maxLength when a line is too long,
+  ## and the rest of the line would be read as the next one
+  line.len >= maxLine or line.contains(controlChars)
+
+
+proc readRequest*(client: AsyncSocket): Future[Request] {.async.} =
+  ## Reads the request line and headers. An empty `line` means the client left,
+  ## an empty `httpMethod` means the request is broken
+  result.headers = newHttpHeaders()
+  result.line = await client.recvLine(maxLength = maxLine)
+  if result.line in ["", "\r\n"] or brokenLine(result.line):
+    return
+
+  var headerBytes = 0
+  for i in 0 .. maxHeaders:
+    let line = await client.recvLine(maxLength = maxLine)
+    if line == "\r\n":
+      break
+    headerBytes += line.len
+    let colon = line.find(':')
+    if line == "" or brokenLine(line) or colon < 1 or i == maxHeaders or
+        headerBytes > maxHeaderBytes:
+      return
+    result.headers.add(line[0 ..< colon].strip(), line[colon + 1 .. ^1].strip())
+
+  let parts = result.line.split(' ')
+  if parts.len != 3 or not parts[1].startsWith("/") or not parts[2].startsWith("HTTP/1."):
+    return
+
+  let target = parts[1].split('?', maxsplit = 1)
+  result.path = decodeUrl(target[0], decodePlus = false)
+  if result.path.contains(controlChars):
+    return
+  if target.len == 2:
+    result.query = "?" & target[1]
+  result.version = parts[2]
+  result.httpMethod = parts[0]
+
+
+proc readBody*(client: AsyncSocket, req: Request, limit: int): Future[
+    string] {.async.} =
+  ## Reads a small request body, such as a submitted login form. Bigger bodies are cut short
+  var length = 0
+  try:
+    length = min(parseInt(req.header("Content-Length")), limit)
+  except ValueError:
+    return
+  if length > 0:
+    let reading = client.recv(length)
+    if await reading.withTimeout(headTimeout):
+      result = reading.read()
 
 
 proc ipKey(ip: string): string =
