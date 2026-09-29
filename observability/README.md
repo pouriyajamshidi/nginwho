@@ -57,8 +57,8 @@ The dashboard in `dashboard.json` shows:
   errors
 - **Where from**: a world map, top countries, top networks and how much traffic comes from
   data centers
-- **Trap**: hits by trap and by what we did to the bot, top trapped IPs, paths with what the
-  bot was after, countries and networks, and the latest hits
+- **Trap**: how much bot time the trap wasted, hits by trap and by what we did to the bot, top
+  trapped IPs, paths with what the bot was after, countries and networks, and the latest hits
 - **Server**: how much programs wait for the CPU, memory, disk and interrupts, now and over
   time, and how the database grows
 - **Logs**: the access log, live

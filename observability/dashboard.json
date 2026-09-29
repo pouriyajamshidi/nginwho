@@ -1516,6 +1516,50 @@
       "id": 31
     },
     {
+      "type": "stat",
+      "title": "Bot time wasted",
+      "description": "How long the trap held bots, counted when each trap ends",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum(sum_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trap held \" | regexp `Trap held \\S+ for (?P<seconds>\\d+) seconds` | unwrap seconds [$__range])) or vector(0)",
+          "queryType": "instant",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 4,
+        "x": 0,
+        "y": 83
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "none",
+        "colorMode": "none"
+      },
+      "id": 45
+    },
+    {
       "type": "timeseries",
       "title": "Trap hits by trap",
       "datasource": {
@@ -1535,8 +1579,8 @@
       ],
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 0,
+        "w": 10,
+        "x": 4,
         "y": 83
       },
       "id": 32,
@@ -1562,8 +1606,8 @@
       ],
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 10,
+        "x": 14,
         "y": 83
       },
       "id": 33,
