@@ -1,7 +1,7 @@
 import std/asyncdispatch
 from std/strformat import fmt
 from std/strutils import parseBool, splitLines, startsWith, split, strip
-from db_connector/db_sqlite import DbError
+from db_connector/db_common import DbError
 from std/os import getFileInfo, FileInfo, FileId, dirExists, fileExists,
     createDir, parentDir
 from std/net import Port
