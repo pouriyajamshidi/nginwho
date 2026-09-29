@@ -227,19 +227,6 @@ proc hasOldSchema*(db: DbConn): bool =
   return db.getValue(sql"SELECT 1 FROM pragma_table_info('nginwho') WHERE name = 'date_id'") == "1"
 
 
-proc execPrepared(db: DbConn, statement: SqlPrepared, values: varargs[string]) =
-  ## Runs a statement that was prepared once, so SQLite does not parse it again for every row.
-  ## db_sqlite's own exec for prepared statements finalizes them on errors, which breaks a later finalize
-  let stmt = PStmt(statement)
-  discard reset(stmt)
-  for i, value in values:
-    if bind_text(stmt, int32(i + 1), value.cstring, int32(value.len),
-        SQLITE_TRANSIENT) != SQLITE_OK:
-      dbError(db)
-  if step(stmt) != SQLITE_DONE:
-    dbError(db)
-
-
 proc createTables*(db: DbConn) =
   info("Creating database tables")
 
@@ -289,6 +276,75 @@ proc createTables*(db: DbConn) =
     db.exec(sql"PRAGMA wal_checkpoint(TRUNCATE)")
 
 
+proc getLastRow*(db: DbConn): Log =
+  info("Getting the last record from database")
+
+  let selectStatement = sql(fmt"""
+    SELECT
+      {fromUnix},
+      ri.remote_ip,
+      hm.http_method,
+      ru.request_uri
+    FROM nginwho n
+    JOIN remote_ips ri ON n.remote_ip_id = ri.id
+    JOIN http_methods hm on n.http_method_id = hm.id
+    JOIN request_uris ru ON n.request_uri_id = ru.id
+    ORDER BY n.id DESC
+    LIMIT 1
+  """)
+
+  let row = db.getRow(selectStatement)
+
+  # every row has a date, so an empty one means there are no rows
+  if row[0] == "":
+    info("No rows in database yet")
+    return
+
+  return Log(
+    date: row[0],
+    remoteIP: row[1],
+    httpMethod: row[2],
+    requestURI: row[3],
+  )
+
+
+proc execPrepared(db: DbConn, statement: SqlPrepared, values: varargs[string]) =
+  ## Runs a statement that was prepared once, so SQLite does not parse it again for every row.
+  ## db_sqlite's own exec for prepared statements finalizes them on errors, which breaks a later finalize
+  let stmt = PStmt(statement)
+  discard reset(stmt)
+  for i, value in values:
+    if bind_text(stmt, int32(i + 1), value.cstring, int32(value.len),
+        SQLITE_TRANSIENT) != SQLITE_OK:
+      dbError(db)
+  if step(stmt) != SQLITE_DONE:
+    dbError(db)
+
+
+proc upsert(db: DbConn, table, column: string, values: seq[string]) =
+  info(fmt"Processing {table} table")
+
+  if values.len < 1:
+    info(fmt"No values to insert in {table} table")
+    return
+
+  let insertQuery = db.prepare(fmt"""
+    INSERT INTO {table} ({column}, count)
+    VALUES (?, ?)
+    ON CONFLICT ({column})
+    DO UPDATE SET
+      count = count + excluded.count
+  """)
+  defer: discard finalize(PStmt(insertQuery))
+
+  var valueCounts = initTable[string, int]()
+  for value in values:
+    valueCounts.mgetOrPut(value, 0).inc
+
+  for value, count in valueCounts.pairs:
+    execPrepared(db, insertQuery, value, $count)
+
+
 proc normalizeNginwhoTable(db: DbConn, logs: seq[Log]) =
   info("Populating the nginwho table")
 
@@ -335,62 +391,6 @@ proc normalizeNginwhoTable(db: DbConn, logs: seq[Log]) =
       log.remoteUser,
       log.authenticatedUser
     )
-
-
-proc getLastRow*(db: DbConn): Log =
-  info("Getting the last record from database")
-
-  let selectStatement = sql(fmt"""
-    SELECT
-      {fromUnix},
-      ri.remote_ip,
-      hm.http_method,
-      ru.request_uri
-    FROM nginwho n
-    JOIN remote_ips ri ON n.remote_ip_id = ri.id
-    JOIN http_methods hm on n.http_method_id = hm.id
-    JOIN request_uris ru ON n.request_uri_id = ru.id
-    ORDER BY n.id DESC
-    LIMIT 1
-  """)
-
-  let row = db.getRow(selectStatement)
-
-  # every row has a date, so an empty one means there are no rows
-  if row[0] == "":
-    info("No rows in database yet")
-    return
-
-  return Log(
-    date: row[0],
-    remoteIP: row[1],
-    httpMethod: row[2],
-    requestURI: row[3],
-  )
-
-
-proc upsert(db: DbConn, table, column: string, values: seq[string]) =
-  info(fmt"Processing {table} table")
-
-  if values.len < 1:
-    info(fmt"No values to insert in {table} table")
-    return
-
-  let insertQuery = db.prepare(fmt"""
-    INSERT INTO {table} ({column}, count)
-    VALUES (?, ?)
-    ON CONFLICT ({column})
-    DO UPDATE SET
-      count = count + excluded.count
-  """)
-  defer: discard finalize(PStmt(insertQuery))
-
-  var valueCounts = initTable[string, int]()
-  for value in values:
-    valueCounts.mgetOrPut(value, 0).inc
-
-  for value, count in valueCounts.pairs:
-    execPrepared(db, insertQuery, value, $count)
 
 
 proc insertLogs*(db: DbConn, logs: seq[Log]): bool =
