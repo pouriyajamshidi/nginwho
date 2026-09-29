@@ -74,7 +74,11 @@ suite "cli":
     check "Bad value 'slow' for DeepSeek in [trap.agents]: must be drip, endless, maze, login or bomb" in output
 
   test "a database that can't be opened ends the program with an error":
+    # its folder can't be made since a file has that name, even for root, which may run the tests
+    let notDir = tempDir / "not_a_dir"
+    writeFile(notDir, "")
+    let dbPath = notDir / "x.db"
     let (output, exitCode) = run("--processNginxLogs --serve --root=" & quoteShell(tempDir) & " --port=18557" &
-        " --logPath=" & quoteShell(tempDir / "access.log") & " --dbPath=/nonexistent/dir/x.db")
+        " --logPath=" & quoteShell(tempDir / "access.log") & " --dbPath=" & quoteShell(dbPath))
     check exitCode == 1
-    check "Could not open database /nonexistent/dir/x.db" in output
+    check ("Could not open database " & dbPath) in output
