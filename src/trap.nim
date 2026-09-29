@@ -127,10 +127,236 @@ proc rand(rng: Rng, slice: HSlice[int, int]): int =
   rng.state.rand(slice)
 
 
+proc token(rng: Rng, length: int,
+    alphabet = alphanumeric): string =
+  for _ in 1 .. length:
+    result.add(alphabet[rng.state.rand(alphabet.high)])
+
+
 proc anyOf(path: string, needles: openArray[string]): bool =
   for needle in needles:
     if path.contains(needle):
       return true
+
+
+proc fill(text: string, values: Table[string, string]): string =
+  result = text
+  for placeholder, value in values.pairs:
+    result = result.replace(placeholder, value)
+
+
+proc fakeValues(rng: Rng): Table[string, string] =
+  ## Believable looking secrets. They are all made up and lead nowhere
+  let app = rng.state.sample(apps)
+  return {
+    "{{APP}}": app,
+    "{{HOST}}": app & ".io",
+    "{{IP}}": fmt"10.{rng.rand(1 .. 254)}.{rng.rand(1 .. 254)}.{rng.rand(1 .. 254)}",
+    "{{USER}}": rng.state.sample(users),
+    "{{PASS}}": token(rng, 18),
+    "{{PASS2}}": token(rng, 18),
+    "{{PASS3}}": token(rng, 18),
+    "{{AWS_KEY}}": "AKIA" & token(rng, 16, base32Chars),
+    "{{AWS_KEY2}}": "AKIA" & token(rng, 16, base32Chars),
+    "{{AWS_KEY3}}": "AKIA" & token(rng, 16, base32Chars),
+    "{{AWS_SECRET}}": token(rng, 40, base64Chars),
+    "{{AWS_SECRET2}}": token(rng, 40, base64Chars),
+    "{{AWS_SECRET3}}": token(rng, 40, base64Chars),
+    "{{STRIPE}}": "sk_live_" & token(rng, 24),
+    "{{TOKEN}}": "ghp_" & token(rng, 36),
+    "{{HEX}}": token(rng, 64, hexChars),
+    "{{B64}}": token(rng, 43) & "=",
+    "{{ID}}": token(rng, 24),
+    "{{VERSION}}": fmt"{rng.rand(4 .. 6)}.{rng.rand(0 .. 9)}.{rng.rand(0 .. 9)}",
+    "{{ERROR}}": "",
+  }.toTable
+
+
+proc fakeFile(trap: Trap, path: string, values: Table[string, string], rng: Rng):
+    tuple[body, contentType, canary: string] =
+  ## The fake file a bot gets for the path it asked for, and the fake secret in it
+  ## that we can trace back to them. A file without a secret has no canary
+  let p = path.toLowerAscii
+  let awsKey = values["{{AWS_KEY}}"]
+
+  case trap
+  of envFile:
+    return (fill(envTemplate, values), "text/plain", awsKey)
+  of creds:
+    if p.endsWith(".pem") or p.contains("id_rsa") or p.contains("key"):
+      # the first line is enough to recognize the key
+      let firstLine = token(rng, 64, base64Chars)
+      var key = "-----BEGIN RSA PRIVATE KEY-----\n" & firstLine & "\n"
+      for _ in 2 .. 25:
+        key.add(token(rng, 64, base64Chars) & "\n")
+      return (key & "-----END RSA PRIVATE KEY-----\n", "text/plain", firstLine)
+    return (fill(credentialsTemplate, values), "text/plain", awsKey)
+  of gitRepo:
+    if p.endsWith("head"):
+      return ("ref: refs/heads/main\n", "text/plain", "")
+    return (fill(gitConfigTemplate, values), "text/plain", values["{{TOKEN}}"])
+  of phpFile:
+    return (fill(phpinfoTemplate, values), "text/html", awsKey)
+  of apiDebug:
+    return (fill(actuatorTemplate, values), "application/json", awsKey)
+  of rce:
+    return (fill(passwdTemplate, values), "text/plain", "")
+  of configFile, backup, wordpress, adminPanel, wellKnown, listedAgent, noTrap:
+    return (fill(configTemplate, values), "application/json", awsKey)
+
+
+proc trapHead(status: HttpCode, headers: openArray[(string, string)]): string =
+  ## A CDN must never cache a trap. Cloudflare caches .gz and .zip files, and a cached
+  ## bomb goes out to the next bots without the trap seeing or saving them
+  responseHead(status, false, @headers & ("Cache-Control", "no-store"))
+
+
+proc submittedCredentials(body: string): string =
+  ## Pulls the username and password out of a posted login form
+  var user, password: string
+  for field in body.split('&'):
+    let pair = field.split('=', maxsplit = 1)
+    if pair.len != 2:
+      continue
+    case pair[0]
+    of "log", "username", "user", "email", "name": user = decodeUrl(pair[1])
+    of "pwd", "password", "pass", "passwd": password = decodeUrl(pair[1])
+    else: discard
+
+  if user == "" and password == "":
+    return ""
+  return fmt"tried {user}:{password}"
+
+
+proc playLogin(client: AsyncSocket, req: Request, values: Table[string, string],
+    rng: Rng, deadline: float, played: Played) {.async.} =
+  ## A login page that takes its time and then says the password was wrong
+  var page = values
+
+  if req.httpMethod == "POST":
+    let body = await client.readBody(req, maxBodyBytes)
+    played.detail = submittedCredentials(body)
+    # a real check would be quick. this one thinks about it for a while
+    await sleepAsync(rng.rand(10_000 .. 30_000))
+    page["{{ERROR}}"] = "<div class=\"error\"><strong>Error:</strong> " &
+        "The password you entered is incorrect. Please try again.</div>"
+
+  let body = fill(loginTemplate, page)
+  let status = if req.httpMethod == "POST": Http401 else: Http200
+  await client.sendTimed(trapHead(status, [
+    ("Content-Type", "text/html; charset=UTF-8"),
+    ("Content-Length", $body.len),
+  ]))
+  if req.httpMethod != "HEAD":
+    await client.sendTimed(body)
+    played.bytes = body.len
+
+
+proc sendBomb(client: AsyncSocket, deadline: float, played: Played) {.async.} =
+  ## About 10 MB on the wire, about 10 GB once they unpack it
+  for _ in 1 .. bombMembers:
+    if epochTime() > deadline:
+      break
+    await client.sendTimed(zerosGz)
+    played.bytes.inc(zerosGz.len)
+
+
+proc mazePage(rng: Rng, path: string): string =
+  ## A folder listing whose links all lead to more folders
+  # escaped, or a link with a script in the path would run it on our site
+  let path = escape(path)
+  result = fmt"""<!DOCTYPE html>
+<html><head><title>Index of {path}</title></head>
+<body><h1>Index of {path}</h1><hr><pre><a href="../">../</a>
+"""
+  for _ in 1 .. rng.rand(8 .. 20):
+    let name = token(rng, rng.rand(4 .. 12), "abcdefghijklmnopqrstuvwxyz0123456789_-")
+    let isDir = rng.rand(1 .. 3) > 1
+    let link = if isDir: name & "/" else: name & ".tar.gz"
+    result.add(fmt"""<a href="{link}">{link}</a>""" &
+        fmt"                 2026-0{rng.rand(1 .. 9)}-{rng.rand(10 .. 28)} {rng.rand(10 .. 23)}:{rng.rand(10 .. 59)}" &
+        fmt"  {rng.rand(1000 .. 999999)}" & "\n")
+  result.add("</pre><hr></body></html>\n")
+
+
+proc dripBody(client: AsyncSocket, body: string, cfg: TrapConfig, rng: Rng,
+    deadline: float, played: Played) {.async.} =
+  ## Sends a fake file one byte at a time. They almost never get to the end
+  for c in body:
+    if epochTime() > deadline:
+      break
+    await client.sendTimed($c)
+    played.bytes.inc
+    await sleepAsync(rng.rand(cfg.dripMinMs .. cfg.dripMaxMs))
+
+
+proc endlessChunk(trap: Trap, rng: Rng, index: int,
+    values: Table[string, string]): string =
+  ## One more piece of a body that never ends
+  case trap
+  of backup:
+    let
+      email = token(rng, 8) & "@" & values["{{HOST}}"]
+      password = "$2y$10$" & token(rng, 53, alphanumeric & "./")
+    "INSERT INTO users VALUES (" & $index & ", '" & email & "', '" & password & "');\n"
+  of wordpress:
+    "<member><name>" & token(rng, 12) & "</name><value><string>" &
+        token(rng, 40) & "</string></value></member>\n"
+  of gitRepo:
+    token(rng, 40, hexChars) & "\trefs/heads/" & token(rng, 10) & "\n"
+  else:
+    "{\"id\": " & $index & ", \"token\": \"" & token(rng, 32) & "\"},\n"
+
+
+proc dripEndless(client: AsyncSocket, trap: Trap, values: Table[string, string],
+    cfg: TrapConfig, rng: Rng, deadline: float, played: Played) {.async.} =
+  var index = 0
+  while epochTime() < deadline:
+    let chunk = endlessChunk(trap, rng, index, values)
+    await client.sendTimed(chunk)
+    played.bytes.inc(chunk.len)
+    index.inc
+    await sleepAsync(rng.rand(cfg.dripMinMs .. cfg.dripMaxMs))
+
+
+proc play(client: AsyncSocket, req: Request, trap: Trap, tactic: Tactic,
+    cfg: TrapConfig, rng: Rng, played: Played) {.async.} =
+  ## Runs one trap until the bot leaves or the time runs out.
+  ## Progress goes into `played` as it happens, so a bot hanging up still leaves a record
+  let
+    deadline = epochTime() + cfg.maxSeconds.float
+    values = fakeValues(rng)
+
+  case tactic
+  of login:
+    await client.playLogin(req, values, rng, deadline, played)
+  of bomb:
+    # a download keeps its gzip through Cloudflare, a page gets unpacked by the client
+    let download = req.path.toLowerAscii.anyOf([".gz", ".zip", ".tar", ".7z",
+        ".rar", ".tgz"])
+    var headers = @[("Content-Type", if download: "application/gzip" else: "text/plain")]
+    if not download:
+      headers.add(("Content-Encoding", "gzip"))
+    await client.sendTimed(trapHead(Http200, headers))
+    if req.httpMethod != "HEAD":
+      await client.sendBomb(deadline, played)
+  of maze:
+    let body = mazePage(rng, req.path)
+    await client.sendTimed(trapHead(Http200, [
+      ("Content-Type", "text/html"), ("Content-Length", $body.len)]))
+    if req.httpMethod != "HEAD":
+      await client.dripBody(body, cfg, rng, deadline, played)
+  of endless:
+    await client.sendTimed(trapHead(Http200, [("Content-Type", "text/plain")]))
+    if req.httpMethod != "HEAD":
+      await client.dripEndless(trap, values, cfg, rng, deadline, played)
+  of drip:
+    let (body, contentType, canary) = fakeFile(trap, req.path, values, rng)
+    played.detail = canary
+    await client.sendTimed(trapHead(Http200, [
+      ("Content-Type", contentType), ("Content-Length", $body.len)]))
+    if req.httpMethod != "HEAD":
+      await client.dripBody(body, cfg, rng, deadline, played)
 
 
 proc classify*(path: string): Trap =
@@ -194,114 +420,6 @@ proc classify*(path: string): Trap =
   return noTrap
 
 
-proc token(rng: Rng, length: int,
-    alphabet = alphanumeric): string =
-  for _ in 1 .. length:
-    result.add(alphabet[rng.state.rand(alphabet.high)])
-
-
-proc fakeValues(rng: Rng): Table[string, string] =
-  ## Believable looking secrets. They are all made up and lead nowhere
-  let app = rng.state.sample(apps)
-  return {
-    "{{APP}}": app,
-    "{{HOST}}": app & ".io",
-    "{{IP}}": fmt"10.{rng.rand(1 .. 254)}.{rng.rand(1 .. 254)}.{rng.rand(1 .. 254)}",
-    "{{USER}}": rng.state.sample(users),
-    "{{PASS}}": token(rng, 18),
-    "{{PASS2}}": token(rng, 18),
-    "{{PASS3}}": token(rng, 18),
-    "{{AWS_KEY}}": "AKIA" & token(rng, 16, base32Chars),
-    "{{AWS_KEY2}}": "AKIA" & token(rng, 16, base32Chars),
-    "{{AWS_KEY3}}": "AKIA" & token(rng, 16, base32Chars),
-    "{{AWS_SECRET}}": token(rng, 40, base64Chars),
-    "{{AWS_SECRET2}}": token(rng, 40, base64Chars),
-    "{{AWS_SECRET3}}": token(rng, 40, base64Chars),
-    "{{STRIPE}}": "sk_live_" & token(rng, 24),
-    "{{TOKEN}}": "ghp_" & token(rng, 36),
-    "{{HEX}}": token(rng, 64, hexChars),
-    "{{B64}}": token(rng, 43) & "=",
-    "{{ID}}": token(rng, 24),
-    "{{VERSION}}": fmt"{rng.rand(4 .. 6)}.{rng.rand(0 .. 9)}.{rng.rand(0 .. 9)}",
-    "{{ERROR}}": "",
-  }.toTable
-
-
-proc fill(text: string, values: Table[string, string]): string =
-  result = text
-  for placeholder, value in values.pairs:
-    result = result.replace(placeholder, value)
-
-
-proc fakeFile(trap: Trap, path: string, values: Table[string, string], rng: Rng):
-    tuple[body, contentType, canary: string] =
-  ## The fake file a bot gets for the path it asked for, and the fake secret in it
-  ## that we can trace back to them. A file without a secret has no canary
-  let p = path.toLowerAscii
-  let awsKey = values["{{AWS_KEY}}"]
-
-  case trap
-  of envFile:
-    return (fill(envTemplate, values), "text/plain", awsKey)
-  of creds:
-    if p.endsWith(".pem") or p.contains("id_rsa") or p.contains("key"):
-      # the first line is enough to recognize the key
-      let firstLine = token(rng, 64, base64Chars)
-      var key = "-----BEGIN RSA PRIVATE KEY-----\n" & firstLine & "\n"
-      for _ in 2 .. 25:
-        key.add(token(rng, 64, base64Chars) & "\n")
-      return (key & "-----END RSA PRIVATE KEY-----\n", "text/plain", firstLine)
-    return (fill(credentialsTemplate, values), "text/plain", awsKey)
-  of gitRepo:
-    if p.endsWith("head"):
-      return ("ref: refs/heads/main\n", "text/plain", "")
-    return (fill(gitConfigTemplate, values), "text/plain", values["{{TOKEN}}"])
-  of phpFile:
-    return (fill(phpinfoTemplate, values), "text/html", awsKey)
-  of apiDebug:
-    return (fill(actuatorTemplate, values), "application/json", awsKey)
-  of rce:
-    return (fill(passwdTemplate, values), "text/plain", "")
-  of configFile, backup, wordpress, adminPanel, wellKnown, listedAgent, noTrap:
-    return (fill(configTemplate, values), "application/json", awsKey)
-
-
-proc endlessChunk(trap: Trap, rng: Rng, index: int,
-    values: Table[string, string]): string =
-  ## One more piece of a body that never ends
-  case trap
-  of backup:
-    let
-      email = token(rng, 8) & "@" & values["{{HOST}}"]
-      password = "$2y$10$" & token(rng, 53, alphanumeric & "./")
-    "INSERT INTO users VALUES (" & $index & ", '" & email & "', '" & password & "');\n"
-  of wordpress:
-    "<member><name>" & token(rng, 12) & "</name><value><string>" &
-        token(rng, 40) & "</string></value></member>\n"
-  of gitRepo:
-    token(rng, 40, hexChars) & "\trefs/heads/" & token(rng, 10) & "\n"
-  else:
-    "{\"id\": " & $index & ", \"token\": \"" & token(rng, 32) & "\"},\n"
-
-
-proc mazePage(rng: Rng, path: string): string =
-  ## A folder listing whose links all lead to more folders
-  # escaped, or a link with a script in the path would run it on our site
-  let path = escape(path)
-  result = fmt"""<!DOCTYPE html>
-<html><head><title>Index of {path}</title></head>
-<body><h1>Index of {path}</h1><hr><pre><a href="../">../</a>
-"""
-  for _ in 1 .. rng.rand(8 .. 20):
-    let name = token(rng, rng.rand(4 .. 12), "abcdefghijklmnopqrstuvwxyz0123456789_-")
-    let isDir = rng.rand(1 .. 3) > 1
-    let link = if isDir: name & "/" else: name & ".tar.gz"
-    result.add(fmt"""<a href="{link}">{link}</a>""" &
-        fmt"                 2026-0{rng.rand(1 .. 9)}-{rng.rand(10 .. 28)} {rng.rand(10 .. 23)}:{rng.rand(10 .. 59)}" &
-        fmt"  {rng.rand(1000 .. 999999)}" & "\n")
-  result.add("</pre><hr></body></html>\n")
-
-
 proc tacticForPath(trap: Trap, p: string): Tactic =
   ## What a bot gets for a path, `p` is lowercase
   case trap
@@ -339,130 +457,12 @@ proc tacticFor(trap: Trap, path: string, repeatOffender: bool,
     result = endless
 
 
-proc dripBody(client: AsyncSocket, body: string, cfg: TrapConfig, rng: Rng,
-    deadline: float, played: Played) {.async.} =
-  ## Sends a fake file one byte at a time. They almost never get to the end
-  for c in body:
-    if epochTime() > deadline:
-      break
-    await client.sendTimed($c)
-    played.bytes.inc
-    await sleepAsync(rng.rand(cfg.dripMinMs .. cfg.dripMaxMs))
-
-
-proc dripEndless(client: AsyncSocket, trap: Trap, values: Table[string, string],
-    cfg: TrapConfig, rng: Rng, deadline: float, played: Played) {.async.} =
-  var index = 0
-  while epochTime() < deadline:
-    let chunk = endlessChunk(trap, rng, index, values)
-    await client.sendTimed(chunk)
-    played.bytes.inc(chunk.len)
-    index.inc
-    await sleepAsync(rng.rand(cfg.dripMinMs .. cfg.dripMaxMs))
-
-
-proc sendBomb(client: AsyncSocket, deadline: float, played: Played) {.async.} =
-  ## About 10 MB on the wire, about 10 GB once they unpack it
-  for _ in 1 .. bombMembers:
-    if epochTime() > deadline:
-      break
-    await client.sendTimed(zerosGz)
-    played.bytes.inc(zerosGz.len)
-
-
-proc trapHead(status: HttpCode, headers: openArray[(string, string)]): string =
-  ## A CDN must never cache a trap. Cloudflare caches .gz and .zip files, and a cached
-  ## bomb goes out to the next bots without the trap seeing or saving them
-  responseHead(status, false, @headers & ("Cache-Control", "no-store"))
-
-
-proc submittedCredentials(body: string): string =
-  ## Pulls the username and password out of a posted login form
-  var user, password: string
-  for field in body.split('&'):
-    let pair = field.split('=', maxsplit = 1)
-    if pair.len != 2:
-      continue
-    case pair[0]
-    of "log", "username", "user", "email", "name": user = decodeUrl(pair[1])
-    of "pwd", "password", "pass", "passwd": password = decodeUrl(pair[1])
-    else: discard
-
-  if user == "" and password == "":
-    return ""
-  return fmt"tried {user}:{password}"
-
-
-proc playLogin(client: AsyncSocket, req: Request, values: Table[string, string],
-    rng: Rng, deadline: float, played: Played) {.async.} =
-  ## A login page that takes its time and then says the password was wrong
-  var page = values
-
-  if req.httpMethod == "POST":
-    let body = await client.readBody(req, maxBodyBytes)
-    played.detail = submittedCredentials(body)
-    # a real check would be quick. this one thinks about it for a while
-    await sleepAsync(rng.rand(10_000 .. 30_000))
-    page["{{ERROR}}"] = "<div class=\"error\"><strong>Error:</strong> " &
-        "The password you entered is incorrect. Please try again.</div>"
-
-  let body = fill(loginTemplate, page)
-  let status = if req.httpMethod == "POST": Http401 else: Http200
-  await client.sendTimed(trapHead(status, [
-    ("Content-Type", "text/html; charset=UTF-8"),
-    ("Content-Length", $body.len),
-  ]))
-  if req.httpMethod != "HEAD":
-    await client.sendTimed(body)
-    played.bytes = body.len
-
-
-proc play(client: AsyncSocket, req: Request, trap: Trap, tactic: Tactic,
-    cfg: TrapConfig, rng: Rng, played: Played) {.async.} =
-  ## Runs one trap until the bot leaves or the time runs out.
-  ## Progress goes into `played` as it happens, so a bot hanging up still leaves a record
-  let
-    deadline = epochTime() + cfg.maxSeconds.float
-    values = fakeValues(rng)
-
-  case tactic
-  of login:
-    await client.playLogin(req, values, rng, deadline, played)
-  of bomb:
-    # a download keeps its gzip through Cloudflare, a page gets unpacked by the client
-    let download = req.path.toLowerAscii.anyOf([".gz", ".zip", ".tar", ".7z",
-        ".rar", ".tgz"])
-    var headers = @[("Content-Type", if download: "application/gzip" else: "text/plain")]
-    if not download:
-      headers.add(("Content-Encoding", "gzip"))
-    await client.sendTimed(trapHead(Http200, headers))
-    if req.httpMethod != "HEAD":
-      await client.sendBomb(deadline, played)
-  of maze:
-    let body = mazePage(rng, req.path)
-    await client.sendTimed(trapHead(Http200, [
-      ("Content-Type", "text/html"), ("Content-Length", $body.len)]))
-    if req.httpMethod != "HEAD":
-      await client.dripBody(body, cfg, rng, deadline, played)
-  of endless:
-    await client.sendTimed(trapHead(Http200, [("Content-Type", "text/plain")]))
-    if req.httpMethod != "HEAD":
-      await client.dripEndless(trap, values, cfg, rng, deadline, played)
-  of drip:
-    let (body, contentType, canary) = fakeFile(trap, req.path, values, rng)
-    played.detail = canary
-    await client.sendTimed(trapHead(Http200, [
-      ("Content-Type", contentType), ("Content-Length", $body.len)]))
-    if req.httpMethod != "HEAD":
-      await client.dripBody(body, cfg, rng, deadline, played)
-
-
-proc sendNotFound(client: AsyncSocket) {.async.} =
-  ## nginx turns this into the real 404 page of the site
-  const body = "404 Not Found\n"
-  await client.sendTimed(trapHead(Http404, [
-    ("Content-Type", "text/plain"), ("Content-Length", $body.len)]))
-  await client.sendTimed(body)
+proc findAgent*(userAgent: string, cfg: TrapConfig): Option[Agent] =
+  ## The first listed user agent found in the User-Agent header
+  let ua = userAgent.toLowerAscii
+  for agent in cfg.agents:
+    if ua.contains(agent.name):
+      return some(agent)
 
 
 proc countHit(ip: string): int =
@@ -474,14 +474,6 @@ proc countHit(ip: string): int =
 
   hitsToday.mgetOrPut(ip, 0).inc
   return hitsToday[ip]
-
-
-proc findAgent*(userAgent: string, cfg: TrapConfig): Option[Agent] =
-  ## The first listed user agent found in the User-Agent header
-  let ua = userAgent.toLowerAscii
-  for agent in cfg.agents:
-    if ua.contains(agent.name):
-      return some(agent)
 
 
 proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
@@ -535,6 +527,14 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
     db.finishTrapHit(id, played.bytes, int(epochTime() - started),
         substr(played.detail, 0, maxSavedBytes - 1))
   return true
+
+
+proc sendNotFound(client: AsyncSocket) {.async.} =
+  ## nginx turns this into the real 404 page of the site
+  const body = "404 Not Found\n"
+  await client.sendTimed(trapHead(Http404, [
+    ("Content-Type", "text/plain"), ("Content-Length", $body.len)]))
+  await client.sendTimed(body)
 
 
 proc handle(client: AsyncSocket, cfg: TrapConfig, db: DbConn) {.async.} =
