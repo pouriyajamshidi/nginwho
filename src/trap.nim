@@ -527,8 +527,12 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
   finally:
     active.dec
     # fill in what we ended up sending and how long we held them
-    db.finishTrapHit(id, played.bytes, int(epochTime() - started),
+    let seconds = int(epochTime() - started)
+    db.finishTrapHit(id, played.bytes, seconds,
         substr(played.detail, 0, maxSavedBytes - 1))
+    # the dashboard adds these up to show how much bot time we wasted
+    if save:
+      info(fmt"Trap held {ip} for {seconds} seconds in the {tactic}, sent {played.bytes} bytes")
   return true
 
 
