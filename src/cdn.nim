@@ -118,6 +118,39 @@ proc getCdnCIDRs(cdn: Cdn): Future[Option[Cidrs]] {.async.} =
   return parseCidrsResponse(cdn, jsonResponse)
 
 
+proc blockOthers(cdn: Cdn, cidrs: Cidrs) =
+  try:
+    acceptOnly(NftSet(name: cdn.name, ipv4: cidrs.ipv4, ipv6: cidrs.ipv6))
+  except NftError as e:
+    # a firewall problem must not stop the real IPs or anything else nginwho runs
+    error(e.msg)
+
+
+proc trustRanges*(cidrs: Cidrs) =
+  ## Replaces the ranges `visitorIP` trusts
+  var ranges: seq[tuple[network: IpAddress, bits: int]]
+  for list in [cidrs.ipv4, cidrs.ipv6]:
+    # the same check as for nftables. a prefix length past the address would crash fromCdn
+    for cidr in validCidrs(list):
+      let parts = cidr.split('/')
+      ranges.add((parseIpAddress(parts[0]), parseInt(parts[1])))
+  trustedRanges = ranges
+
+
+proc getCurrentEtag*(configFile: string = cidrFile): string =
+  info("Getting current CIDRs ETAG")
+
+  if not fileExists(configFile):
+    error(fmt"{configFile} does not exist")
+    return
+
+  for line in lines(configFile):
+    if line.startsWith("# Last etag:"):
+      let etagLine = line.split("# Last etag: ")
+      if etagLine.len > 1:
+        return etagLine[1]
+
+
 proc populateReverseProxyFile*(filePath: string, cidrs: Cidrs): bool =
   info(fmt"Populating CIDRs file in {filePath}")
 
@@ -145,68 +178,6 @@ proc populateReverseProxyFile*(filePath: string, cidrs: Cidrs): bool =
   except IOError as e:
     error(fmt"Could not write {filePath}: {e.msg}")
     return false
-
-
-proc trustRanges*(cidrs: Cidrs) =
-  ## Replaces the ranges `visitorIP` trusts
-  var ranges: seq[tuple[network: IpAddress, bits: int]]
-  for list in [cidrs.ipv4, cidrs.ipv6]:
-    # the same check as for nftables. a prefix length past the address would crash fromCdn
-    for cidr in validCidrs(list):
-      let parts = cidr.split('/')
-      ranges.add((parseIpAddress(parts[0]), parseInt(parts[1])))
-  trustedRanges = ranges
-
-
-proc samePrefix(a, b: openArray[uint8], bits: int): bool =
-  for i in 0 ..< bits:
-    let mask = 0x80'u8 shr (i mod 8)
-    if (a[i div 8] and mask) != (b[i div 8] and mask):
-      return false
-  return true
-
-
-proc fromCdn*(ip: string): bool =
-  ## Whether `ip` is in the CDN's ranges. False until the ranges are fetched
-  if not isIpAddress(ip):
-    return false
-  let address = parseIpAddress(ip)
-  for (network, bits) in trustedRanges:
-    if address.family != network.family:
-      continue
-    if address.family == IpAddressFamily.IPv4:
-      if samePrefix(address.address_v4, network.address_v4, bits): return true
-    elif samePrefix(address.address_v6, network.address_v6, bits): return true
-
-
-proc visitorIP*(peer, headerIP: string): string =
-  ## The visitor's IP for a request from `peer` carrying `headerIP` in the CDN's real IP
-  ## header. Anyone can send that header, so it only counts when the CDN sent the request
-  if headerIP != "" and isIpAddress(headerIP) and fromCdn(peer):
-    return headerIP
-  return peer
-
-
-proc getCurrentEtag*(configFile: string = cidrFile): string =
-  info("Getting current CIDRs ETAG")
-
-  if not fileExists(configFile):
-    error(fmt"{configFile} does not exist")
-    return
-
-  for line in lines(configFile):
-    if line.startsWith("# Last etag:"):
-      let etagLine = line.split("# Last etag: ")
-      if etagLine.len > 1:
-        return etagLine[1]
-
-
-proc blockOthers(cdn: Cdn, cidrs: Cidrs) =
-  try:
-    acceptOnly(NftSet(name: cdn.name, ipv4: cidrs.ipv4, ipv6: cidrs.ipv6))
-  except NftError as e:
-    # a firewall problem must not stop the real IPs or anything else nginwho runs
-    error(e.msg)
 
 
 proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
@@ -246,3 +217,32 @@ proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
       await sleepAsync(firewallCheckMs)
       if blockUntrustedCidrs:
         blockOthers(cdn, cidrs)
+
+
+proc samePrefix(a, b: openArray[uint8], bits: int): bool =
+  for i in 0 ..< bits:
+    let mask = 0x80'u8 shr (i mod 8)
+    if (a[i div 8] and mask) != (b[i div 8] and mask):
+      return false
+  return true
+
+
+proc fromCdn*(ip: string): bool =
+  ## Whether `ip` is in the CDN's ranges. False until the ranges are fetched
+  if not isIpAddress(ip):
+    return false
+  let address = parseIpAddress(ip)
+  for (network, bits) in trustedRanges:
+    if address.family != network.family:
+      continue
+    if address.family == IpAddressFamily.IPv4:
+      if samePrefix(address.address_v4, network.address_v4, bits): return true
+    elif samePrefix(address.address_v6, network.address_v6, bits): return true
+
+
+proc visitorIP*(peer, headerIP: string): string =
+  ## The visitor's IP for a request from `peer` carrying `headerIP` in the CDN's real IP
+  ## header. Anyone can send that header, so it only counts when the CDN sent the request
+  if headerIP != "" and isIpAddress(headerIP) and fromCdn(peer):
+    return headerIP
+  return peer
