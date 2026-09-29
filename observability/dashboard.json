@@ -1662,7 +1662,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "topk(20, sum by (path) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` [$__range])))",
+          "expr": "topk(20, sum by (path, trap) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` [$__range])))",
           "queryType": "instant",
           "instant": true,
           "range": false
@@ -1687,6 +1687,10 @@
             "renameByName": {
               "Value": "hits",
               "Value #A": "hits"
+            },
+            "indexByName": {
+              "path": 0,
+              "trap": 1
             }
           }
         },
@@ -1715,6 +1719,18 @@
               {
                 "id": "custom.width",
                 "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trap"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
               }
             ]
           }
