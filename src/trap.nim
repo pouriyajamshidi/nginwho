@@ -208,7 +208,10 @@ proc fakeFile(trap: Trap, path: string, values: Table[string, string], rng: Rng)
 proc trapHead(status: HttpCode, headers: openArray[(string, string)]): string =
   ## A CDN must never cache a trap. Cloudflare caches .gz and .zip files, and a cached
   ## bomb goes out to the next bots without the trap seeing or saving them
-  responseHead(status, false, @headers & ("Cache-Control", "no-store"))
+  # not `@headers & (...)`, which crashes on Nim 2.2
+  var all = @headers
+  all.add(("Cache-Control", "no-store"))
+  responseHead(status, false, all)
 
 
 proc submittedCredentials(body: string): string =
