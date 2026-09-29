@@ -233,17 +233,16 @@ proc showResults(db: DbConn, report: Report, num: int, window: TimeWindow) =
     stdout.styledWriteLine("  ", line[0 ..< barStart], fgGreen, line[barStart..^1])
 
 
-proc formatTotals*(totals: seq[tuple[name: string, count: int, first,
+proc formatTotals*(totals: seq[tuple[name, value, first,
     last: string]]): seq[string] =
   ## Returns one line per total, with the dates of the first and last entry when there are any
-  var nameWidth, countWidth: int
+  var nameWidth, valueWidth: int
   for total in totals:
     nameWidth = max(nameWidth, total.name.len)
-    countWidth = max(countWidth, len(insertSep($total.count, ',')))
+    valueWidth = max(valueWidth, total.value.len)
 
   for total in totals:
-    var line = alignLeft(total.name, nameWidth) & "  " & align(insertSep(
-        $total.count, ','), countWidth)
+    var line = alignLeft(total.name, nameWidth) & "  " & align(total.value, valueWidth)
     if total.first != "":
       line &= fmt"  {total.first} to {total.last}"
     result.add(line)
@@ -254,9 +253,10 @@ proc showTotals(db: DbConn) =
   let trapHits = getSpan(db, "trap_hits")
   # non-default logs are saved without a date
   let lines = formatTotals(@[
-    ("Requests", requests.count, requests.first, requests.last),
-    ("Non-default logs", getTotalNonDefaults(db), "", ""),
-    ("Trap hits", trapHits.count, trapHits.first, trapHits.last),
+    ("Requests", insertSep($requests.count, ','), requests.first, requests.last),
+    ("Non-default logs", insertSep($getTotalNonDefaults(db), ','), "", ""),
+    ("Trap hits", insertSep($trapHits.count, ','), trapHits.first, trapHits.last),
+    ("Bot time wasted", formatSeconds(getTrapTotals(db).seconds), "", ""),
   ])
 
   echo()

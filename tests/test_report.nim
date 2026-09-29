@@ -28,14 +28,16 @@ suite "report table":
 
   test "totals line up and only show dates when there are some":
     let lines = formatTotals(@[
-      ("Requests", 12345, "2024-11-01 08:30:00", "2026-09-26 23:59:59"),
-      ("Non-default logs", 2, "", ""),
-      ("Trap hits", 0, "", ""),
+      ("Requests", "12,345", "2024-11-01 08:30:00", "2026-09-26 23:59:59"),
+      ("Non-default logs", "2", "", ""),
+      ("Trap hits", "0", "", ""),
+      ("Bot time wasted", "3h 20m", "", ""),
     ])
     check lines == @[
       "Requests          12,345  2024-11-01 08:30:00 to 2026-09-26 23:59:59",
       "Non-default logs       2",
       "Trap hits              0",
+      "Bot time wasted   3h 20m",
     ]
 
   test "bot time reads like the trap reports":

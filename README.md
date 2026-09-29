@@ -819,12 +819,14 @@ This opens a menu. Pick a report by its number and say how many rows you want:
 ```
 
 Reports cover the last 30 days. Press `w` to switch to the last 24 hours, 7 days or all time.
-Press `t` to see how much is saved in the database and from when:
+Press `t` to see how much is saved in the database and from when, and how much bot time the
+trap has wasted so far:
 
 ```text
   Requests          245,108  2024-11-01 08:30:12 to 2026-09-26 13:34:58
   Non-default logs       37
   Trap hits           9,412  2026-09-20 11:02:45 to 2026-09-26 13:34:46
+  Bot time wasted    41h 7m
 ```
 
 The trap reports show how long each bot was held. For example, "what they wanted":
