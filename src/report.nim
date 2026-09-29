@@ -192,16 +192,28 @@ proc formatTable*(columns: seq[string], rows: seq[Row], total: int,
         "  " & align(percent.formatFloat(ffDecimal, 1) & "%", 6) & "  " & bar)
 
 
+proc formatSeconds*(seconds: int): string =
+  ## "3h 20m", "12m" or "45s", the same as the time columns of the trap reports
+  if seconds >= 3600:
+    return fmt"{seconds div 3600}h {seconds mod 3600 div 60}m"
+  if seconds >= 60:
+    return fmt"{seconds div 60}m"
+  return fmt"{seconds}s"
+
+
 proc showResults(db: DbConn, report: Report, num: int, window: TimeWindow) =
   let rows = report.query(db, num, since(window))
 
   let windowName = if report.allTimeOnly: "all time" else: window.name
+  let trapTotals = if report.isTrap: getTrapTotals(db, since(window)) else: (0, 0, 0)
   let total =
-    if report.isTrap: getTrapTotals(db, since(window)).hits
+    if report.isTrap: trapTotals.hits
     elif report.allTimeOnly: getTotalNonDefaults(db)
     else: getTotalRequests(db, since(window))
 
-  let unit = if report.isTrap: "trap hits" else: "requests"
+  let unit =
+    if report.isTrap: fmt"trap hits, {formatSeconds(trapTotals.seconds)} of bot time wasted"
+    else: "requests"
 
   echo()
   stdout.styledWriteLine(fgGreen, styleBright,

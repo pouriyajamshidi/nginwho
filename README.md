@@ -837,7 +837,9 @@ The trap reports show how long each bot was held. For example, "what they wanted
   4  agent      drip    2h 5m          64    6.4%  ███
 ```
 
-`agent` is a bot trapped by its name while asking for a normal page.
+`agent` is a bot trapped by its name while asking for a normal page. The title of each trap
+report also shows how much bot time the trap wasted in the chosen time window, like
+`(9,412 trap hits, 41h 7m of bot time wasted)`.
 
 The database can only be read by the user that created it. nginwho usually runs as root, so
 use `sudo`.

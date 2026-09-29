@@ -1,7 +1,7 @@
 import std/unittest
 from std/strutils import repeat, startsWith
 
-from report import formatTable, formatTotals
+from report import formatTable, formatTotals, formatSeconds
 
 
 suite "report table":
@@ -37,3 +37,8 @@ suite "report table":
       "Non-default logs       2",
       "Trap hits              0",
     ]
+
+  test "bot time reads like the trap reports":
+    check formatSeconds(45) == "45s"
+    check formatSeconds(720) == "12m"
+    check formatSeconds(12_000) == "3h 20m"
