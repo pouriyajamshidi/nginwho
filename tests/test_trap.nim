@@ -31,6 +31,11 @@ suite "classify":
     check $classify("/api/v1/users") == "api"
     check $classify("/.well-known/gecko-litespeed.php") == "php"
 
+  test "real clients asking for .well-known files are not trapped":
+    check $classify("/.well-known/traffic-advice") == "none"
+    check $classify("/.well-known/security.txt") == "none"
+    check $classify("/.well-known/assetlinks.json") == "none"
+
   test "admin and login pages beat the plain php trap, so we can harvest logins":
     check $classify("/administrator/index.php") == "admin"
     check $classify("/phpmyadmin/") == "admin"

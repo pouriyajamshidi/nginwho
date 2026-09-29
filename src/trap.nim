@@ -67,7 +67,6 @@ type
     adminPanel = "admin"
     apiDebug = "api"
     rce = "rce"
-    wellKnown = "well-known"
     listedAgent = "agent" # a listed user agent asking for a normal page
 
 
@@ -201,7 +200,7 @@ proc fakeFile(trap: Trap, path: string, values: Table[string, string], rng: Rng)
     return (fill(actuatorTemplate, values), "application/json", awsKey)
   of rce:
     return (fill(passwdTemplate, values), "text/plain", "")
-  of configFile, backup, wordpress, adminPanel, wellKnown, listedAgent, noTrap:
+  of configFile, backup, wordpress, adminPanel, listedAgent, noTrap:
     return (fill(configTemplate, values), "application/json", awsKey)
 
 
@@ -418,7 +417,6 @@ proc classify*(path: string): Trap =
               "/vendor", "autodiscover", "/owa", "/hudson", "/jenkins",
               "/nacos", "/druid"]):
     return apiDebug
-  if p.contains(".well-known/"): return wellKnown
 
   return noTrap
 
