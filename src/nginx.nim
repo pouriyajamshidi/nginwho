@@ -27,17 +27,6 @@ const
   readChunkBytes* = 1024 * 1024
 
 
-proc convertDateFormat*(nginxDate: string): string =
-  parse(nginxDate, "d-MMM-yyyy:HH:mm:ss").format(dateFormat)
-
-
-proc isStaticAsset*(requestURI: string): bool =
-  ## Fonts, scripts and styles are not stored, they only add noise
-  # TODO: Decide whether to exclude these or not
-  requestURI.endsWith(".woff2") or requestURI.endsWith(".js") or
-      requestURI.endsWith(".css")
-
-
 proc ensureNginxLogExists*(logPath: string) =
   ## Raises IOError when the log is missing
   info("Ensuring nginx log exists")
@@ -71,6 +60,10 @@ proc reloadNginx*() =
     error("nginx process reload failed")
   else:
     info("nginx process reloaded successfully")
+
+
+proc convertDateFormat*(nginxDate: string): string =
+  parse(nginxDate, "d-MMM-yyyy:HH:mm:ss").format(dateFormat)
 
 
 proc isFromDomain*(referrer, domain: string): bool =
@@ -133,6 +126,29 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
   return log
 
 
+proc offsetAfterLastInserted*(path: string, lastLog: Log): int64 =
+  ## Returns the file offset right after the last line that matches `lastLog`,
+  ## the last log saved in the database. Returns 0 when no line matches
+  if lastLog.date == "":
+    return 0
+
+  let file = open(path)
+  defer: file.close()
+
+  var line: string
+  while file.readLine(line):
+    # parsing every line is slow, most lines are from another IP
+    if not line.startsWith(lastLog.remoteIP & " "):
+      continue
+
+    let log = parseLogEntry(line, "")
+    # keep going to the last match, the same request can repeat in the same second
+    if log.date == lastLog.date and
+    log.httpMethod == lastLog.httpMethod and
+    log.requestURI == lastLog.requestURI:
+      result = file.getFilePos()
+
+
 proc readNewLines*(path: string, offset: var int64,
     maxBytes = readChunkBytes): seq[string] =
   ## Reads the complete lines added to the file since `offset`, up to `maxBytes`, and moves `offset` forward
@@ -162,24 +178,8 @@ proc readNewLines*(path: string, offset: var int64,
   return data.splitLines()
 
 
-proc offsetAfterLastInserted*(path: string, lastLog: Log): int64 =
-  ## Returns the file offset right after the last line that matches `lastLog`,
-  ## the last log saved in the database. Returns 0 when no line matches
-  if lastLog.date == "":
-    return 0
-
-  let file = open(path)
-  defer: file.close()
-
-  var line: string
-  while file.readLine(line):
-    # parsing every line is slow, most lines are from another IP
-    if not line.startsWith(lastLog.remoteIP & " "):
-      continue
-
-    let log = parseLogEntry(line, "")
-    # keep going to the last match, the same request can repeat in the same second
-    if log.date == lastLog.date and
-    log.httpMethod == lastLog.httpMethod and
-    log.requestURI == lastLog.requestURI:
-      result = file.getFilePos()
+proc isStaticAsset*(requestURI: string): bool =
+  ## Fonts, scripts and styles are not stored, they only add noise
+  # TODO: Decide whether to exclude these or not
+  requestURI.endsWith(".woff2") or requestURI.endsWith(".js") or
+      requestURI.endsWith(".css")
