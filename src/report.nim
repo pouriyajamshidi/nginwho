@@ -62,86 +62,6 @@ let timeWindows: array[4, TimeWindow] = [
 ]
 
 
-proc since(window: TimeWindow): string =
-  ## Returns the date the time window starts at, in the same format and local time as the saved logs
-  if window.duration == DurationZero:
-    return ""
-  return (now() - window.duration).format(dateFormat)
-
-
-proc printable(text: string): string =
-  ## Bots choose what gets saved, like the passwords they try. Escape codes in it
-  ## must not reach the terminal
-  for c in text:
-    if c < ' ' or c == '\x7f':
-      result.add("\\x" & toHex(ord(c), 2))
-    else:
-      result.add(c)
-
-
-proc fit(text: string, width: int): string =
-  ## Cuts `text` to `width` characters and pads it to exactly that width
-  if runeLen(text) > width:
-    return runeSubStr(text, 0, width - 1) & "…"
-  return text & " ".repeat(width - runeLen(text))
-
-
-proc formatTable*(columns: seq[string], rows: seq[Row], total: int,
-    countHeader = "Requests"): seq[string] =
-  ## Returns the rows as table lines, starting with the header.
-  ## Every row has one value per column and then its count
-  var rows = rows
-  for row in rows.mitems:
-    for value in row.mitems:
-      value = printable(value)
-
-  var widths: seq[int]
-  for i, column in columns:
-    var width = runeLen(column)
-    for row in rows:
-      width = max(width, runeLen(row[i]))
-    widths.add(min(width, maxColumnWidth))
-
-  var counts: seq[int]
-  for row in rows:
-    counts.add(parseInt(row[^1]))
-
-  let topCount = max(counts & @[1])
-  let countWidth = max(countHeader.len, len(insertSep($topCount, ',')))
-  let numberWidth = len($rows.len)
-
-  var header = align("#", numberWidth)
-  for i, column in columns:
-    header &= "  " & fit(column, widths[i])
-  result.add(header & "  " & align(countHeader, countWidth) & "  " & align("%", 6))
-
-  for n, row in rows:
-    var line = align($(n + 1), numberWidth)
-    for i in 0 ..< columns.len:
-      line &= "  " & fit(row[i], widths[i])
-
-    let percent = if total > 0: counts[n] / total * 100 else: 0.0
-    let bar = "█".repeat(max(1, counts[n] * barWidth div topCount))
-    result.add(line & "  " & align(insertSep($counts[n], ','), countWidth) &
-        "  " & align(percent.formatFloat(ffDecimal, 1) & "%", 6) & "  " & bar)
-
-
-proc formatTotals*(totals: seq[tuple[name: string, count: int, first,
-    last: string]]): seq[string] =
-  ## Returns one line per total, with the dates of the first and last entry when there are any
-  var nameWidth, countWidth: int
-  for total in totals:
-    nameWidth = max(nameWidth, total.name.len)
-    countWidth = max(countWidth, len(insertSep($total.count, ',')))
-
-  for total in totals:
-    var line = alignLeft(total.name, nameWidth) & "  " & align(insertSep(
-        $total.count, ','), countWidth)
-    if total.first != "":
-      line &= fmt"  {total.first} to {total.last}"
-    result.add(line)
-
-
 proc printRed(message: string) =
   stdout.styledWriteLine(fgRed, message)
 
@@ -208,6 +128,70 @@ proc chooseTimeWindow(current: int): int =
   return choice - 1
 
 
+proc since(window: TimeWindow): string =
+  ## Returns the date the time window starts at, in the same format and local time as the saved logs
+  if window.duration == DurationZero:
+    return ""
+  return (now() - window.duration).format(dateFormat)
+
+
+proc printable(text: string): string =
+  ## Bots choose what gets saved, like the passwords they try. Escape codes in it
+  ## must not reach the terminal
+  for c in text:
+    if c < ' ' or c == '\x7f':
+      result.add("\\x" & toHex(ord(c), 2))
+    else:
+      result.add(c)
+
+
+proc fit(text: string, width: int): string =
+  ## Cuts `text` to `width` characters and pads it to exactly that width
+  if runeLen(text) > width:
+    return runeSubStr(text, 0, width - 1) & "…"
+  return text & " ".repeat(width - runeLen(text))
+
+
+proc formatTable*(columns: seq[string], rows: seq[Row], total: int,
+    countHeader = "Requests"): seq[string] =
+  ## Returns the rows as table lines, starting with the header.
+  ## Every row has one value per column and then its count
+  var rows = rows
+  for row in rows.mitems:
+    for value in row.mitems:
+      value = printable(value)
+
+  var widths: seq[int]
+  for i, column in columns:
+    var width = runeLen(column)
+    for row in rows:
+      width = max(width, runeLen(row[i]))
+    widths.add(min(width, maxColumnWidth))
+
+  var counts: seq[int]
+  for row in rows:
+    counts.add(parseInt(row[^1]))
+
+  let topCount = max(counts & @[1])
+  let countWidth = max(countHeader.len, len(insertSep($topCount, ',')))
+  let numberWidth = len($rows.len)
+
+  var header = align("#", numberWidth)
+  for i, column in columns:
+    header &= "  " & fit(column, widths[i])
+  result.add(header & "  " & align(countHeader, countWidth) & "  " & align("%", 6))
+
+  for n, row in rows:
+    var line = align($(n + 1), numberWidth)
+    for i in 0 ..< columns.len:
+      line &= "  " & fit(row[i], widths[i])
+
+    let percent = if total > 0: counts[n] / total * 100 else: 0.0
+    let bar = "█".repeat(max(1, counts[n] * barWidth div topCount))
+    result.add(line & "  " & align(insertSep($counts[n], ','), countWidth) &
+        "  " & align(percent.formatFloat(ffDecimal, 1) & "%", 6) & "  " & bar)
+
+
 proc showResults(db: DbConn, report: Report, num: int, window: TimeWindow) =
   let rows = report.query(db, num, since(window))
 
@@ -235,6 +219,22 @@ proc showResults(db: DbConn, report: Report, num: int, window: TimeWindow) =
     # the bar is the last part of the line and has no spaces
     let barStart = line.rfind("  ") + 2
     stdout.styledWriteLine("  ", line[0 ..< barStart], fgGreen, line[barStart..^1])
+
+
+proc formatTotals*(totals: seq[tuple[name: string, count: int, first,
+    last: string]]): seq[string] =
+  ## Returns one line per total, with the dates of the first and last entry when there are any
+  var nameWidth, countWidth: int
+  for total in totals:
+    nameWidth = max(nameWidth, total.name.len)
+    countWidth = max(countWidth, len(insertSep($total.count, ',')))
+
+  for total in totals:
+    var line = alignLeft(total.name, nameWidth) & "  " & align(insertSep(
+        $total.count, ','), countWidth)
+    if total.first != "":
+      line &= fmt"  {total.first} to {total.last}"
+    result.add(line)
 
 
 proc showTotals(db: DbConn) =
