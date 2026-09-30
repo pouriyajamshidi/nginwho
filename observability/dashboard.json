@@ -57,6 +57,17 @@
         "includeAll": true,
         "allValue": ".*",
         "refresh": 1
+      },
+      {
+        "name": "omit_referrer",
+        "label": "Omit referrer",
+        "description": "Hide referrers from this domain and its subdomains, like omit_referrer in nginwho's config",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
       }
     ]
   },
@@ -1084,7 +1095,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "topk(20, sum by (referrer) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` | referrer != \"-\" [$__range])))",
+          "expr": "topk(20, sum by (referrer) (count_over_time({job=~\"$job\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <bytes> \"<referrer>\" \"<agent>\"` | referrer != \"-\" | referrer !~ `(?i)https?://([^/?#]*\\.)?${omit_referrer:regex}(:[0-9]+)?([/?#].*)?` [$__range])))",
           "queryType": "instant",
           "instant": true,
           "range": false

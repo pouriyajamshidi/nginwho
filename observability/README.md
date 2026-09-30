@@ -280,6 +280,10 @@ your stack's Loki and Prometheus, named like `grafanacloud-<your stack>-logs` an
 `grafanacloud-<your stack>-prom`. If you have more than one, pick them in the "Logs" and
 "Metrics" menus at the top of the dashboard.
 
+The "Top referrers" panel reads the access log, so nginwho's `omit_referrer` does not reach it.
+To hide your own site there, type its domain in the "Omit referrer" box at the top, like
+`example.com`, and save the dashboard. Its subdomains are hidden too.
+
 Only logs sent after this setup have countries, so the map fills up from now on.
 
 ### Check that it works
