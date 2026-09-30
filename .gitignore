@@ -8,3 +8,5 @@ tests/*
 nimble.develop
 nimble.paths
 nimbledeps
+.vscode
+.zed
