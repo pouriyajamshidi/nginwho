@@ -80,6 +80,11 @@ proc webTraffic(): seq[JsonNode] =
   ]
 
 
+proc fromLoopback(): JsonNode =
+  ## The server talking to itself, like a health check on localhost
+  %*{"match": {"op": "==", "left": {"meta": {"key": "iif"}}, "right": "lo"}}
+
+
 proc limitedLog(prefix: string): seq[JsonNode] =
   ## Logs at most 10 packets a minute, so a flood can't fill the system log.
   ## A packet over the limit does not match, so this must be its own rule and never
@@ -280,7 +285,9 @@ proc nginwhoBaseChain(): JsonNode = baseChain(nginwhoChain, nginwhoHook, nginwho
 
 
 proc nginwhoRules(nftSet: NftSet): seq[JsonNode] =
-  createNginwhoIPPolicy("ip", nftSet.setNameV4, logPrefixV4) &
+  # the server's own traffic does not come through the CDN
+  @[addRule(nginwhoChain, @[fromLoopback(), %*{"accept": nil}])] &
+    createNginwhoIPPolicy("ip", nftSet.setNameV4, logPrefixV4) &
     createNginwhoIPPolicy("ip6", nftSet.setNameV6, logPrefixV6)
 
 
@@ -464,8 +471,7 @@ proc lockdownRules(sshPorts: seq[int]): seq[JsonNode] =
   let accept = %*{"accept": nil}
 
   result = @[
-    addRule(lockdownChain, @[%*{"match": {"op": "==", "left": {"meta": {"key": "iif"}},
-        "right": "lo"}}, accept]),
+    addRule(lockdownChain, @[fromLoopback(), accept]),
     # replies to connections the server made, like DNS lookups and updates
     addRule(lockdownChain, @[%*{"match": {"op": "in", "left": {"ct": {"key": "state"}},
         "right": ["established", "related"]}}, accept]),

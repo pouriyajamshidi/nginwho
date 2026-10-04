@@ -1,5 +1,6 @@
 import std/[unittest, json, os]
 from std/osproc import execCmdEx
+from std/strutils import contains
 
 from nftables import NftSet, NftAttrs, NftError, createRules, requiredChanges, validCidrs,
     createLockdown, lockdownIsCurrent, parseSshPorts, lockDown
@@ -114,11 +115,26 @@ suite "nftables":
 
       var rules: seq[string]
       for node in after:
-        if node.contains("rule") and node["rule"]["chain"].getStr() == "nginwho":
+        # the loopback rule has no Set
+        if node.contains("rule") and node["rule"]["chain"].getStr() == "nginwho" and
+            node["rule"]["expr"].len > 2:
           # the ports come first, then the Set
           rules.add(node["rule"]["expr"][2]["match"]["right"].getStr())
       # a rule that logs and a rule that drops for each
       check rules == @["@Fastly_IPv4", "@Fastly_IPv4", "@Fastly_IPv6", "@Fastly_IPv6"]
+
+  test "the server can still reach its own web ports":
+    # like a health check on localhost. Nothing listens, so a packet that gets through is
+    # refused at once, and a dropped one waits for the timeout
+    if not canRunNft():
+      skip()
+    else:
+      let path = tempDir / "loopback.json"
+      writeFile(path, createRules(cidrs, allChanges).pretty())
+      let script = "ip link set lo up && nft add table inet filter && nft -j -f " &
+          quoteShell(path) & " && timeout 2 bash -c 'echo > /dev/tcp/127.0.0.1/80'"
+      let (output, _) = execCmdEx("unshare -rn sh -c " & quoteShell(script))
+      check "refused" in output
 
   test "a missing inet filter table is created":
     if not canRunNft():
