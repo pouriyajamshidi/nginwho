@@ -25,5 +25,23 @@ ProtectHome=read-only
 ProtectSystem=full
 ReadWritePaths=/etc/nginx
 
+# more hardening. these also apply to the nft, nginx and ss commands nginwho runs
+PrivateDevices=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# AF_NETLINK is how nft and ss talk to the kernel
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
 [Install]
 WantedBy=multi-user.target

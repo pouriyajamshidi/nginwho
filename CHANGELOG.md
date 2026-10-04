@@ -38,6 +38,7 @@ All notable changes to **nginwho** are listed here.
 - Existing databases are upgraded once on start or when running `--report`, then vacuumed so the file shrinks. This takes a few seconds on big databases. Older versions can't read an upgraded database, so keep a backup if you may go back.
 - A flag value after a space, like `--omitReferrer example.com`, stops nginwho with an error. Before, the value was quietly ignored, so the flag did nothing or `--logPath` fell back to the default log. Give values with `=` or `:`, like `--omitReferrer=example.com`.
 - `nginwho.service` makes `/var/lib/nginwho` `0755` instead of `0700`, so a monitoring tool like Grafana Alloy can see how big the database is.
+- `nginwho.service` locks nginwho down further, along with the `nft`, `nginx` and `ss` commands it runs: no kernel modules, devices, kernel settings, clock or hostname changes, setuid files or namespaces, and only the system calls a normal service needs. `systemd-analyze security nginwho` goes from 8.8 to 4.0.
 - `--blockUntrustedCidrs` creates the `inet filter` table when there is none. Before, it stopped with an example to start from, and took any `inet` table, like one from firewalld, for `inet filter`.
 - `--omitReferrer` (`omit_referrer`) only drops referrers from that domain and its subdomains. Before, it matched anywhere in the referrer, so a search like `google.com/search?q=example.com` was dropped too.
 
