@@ -76,6 +76,24 @@ suite "parseLogEntry":
     check log.nonDefault == junk
     check log.date == ""
 
+  test "a URI with spaces is read whole and the other fields stay in place":
+    let log = parseLogEntry("""203.0.113.7 - - [13/Sep/2026:10:15:32 +0000] "GET /a b HTTP/1.1" 404 1 "-" "curl/8.0"""", "")
+    check log.httpMethod == "GET"
+    check log.requestURI == "/a b"
+    check log.statusCode == "404"
+    check log.userAgent == "curl/8.0"
+    check log.nonDefault == ""
+
+  test "garbage with a user agent of many words is still non-default":
+    let junk = """198.51.100.1 - - [13/Sep/2026:10:15:32 +0000] "\x16\x03\x01\x00\xF7\x01" 400 157 "-" "Mozilla/5.0 (X11; Linux x86_64)""""
+    let log = parseLogEntry(junk, "")
+    check log.nonDefault == junk
+    check log.date == ""
+
+  test "a request without a protocol is non-default":
+    let line = """203.0.113.7 - - [13/Sep/2026:10:15:32 +0000] "GET /" 400 1 "-" "curl/8.0""""
+    check parseLogEntry(line, "").nonDefault == line
+
   test "a bad date becomes non-default instead of crashing":
     let bad = """203.0.113.7 - - [99/Foo/2026:10:15:32 +0000] "GET / HTTP/1.1" 200 1 "-" "curl/8.0""""
     let log = parseLogEntry(bad, "")

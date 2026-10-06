@@ -1,6 +1,6 @@
 from std/times import parse, format
 from std/strutils import splitWhitespace, replace, endsWith, startsWith, strip,
-    contains, join, find, rfind, splitLines, toLowerAscii
+    find, rfind, split, splitLines, toLowerAscii
 from std/uri import parseUri
 from std/os import findExe, fileExists
 from std/osproc import execCmd
@@ -75,66 +75,70 @@ proc isFromDomain*(referrer, domain: string): bool =
 
 
 proc parseLogEntry*(logLine: string, omit: string): Log =
+  ## Reads a line in nginx's "combined" format:
+  ## `$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"`
+  ## A line that does not fit is kept whole in `nonDefault`
   var log: Log
+  log.nonDefault = logLine
 
-  let matches = logLine.splitWhitespace()
-
-  if matches.len >= 12:
-    log.remoteIP = matches[0]
-
-    # Nginx 1.24.0 has decided to write weird and incorrect dates
-    try:
-      log.date = convertDateFormat(matches[3].replace("\"", "").replace("[",
-          "").replace("/", "-"))
-    except ValueError as e:
-      error(fmt"Failed parsing log date: {e.msg}")
-      log.nonDefault = logLine
-      return log
-
-    log.httpMethod = matches[5].replace("\"", "")
-
-    var requestURI = matches[6].replace("\"", "")
-    # `/posts/x/` and `/posts/x` are one page, so the trailing slash is dropped. The same
-    # goes for referrers, which is why a saved referrer never ends with a slash
-    if requestURI.endsWith("/") and requestURI.len > 1:
-      let stripped = requestURI.strip(leading = false, chars = {'/'})
-      # a URI of only slashes, like `//` from scanners, is kept as sent. stripped it is
-      # empty, and an empty value breaks the insert of the whole batch
-      if stripped != "":
-        requestURI = stripped
-    log.requestURI = requestURI
-
-    log.statusCode = matches[8]
-    log.responseSize = matches[9]
-
-    # the referrer and user agent are quoted and can have spaces in them. nginx writes
-    # a quote inside them as \x22, so the next quote always closes the referrer
-    let quoted = matches[10..^1].join(" ")
-    let referrerEnd = quoted.find('"', 1)
-    if not quoted.startsWith('"') or referrerEnd == -1:
-      error(fmt"Could not parse: {logLine}")
-      log.nonDefault = logLine
-      return log
-
-    var referrer = quoted[1 ..< referrerEnd]
-    if omit != "" and referrer.isFromDomain(omit):
-      log.referrer = ""
-    elif referrer == "-":
-      log.referrer = ""
-    else:
-      if referrer.endsWith("/"):
-        referrer = referrer.strip(leading = false, chars = {'/'})
-      log.referrer = referrer
-
-    log.userAgent = quoted[referrerEnd + 1 .. ^1].strip.replace("\"", "")
-    # nginx writes "" for an empty User-Agent header. store it like a missing one,
-    # an empty value breaks the insert of the whole batch
-    if log.userAgent == "":
-      log.userAgent = "-"
-    log.nonDefault = ""
-  else:
+  # the request, referrer and user agent are quoted and can have spaces in them.
+  # nginx writes a quote inside them as \x22, so every quote is the edge of a field
+  let parts = logLine.split('"')
+  if parts.len != 7 or parts[4].strip != "" or parts[6].strip != "":
     error(fmt"Could not parse: {logLine}")
-    log.nonDefault = logLine
+    return log
+
+  let head = parts[0].splitWhitespace()
+  let request = parts[1]
+  let status = parts[2].splitWhitespace()
+  # the URI is everything between the method and the protocol, spaces and all
+  let methodEnd = request.find(' ')
+  let protocolStart = request.rfind(' ')
+  if head.len != 5 or status.len != 2 or protocolStart - methodEnd < 2:
+    error(fmt"Could not parse: {logLine}")
+    return log
+
+  log.remoteIP = head[0]
+
+  # Nginx 1.24.0 has decided to write weird and incorrect dates
+  try:
+    log.date = convertDateFormat(head[3].replace("[", "").replace("/", "-"))
+  except ValueError as e:
+    error(fmt"Failed parsing log date: {e.msg}")
+    return log
+
+  log.httpMethod = request[0 ..< methodEnd]
+
+  var requestURI = request[methodEnd + 1 ..< protocolStart]
+  # `/posts/x/` and `/posts/x` are one page, so the trailing slash is dropped. The same
+  # goes for referrers, which is why a saved referrer never ends with a slash
+  if requestURI.endsWith("/") and requestURI.len > 1:
+    let stripped = requestURI.strip(leading = false, chars = {'/'})
+    # a URI of only slashes, like `//` from scanners, is kept as sent. stripped it is
+    # empty, and an empty value breaks the insert of the whole batch
+    if stripped != "":
+      requestURI = stripped
+  log.requestURI = requestURI
+
+  log.statusCode = status[0]
+  log.responseSize = status[1]
+
+  var referrer = parts[3]
+  if omit != "" and referrer.isFromDomain(omit):
+    log.referrer = ""
+  elif referrer == "-":
+    log.referrer = ""
+  else:
+    if referrer.endsWith("/"):
+      referrer = referrer.strip(leading = false, chars = {'/'})
+    log.referrer = referrer
+
+  log.userAgent = parts[5]
+  # nginx writes "" for an empty User-Agent header. store it like a missing one,
+  # an empty value breaks the insert of the whole batch
+  if log.userAgent == "":
+    log.userAgent = "-"
+  log.nonDefault = ""
 
   return log
 
