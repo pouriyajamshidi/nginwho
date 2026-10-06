@@ -182,15 +182,15 @@ proc resolve(root, urlPath: string): string =
     discard
 
 
-proc respond(client: AsyncSocket, req: Request, root: string, keepAlive: bool):
+proc respond(client: AsyncSocket, req: Request, root, file: string, keepAlive: bool):
     Future[tuple[status: HttpCode, bytesSent: int]] {.async.} =
+  ## `file` is what `resolve` found for the request
   if req.httpMethod notin ["GET", "HEAD"]:
     return (Http405, await client.sendText(req, Http405, keepAlive))
 
   if badPath(req.path):
     return (Http400, await client.sendText(req, Http400, keepAlive))
 
-  let file = resolve(root, req.path)
   if file == "/":
     # one leading slash, or "//evil.com" would send the browser to another site
     let location = "/" & req.path.strip(trailing = false, chars = {'/'}) & "/" & req.query
@@ -330,11 +330,13 @@ proc handleClient(client: AsyncSocket, root, logPath: string,
         return
       let remoteIP = if realIP != nil: realIP(peer, req) else: peer
 
+      # found once, both the trap and the response need it
+      let file = if req.httpMethod in ["GET", "HEAD"]: resolve(root, req.path) else: ""
+
       # the trap gets a look first: what would be a 404 or 405, and listed user agents.
       # it keeps its own record
       if trapHook != nil and req.httpMethod != "":
-        let miss = req.httpMethod notin ["GET", "HEAD"] or resolve(root,
-            req.path) == ""
+        let miss = file == ""
         # a trapped bot is not a visitor, so it doesn't take a real visitor's place
         dec visitors
         try:
@@ -353,7 +355,7 @@ proc handleClient(client: AsyncSocket, root, logPath: string,
 
       let (status, bytesSent) =
         if req.httpMethod == "": (Http400, await client.sendText(req, Http400, false))
-        else: await client.respond(req, root, keepAlive)
+        else: await client.respond(req, root, file, keepAlive)
 
       writeAccessLog(logPath, accessLogLine(remoteIP, req.line, status.int,
           bytesSent, req.header("Referer"), req.header("User-Agent")))
