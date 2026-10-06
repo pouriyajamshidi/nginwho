@@ -6,7 +6,7 @@ All notable changes to **nginwho** are listed here.
 
 ### Added
 
-- Trap mode (`--trap`). nginx forwards its 403s and 404s to nginwho, which plays with the bots instead of returning an error. Based on the paths it asks for, a bot gets a fake `.env`, `.git/config`, `phpinfo()` or config file full of made up secrets, a fake login page that never lets it in but records what it typed, a body that never ends, a maze of fake folders, or a gzip bomb. Fake files are dripped one byte at a time so a scan hangs for a long time. A bot that keeps coming back gets a bomb.
+- Trap mode (`--trap`). nginx forwards its 403s and 404s to nginwho, which plays with the bots instead of returning an error. Based on the paths it asks for, a bot gets a fake `.env`, `.git/config`, `phpinfo()` or config file full of made up secrets, a fake login page that never lets it in but records what it typed, a body that never ends, a maze of fake folders, or a gzip bomb. Fake files are dripped one byte at a time so a scan hangs for a long time. A bot that keeps coming back gets a bomb. IPv6 hits are counted by /64, so a bot moving between addresses in its own /64 still gets one.
 - The trap can catch bots by their user agent too. List them under `[trap.agents]` in the config file and pick what each one gets (`drip`, `endless`, `maze`, `login` or `bomb`). A name on its own gets what any bot gets for that path, and a slow drip for a normal page.
 - The trap also works without nginx. With `--serve`, nginwho's own server hands what it can't serve to the trap directly, and real files and typos are served as usual.
 - The `--serve` server holds up against abuse. A client that stops reading is dropped after 30 seconds, at most 400 visitors are served at once (trapped bots don't count), a second `Content-Length` can't hide a request in the body, and `//evil.com` can't turn a folder redirect into a redirect to another site. nginwho raises its open file limit at start so the server and the trap have room.
@@ -53,6 +53,9 @@ All notable changes to **nginwho** are listed here.
 - An empty `Cloudflare_IPv4` or `Cloudflare_IPv6` Set in nftables crashed nginwho instead of being filled.
 - `--blockUntrustedCidrs` also dropped the server's own traffic to ports 80 and 443, so a health check or `curl` on localhost hung. Traffic on the loopback interface is let through now, and the `nginwho` chain is updated on the next check.
 - `--report=false` still started report mode. It now turns it off like `=false` does for the other flags.
+- A request for only slashes, like `GET //` from scanners, broke the insert of every log read with it. It is saved as sent now.
+- A space in the request or the referrer moved the other fields of the log line to the wrong place, and part of the referrer ended up in the user agent. Each quoted field is now read whole.
+- The user from the `Authorization` header (`$remote_user` in the nginx log) was never saved. It is now saved in the `remote_users` table.
 
 ## [2.4.1]
 
