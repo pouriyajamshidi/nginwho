@@ -31,8 +31,8 @@ proc nimbleVersion(): string =
       return line.split('=')[1].strip.strip(chars = {'"'})
 
 const
-  version = nimbleVersion()
-  maintainer = "Pouriya Jamshidi"
+  version* = nimbleVersion()
+  maintainer* = "Pouriya Jamshidi"
   maxInsertAttempts = 3
 
 addHandler(newConsoleLogger(fmtStr = "[$date -- $time] - $levelname: "))

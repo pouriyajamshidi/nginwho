@@ -5,7 +5,7 @@ from std/osproc import execCmdEx
 from std/strutils import splitLines, strip, contains
 from db_connector/db_sqlite import open, close
 
-from nginwho import version
+from nginwho import version, maintainer
 
 let tempDir = getTempDir() / "nginwho_test_cli"
 let binary = tempDir / "nginwho"
@@ -25,8 +25,10 @@ suite "cli":
   test "version matches nginwho.nimble":
     const nimble = staticRead("../nginwho.nimble")
     check ("version       = \"" & version & "\"") in nimble
-    # log lines are printed before the version
-    check run("--version").output.strip().splitLines()[^1] == version
+    # log lines are printed before the version and the maintainer
+    let lines = run("--version").output.strip().splitLines()
+    check lines[^2] == version
+    check lines[^1] == maintainer
 
   test "exits with an error when told to do nothing":
     # every feature is off by default. a missing config file keeps the defaults
