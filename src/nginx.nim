@@ -99,6 +99,9 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
     return log
 
   log.remoteIP = head[0]
+  # nginx writes "-" when the request had no user in its Authorization header
+  if head[2] != "-":
+    log.remoteUser = head[2]
 
   # Nginx 1.24.0 has decided to write weird and incorrect dates
   try:
