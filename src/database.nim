@@ -184,7 +184,7 @@ proc getTopUnsuccessfulRequests*(db: DbConn, num: int, since = ""): seq[Row] =
   JOIN http_methods hm ON n.http_method_id = hm.id
   JOIN user_agents ua ON n.user_agent_id = ua.id
   WHERE
-      n.date >= {toUnix}
+      n.date >= {toUnixOrAll}
       AND CAST(sc.status_code AS INTEGER) NOT BETWEEN 200 AND 399
       AND hm.http_method = 'GET'
   GROUP BY sc.status_code, ru.request_uri, ua.user_agent

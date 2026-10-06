@@ -162,6 +162,8 @@ suite "database":
       @["404", "/missing", "bot/1.0", "1"],
       @["500", "/broken", "curl/8.0", "1"],
     ]
+    # no `since` means all time, so the old 404 shows up too
+    check db.getTopUnsuccessfulRequests(10).len == 4
 
   test "empty tables give empty results":
     let db = newDb()
