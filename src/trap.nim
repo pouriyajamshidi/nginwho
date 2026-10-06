@@ -11,7 +11,7 @@ from std/httpcore import HttpCode, Http200, Http401, Http404
 from std/random import Rand, initRand, rand, sample
 from std/hashes import hash
 from std/tables import Table, toTable, `[]`, `[]=`, initTable, hasKey,
-    mgetOrPut, pairs, clear
+    mgetOrPut, pairs, clear, len
 from std/strutils import toLowerAscii, contains, endsWith, startsWith, replace,
     split, strip
 from std/strformat import fmt
@@ -24,7 +24,7 @@ from db_connector/db_sqlite import DbConn
 
 from nginx import dateFormat
 from server import Request, TrapHook, readRequest, readBody, header,
-    responseHead, headTimeout, sendTimed
+    responseHead, headTimeout, sendTimed, ipKey
 from database import TrapHit, getDbConnection, createTables, insertTrapHit, finishTrapHit
 
 
@@ -98,11 +98,13 @@ const
 
   # a flood of hits would fill the disk. past these they are still trapped, just not saved
   maxSavedHits = 1000 # per IP per day
+  # IPs counted in a day. past it a new IP is not counted, so it never gets the bomb
+  maxCountedIPs = 100_000
   maxSavedBytes = 1024 # of the URI, user agent and detail
 
 var
   active = 0                           # trapped connections right now
-  hitsToday = initTable[string, int]() # how often we saw an IP today
+  hitsToday = initTable[string, int]() # how often we saw an IP (a /64 for IPv6) today
   today = ""
 
 
@@ -466,15 +468,20 @@ proc findAgent*(userAgent: string, cfg: TrapConfig): Option[Agent] =
       return some(agent)
 
 
-proc countHit(ip: string): int =
-  ## How often we saw an IP today, this hit included. Yesterday's counts are dropped
+proc countHit*(ip: string): int =
+  ## How often we saw an IP today, this hit included. An IPv6 user is counted by
+  ## their /64, so moving to another address in it does not start over.
+  ## Yesterday's counts are dropped
   let day = now().format("yyyy-MM-dd")
   if day != today:
     today = day
     hitsToday.clear()
 
-  hitsToday.mgetOrPut(ip, 0).inc
-  return hitsToday[ip]
+  let key = ipKey(ip)
+  if not hitsToday.hasKey(key) and hitsToday.len >= maxCountedIPs:
+    return 1
+  hitsToday.mgetOrPut(key, 0).inc
+  return hitsToday[key]
 
 
 proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,

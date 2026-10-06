@@ -286,7 +286,7 @@ proc readBody*(client: AsyncSocket, req: Request, limit: int): Future[
       result = reading.read()
 
 
-proc ipKey(ip: string): string =
+proc ipKey*(ip: string): string =
   ## An IPv6 user usually gets a whole /64, so they are counted by it
   try:
     let address = parseIpAddress(ip)

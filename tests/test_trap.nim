@@ -8,7 +8,7 @@ from std/strutils import split, contains, startsWith, repeat
 from std/options import some, none, isNone, get
 from db_connector/db_sqlite import DbConn, getValue, getAllRows, sql
 
-from trap import TrapConfig, Tactic, classify, trap, findAgent
+from trap import TrapConfig, Tactic, classify, trap, findAgent, countHit
 from database import TrapHit, getDbConnection, createTables, insertTrapHit, finishTrapHit,
     getTopTrappedIPs, getTopTraps, getTopTrappedURIs, getTrappedCredentials, getTrapTotals
 
@@ -67,6 +67,19 @@ suite "classify":
     check $classify("/") == "none"
     check $classify("/posts/hello") == "none"
     check $classify("/index.xml") == "none"
+
+
+suite "countHit":
+  test "an IPv6 user is counted by their /64":
+    check countHit("2001:db8:1:1::1") == 1
+    check countHit("2001:db8:1:1::2") == 2
+    check countHit("2001:db8:1:1:ffff:ffff:ffff:ffff") == 3
+    check countHit("2001:db8:1:2::1") == 1
+
+  test "IPv4 is counted by the full address":
+    check countHit("192.0.2.1") == 1
+    check countHit("192.0.2.1") == 2
+    check countHit("192.0.2.2") == 1
 
 
 proc newDb(): DbConn =
