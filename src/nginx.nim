@@ -97,7 +97,11 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
     # `/posts/x/` and `/posts/x` are one page, so the trailing slash is dropped. The same
     # goes for referrers, which is why a saved referrer never ends with a slash
     if requestURI.endsWith("/") and requestURI.len > 1:
-      requestURI = requestURI.strip(leading = false, chars = {'/'})
+      let stripped = requestURI.strip(leading = false, chars = {'/'})
+      # a URI of only slashes, like `//` from scanners, is kept as sent. stripped it is
+      # empty, and an empty value breaks the insert of the whole batch
+      if stripped != "":
+        requestURI = stripped
     log.requestURI = requestURI
 
     log.statusCode = matches[8]

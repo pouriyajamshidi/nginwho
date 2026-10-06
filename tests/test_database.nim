@@ -131,6 +131,14 @@ suite "database":
     ])
     check db.count("nginwho") == 2
 
+  test "a request for a URI of only slashes does not lose the other logs":
+    let db = newDb()
+    check insertLogs(db, @[
+      parseLogEntry("""1.1.1.1 - - [13/Sep/2026:10:00:00 +0000] "GET /a HTTP/1.1" 200 1 "-" "curl/8.0"""", ""),
+      parseLogEntry("""2.2.2.2 - - [13/Sep/2026:10:00:01 +0000] "GET // HTTP/1.1" 200 1 "-" "curl/8.0"""", ""),
+    ])
+    check db.count("nginwho") == 2
+
   test "top lists are ordered and limited":
     let db = newDb()
     check insertLogs(db, @[log(uri = "/a"), log(uri = "/b"), log(uri = "/b"), log(uri = "/c"),

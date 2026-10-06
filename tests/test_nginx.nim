@@ -30,6 +30,10 @@ suite "parseLogEntry":
     let log = parseLogEntry("""203.0.113.7 - - [13/Sep/2026:10:15:32 +0000] "GET / HTTP/1.1" 200 1 "-" "curl/8.0"""", "")
     check log.requestURI == "/"
 
+  test "a URI of only slashes is kept as sent":
+    let log = parseLogEntry("""203.0.113.7 - - [13/Sep/2026:10:15:32 +0000] "GET // HTTP/1.1" 200 1 "-" "curl/8.0"""", "")
+    check log.requestURI == "//"
+
   test "a missing referrer is stored as empty":
     let log = parseLogEntry("""203.0.113.7 - - [13/Sep/2026:10:15:32 +0000] "GET / HTTP/1.1" 200 1 "-" "curl/8.0"""", "")
     check log.referrer == ""
