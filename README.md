@@ -362,7 +362,7 @@ drip_min_ms = 500
 drip_max_ms = 700
 # send gzip bombs at all
 bombs = true
-# an IP gets a bomb after this many trapped hits in one day
+# an IP gets a bomb after this many trapped hits in one day. IPv6 is counted by /64
 bomb_after = 3
 
 [trap.agents]
