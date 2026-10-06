@@ -1,6 +1,6 @@
 from std/times import parse, format
 from std/strutils import splitWhitespace, replace, endsWith, startsWith, strip,
-    contains, join, rfind, splitLines, toLowerAscii
+    contains, join, find, rfind, splitLines, toLowerAscii
 from std/uri import parseUri
 from std/os import findExe, fileExists
 from std/osproc import execCmd
@@ -107,7 +107,16 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
     log.statusCode = matches[8]
     log.responseSize = matches[9]
 
-    var referrer = matches[10].replace("\"", "")
+    # the referrer and user agent are quoted and can have spaces in them. nginx writes
+    # a quote inside them as \x22, so the next quote always closes the referrer
+    let quoted = matches[10..^1].join(" ")
+    let referrerEnd = quoted.find('"', 1)
+    if not quoted.startsWith('"') or referrerEnd == -1:
+      error(fmt"Could not parse: {logLine}")
+      log.nonDefault = logLine
+      return log
+
+    var referrer = quoted[1 ..< referrerEnd]
     if omit != "" and referrer.isFromDomain(omit):
       log.referrer = ""
     elif referrer == "-":
@@ -117,7 +126,7 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
         referrer = referrer.strip(leading = false, chars = {'/'})
       log.referrer = referrer
 
-    log.userAgent = matches[11..^1].join(" ").replace("\"", "")
+    log.userAgent = quoted[referrerEnd + 1 .. ^1].strip.replace("\"", "")
     # nginx writes "" for an empty User-Agent header. store it like a missing one,
     # an empty value breaks the insert of the whole batch
     if log.userAgent == "":

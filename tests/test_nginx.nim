@@ -39,6 +39,12 @@ suite "parseLogEntry":
     check log.referrer == ""
     check log.userAgent == "curl/8.0"
 
+  test "a referrer with spaces is read whole":
+    let log = parseLogEntry("""203.0.113.7 - - [13/Sep/2026:10:15:32 +0000] "GET / HTTP/1.1" 200 1 "https://example.com/a b" "curl/8.0"""", "")
+    check log.referrer == "https://example.com/a b"
+    check log.userAgent == "curl/8.0"
+    check log.nonDefault == ""
+
   test "an empty user agent is stored like a missing one":
     let log = parseLogEntry("""203.0.113.7 - - [13/Sep/2026:10:15:32 +0000] "GET / HTTP/1.1" 200 1 "-" """"", "")
     check log.userAgent == "-"
