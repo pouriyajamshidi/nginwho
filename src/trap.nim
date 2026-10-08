@@ -364,8 +364,9 @@ proc play(client: AsyncSocket, req: Request, trap: Trap, tactic: Tactic,
       await client.dripBody(body, cfg, rng, deadline, played)
 
 
-proc classify*(path: string): Trap =
-  ## What the bot was looking for
+proc classify*(path: string, query = ""): Trap =
+  ## What the bot was looking for. The query only counts when it asks for a file on
+  ## the server, so a real link with a query is not trapped
   let p = path.toLowerAscii
 
   # Spring boot endpoints first, so /actuator/env is not read as a plain .env file
@@ -422,6 +423,10 @@ proc classify*(path: string): Trap =
               "/vendor", "autodiscover", "/owa", "/hudson", "/jenkins",
               "/nacos", "/druid", ".axd", "/v2/_catalog"]):
     return apiDebug
+  # like ?filename=file:///root/.ssh/id_rsa
+  if decodeUrl(query).toLowerAscii.anyOf(["file://", "php://", "/etc/", "/proc/",
+      "/root/", "../", "..\\", "win.ini"]):
+    return rce
 
   return noTrap
 
@@ -493,7 +498,7 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
   ## comes from a listed user agent. Returns false when it is neither or the trap is
   ## full, so the caller answers as usual
   let agent = findAgent(req.header("User-Agent"), cfg)
-  var trap = classify(req.path)
+  var trap = classify(req.path, req.query)
   if agent.isNone and (trap == noTrap or not miss):
     return false
   if active >= cfg.maxConnections:

@@ -75,6 +75,11 @@ suite "classify":
     check $classify("/.amplifyrc") == "config"
     check $classify("/sugar_version.json") == "config"
 
+  test "a file on the server asked for in the query is trapped":
+    check $classify("/__vite_rsc_findSourceMapURL", "?filename=file:///root/.ssh/id_rsa") == "rce"
+    check $classify("/view", "?page=..%2F..%2Fetc%2Fpasswd") == "rce"
+    check $classify("/posts/hello", "?utm_source=newsletter") == "none"
+
   test "innocent paths are not trapped":
     check $classify("/") == "none"
     check $classify("/posts/hello") == "none"
