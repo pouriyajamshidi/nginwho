@@ -63,6 +63,18 @@ suite "classify":
     check $classify("/server-info") == "api"
     check $classify("/.DS_Store") == "config"
 
+  test "the probes seen in trap_hits that got a plain 404 are trapped":
+    check $classify("/php-cgi/php-cgi.exe") == "rce"
+    check $classify("/posts/php-cgi.exe") == "rce"
+    check $classify("/functionRouter") == "rce"
+    check $classify("/Telerik.Web.UI.WebResource.axd") == "api"
+    check $classify("/trace.axd") == "api"
+    check $classify("/v2/_catalog") == "api"
+    check $classify("/ecp/Current/exporttool/") == "admin"
+    check $classify("/zabbix/") == "admin"
+    check $classify("/.amplifyrc") == "config"
+    check $classify("/sugar_version.json") == "config"
+
   test "innocent paths are not trapped":
     check $classify("/") == "none"
     check $classify("/posts/hello") == "none"

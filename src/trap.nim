@@ -394,7 +394,8 @@ proc classify*(path: string): Trap =
   if p.anyOf(["../", "..\\", "..;", "%2e%2e", "%5c"]) or p.endsWith("/.."):
     return rce
   if p.anyOf(["passwd", "/bin/sh", "jndi", "${", "shell", "cgi-bin",
-              "/cmd", "getcmd", "eval", ".sh", ".asp", ".jsp", ".cgi"]):
+              "/cmd", "getcmd", "eval", ".sh", ".asp", ".jsp", ".cgi", "php-cgi",
+              "/functionrouter"]):
     return rce
   # admin and login pages before .php, so a login page like /administrator/index.php
   # gets the fake login that harvests credentials, not the generic php trap
@@ -402,7 +403,7 @@ proc classify*(path: string): Trap =
               "cpanel", "backoffice", "webmail", "/manager", "file-manager",
               "console",
               "portal", "panel", "secure", "account", "/auth", "reset-password",
-              "forgot-password"]):
+              "forgot-password", "/ecp/", "zabbix"]):
     return adminPanel
   if p.anyOf([".php", "phpinfo", "phpmyadmin", "adminer", "_profiler", "_ignition",
               "artisan", "_debugbar", "livewire", "telescope"]):
@@ -412,13 +413,14 @@ proc classify*(path: string): Trap =
               "serverless",
               "vercel", "netlify", ".travis", "gradle", "package.json",
               "composer.json",
-              "manifest.json", ".vite", "values.yaml", ".toml", ".ds_store"]):
+              "manifest.json", ".vite", "values.yaml", ".toml", ".ds_store", ".amplifyrc",
+              "sugar_version"]):
     return configFile
   if p.anyOf(["/api", "graphql", "swagger", "openapi", "/debug", "server-status",
               "server-info", "/info", "/health", "/mcp", "/sse", "/metrics",
               "/solr",
               "/vendor", "autodiscover", "/owa", "/hudson", "/jenkins",
-              "/nacos", "/druid"]):
+              "/nacos", "/druid", ".axd", "/v2/_catalog"]):
     return apiDebug
 
   return noTrap
