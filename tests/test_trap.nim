@@ -158,11 +158,11 @@ suite "trap hits":
     check creds[0][0] == "66.66.66.66"
     check creds[0][1] == "tried admin:hunter2"
 
-    # a drip hit has no credentials, so it is left out
+    # a drip hit saves a canary, not credentials, so it is left out
     let id2 = db.insertTrapHit(TrapHit(
       date: "2026-09-22 10:00:00", remoteIP: "1.1.1.1", httpMethod: "GET",
       requestURI: "/.env", userAgent: "x", trap: "env", tactic: "drip"))
-    db.finishTrapHit(id2, 10, 1, "")
+    db.finishTrapHit(id2, 10, 1, "AKIAEXAMPLE")
     check getTrappedCredentials(db, 10).len == 1
 
 
@@ -188,14 +188,17 @@ let
   fastDb = startTrap(fastPort, 0)
 
 
-proc ask(httpMethod, path, ip: string, port: int, userAgent: string): string =
+proc ask(httpMethod, path, ip: string, port: int, userAgent: string, body = ""): string =
   ## Asks a trap for a path as `ip` and returns the whole response once the trap is done
   proc run(): Future[string] {.async.} =
     let socket = newAsyncSocket()
     defer: socket.close()
     await socket.connect("127.0.0.1", Port(port))
-    await socket.send(httpMethod & " " & path & " HTTP/1.1\r\nHost: x\r\nX-Real-IP: " & ip &
-        "\r\nUser-Agent: " & userAgent & "\r\n\r\n")
+    var request = httpMethod & " " & path & " HTTP/1.1\r\nHost: x\r\nX-Real-IP: " & ip &
+        "\r\nUser-Agent: " & userAgent & "\r\n"
+    if body != "":
+      request.add("Content-Length: " & $body.len & "\r\n")
+    await socket.send(request & "\r\n" & body)
     while true:
       let data = await socket.recv(4096)
       if data == "":
@@ -256,6 +259,19 @@ suite "live trap":
     check lastCanary() == ""
     discard get("/etc/passwd", "45.9.1.10")
     check lastCanary() == ""
+
+  test "the body of a POST is saved, and the credentials in it win over the canary":
+    discard ask("POST", "/.env", "45.9.1.12", fastPort, "curl", "user=admin&pass=hunter2")
+    let db = getDbConnection(fastDb)
+    let row = db.getAllRows(sql"SELECT detail, body FROM trap_hits ORDER BY id DESC LIMIT 1")[0]
+    check row == @["tried admin:hunter2", "user=admin&pass=hunter2"]
+
+    # a PHP-CGI payload is in the body, and only the first 1 KB is kept
+    let payload = "<?php system('id'); ?>" & "x".repeat(2000)
+    discard ask("POST", "/php-cgi/php-cgi.exe?-d+auto_prepend_file=php://input", "45.9.1.12",
+        fastPort, "curl", payload)
+    check db.getValue(sql"SELECT body FROM trap_hits ORDER BY id DESC LIMIT 1") ==
+        payload[0 ..< 1024]
 
   test "the same bot sees the same key, another bot a different one":
     let key = get("/.ssh/id_rsa", "45.9.1.10")

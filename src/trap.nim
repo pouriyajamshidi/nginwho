@@ -84,7 +84,7 @@ const
   zerosGz = staticRead("traps/zeros.gz")
 
   bombMembers = 10_000 # 1 MiB of zeros each, about 10 GB unpacked
-  maxBodyBytes = 8192 # of a fake login POST
+  maxBodyBytes = 8192 # read of a trapped POST, enough for a login form
 
   # for the fake secrets
   alphanumeric = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -100,7 +100,7 @@ const
   maxSavedHits = 1000 # per IP per day
   # IPs counted in a day. past it a new IP is not counted, so it never gets the bomb
   maxCountedIPs = 100_000
-  maxSavedBytes = 1024 # of the URI, user agent and detail
+  maxSavedBytes = 1024 # of the URI, user agent, detail and body
 
 var
   active = 0                           # trapped connections right now
@@ -215,31 +215,12 @@ proc trapHead(status: HttpCode, headers: openArray[(string, string)]): string =
   responseHead(status, false, all)
 
 
-proc submittedCredentials(body: string): string =
-  ## Pulls the username and password out of a posted login form
-  var user, password: string
-  for field in body.split('&'):
-    let pair = field.split('=', maxsplit = 1)
-    if pair.len != 2:
-      continue
-    case pair[0]
-    of "log", "username", "user", "email", "name": user = decodeUrl(pair[1])
-    of "pwd", "password", "pass", "passwd": password = decodeUrl(pair[1])
-    else: discard
-
-  if user == "" and password == "":
-    return ""
-  return fmt"tried {user}:{password}"
-
-
 proc playLogin(client: AsyncSocket, req: Request, values: Table[string, string],
     rng: Rng, deadline: float, played: Played) {.async.} =
   ## A login page that takes its time and then says the password was wrong
   var page = values
 
   if req.httpMethod == "POST":
-    let body = await client.readBody(req, maxBodyBytes)
-    played.detail = submittedCredentials(body)
     # a real check would be quick. this one thinks about it for a while
     await sleepAsync(rng.rand(10_000 .. 30_000))
     page["{{ERROR}}"] = "<div class=\"error\"><strong>Error:</strong> " &
@@ -357,7 +338,9 @@ proc play(client: AsyncSocket, req: Request, trap: Trap, tactic: Tactic,
       await client.dripEndless(trap, values, cfg, rng, deadline, played)
   of drip:
     let (body, contentType, canary) = fakeFile(trap, req.path, values, rng)
-    played.detail = canary
+    # credentials they sent tell us more than the canary
+    if played.detail == "":
+      played.detail = canary
     await client.sendTimed(trapHead(Http200, [
       ("Content-Type", contentType), ("Content-Length", $body.len)]))
     if req.httpMethod != "HEAD":
@@ -492,6 +475,23 @@ proc countHit*(ip: string): int =
   return hitsToday[key]
 
 
+proc submittedCredentials(body: string): string =
+  ## Pulls the username and password out of a posted login form
+  var user, password: string
+  for field in body.split('&'):
+    let pair = field.split('=', maxsplit = 1)
+    if pair.len != 2:
+      continue
+    case pair[0]
+    of "log", "username", "user", "email", "name": user = decodeUrl(pair[1])
+    of "pwd", "password", "pass", "passwd": password = decodeUrl(pair[1])
+    else: discard
+
+  if user == "" and password == "":
+    return ""
+  return fmt"tried {user}:{password}"
+
+
 proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
     db: DbConn, miss: bool): Future[bool] {.async.} =
   ## Plays with the bot when the request is a probe we could not serve (`miss`), or
@@ -517,6 +517,8 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
   # the same bot asking for the same file twice sees the same fake content
   let rng = newRng(hash(ip & req.path))
   let started = epochTime()
+  # a POST body holds the password they tried, or the code they hoped to run
+  let body = if req.httpMethod == "POST": await client.readBody(req, maxBodyBytes) else: ""
 
   # the hit is saved before the trap starts, so we know who tried what right away.
   # a slow drip can hold a bot that already hung up for a long time before a send fails
@@ -528,9 +530,10 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
     userAgent: substr(req.header("User-Agent"), 0, maxSavedBytes - 1),
     trap: $trap,
     tactic: $tactic,
+    body: substr(body, 0, maxSavedBytes - 1),
   ))
 
-  let played = Played()
+  let played = Played(detail: submittedCredentials(body))
   active.inc
   try:
     await client.play(req, trap, tactic, cfg, rng, played)

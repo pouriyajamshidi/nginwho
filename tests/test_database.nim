@@ -234,6 +234,16 @@ suite "database":
     check db.count("sqlite_master WHERE name = 'dates'") == 0
     check db.allLogs()[0][0 .. 3] == @["2026-09-13 10:00:05", "1.1.1.1", "GET", "/old"]
 
+  test "an old trap_hits table gets the body column without losing hits":
+    let db = newDb()
+    discard db.insertTrapHit(TrapHit(date: "2026-09-20 12:00:00", remoteIP: "45.9.1.10",
+        httpMethod: "GET", requestURI: "/.env", userAgent: "x", trap: "env", tactic: "drip"))
+    db.exec(sql"ALTER TABLE trap_hits DROP COLUMN body")
+
+    createTables(db)
+    check db.count("trap_hits") == 1
+    check db.getValue(sql"SELECT 1 FROM pragma_table_info('trap_hits') WHERE name = 'body'") == "1"
+
   test "a database file uses WAL and enforces foreign keys":
     let path = getTempDir() / "nginwho_test_wal.db"
     removeFile(path)

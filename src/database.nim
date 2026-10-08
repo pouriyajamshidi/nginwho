@@ -24,6 +24,7 @@ type
     bytesSent*: int
     seconds*: int
     detail*: string # the fake secret we handed out, or the credentials they tried
+    body*: string   # the start of a POST body, like a login form or the code they hoped to run
 
 
 const
@@ -86,7 +87,8 @@ const
       tactic TEXT NOT NULL,
       bytes_sent INTEGER NOT NULL,
       seconds INTEGER NOT NULL,
-      detail TEXT
+      detail TEXT,
+      body TEXT
     )"""
 
 
@@ -263,6 +265,9 @@ proc createTables*(db: DbConn) =
     db.exec(sql"ALTER TABLE nginwho_new RENAME TO nginwho")
 
   db.exec(sql(trapHitsTable))
+  # older versions did not save POST bodies
+  if db.getValue(sql"SELECT 1 FROM pragma_table_info('trap_hits') WHERE name = 'body'") != "1":
+    db.exec(sql"ALTER TABLE trap_hits ADD COLUMN body TEXT")
 
   # time window reports look up logs by date
   db.exec(sql"CREATE INDEX IF NOT EXISTS idx_nginwho_date ON nginwho(date)")
@@ -461,10 +466,10 @@ proc insertTrapHit*(db: DbConn, hit: TrapHit): int64 =
   try:
     return db.insertID(sql(fmt"""
       INSERT INTO trap_hits
-        (date, remote_ip, http_method, request_uri, user_agent, trap, tactic, bytes_sent, seconds, detail)
-      VALUES ({toUnix}, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""),
+        (date, remote_ip, http_method, request_uri, user_agent, trap, tactic, bytes_sent, seconds, detail, body)
+      VALUES ({toUnix}, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""),
       hit.date, hit.remoteIP, hit.httpMethod, hit.requestURI, hit.userAgent,
-      hit.trap, hit.tactic, hit.bytesSent, hit.seconds, hit.detail)
+      hit.trap, hit.tactic, hit.bytesSent, hit.seconds, hit.detail, hit.body)
   except DbError as e:
     error(fmt"Could not save trap hit: {e.msg}")
     return -1
@@ -529,12 +534,12 @@ proc getTopTrappedURIs*(db: DbConn, num: int, since = ""): seq[Row] =
 
 
 proc getTrappedCredentials*(db: DbConn, num: int, since = ""): seq[Row] =
-  ## Usernames and passwords bots typed into the fake login pages
+  ## Usernames and passwords bots sent to the trap, mostly to the fake login pages
   info(fmt"Getting top {num} trapped credentials")
   return db.getAllRows(sql(fmt"""
     SELECT remote_ip, detail, COUNT(*) AS hits
     FROM trap_hits
-    WHERE date >= {toUnixOrAll} AND tactic = 'login' AND detail != ''
+    WHERE date >= {toUnixOrAll} AND detail LIKE 'tried %'
     GROUP BY remote_ip, detail
     ORDER BY hits DESC, remote_ip
     LIMIT ?"""), since, num)
