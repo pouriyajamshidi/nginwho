@@ -434,9 +434,10 @@ proc tacticForPath(trap: Trap, p: string): Tactic =
   else: drip
 
 
-proc tacticFor(trap: Trap, path: string, repeatOffender: bool,
+proc tacticFor(trap: Trap, path: string, repeatOffender, gzip: bool,
     cfg: TrapConfig, chosen = none(Tactic)): Tactic =
-  ## `chosen` is the tactic set for a listed user agent, which always wins
+  ## `chosen` is the tactic set for a listed user agent, which always wins.
+  ## `gzip` is whether the request said it takes gzip
   let p = path.toLowerAscii
 
   if chosen.isSome:
@@ -447,7 +448,8 @@ proc tacticFor(trap: Trap, path: string, repeatOffender: bool,
     if repeatOffender and result != login:
       result = bomb
 
-  if result == bomb and not cfg.bombs:
+  # a client that does not take gzip, like curl, hangs up before the bomb does anything
+  if result == bomb and not (cfg.bombs and gzip):
     result = endless
 
 
@@ -533,7 +535,8 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
   let save = hits <= maxSavedHits
   let chosen = if agent.isSome: agent.get.tactic else: none(Tactic)
   # "after N hits": the first N get played with, the next one gets the bomb
-  let tactic = tacticFor(trap, req.path, hits > cfg.bombAfter, cfg, chosen)
+  let gzip = req.header("Accept-Encoding").toLowerAscii.contains("gzip")
+  let tactic = tacticFor(trap, req.path, hits > cfg.bombAfter, gzip, cfg, chosen)
   if save:
     info(fmt"Trapping {ip} in the {tactic} for {req.path} ({trap})")
 

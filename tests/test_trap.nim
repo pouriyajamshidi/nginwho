@@ -225,7 +225,8 @@ let
   fastDb = startTrap(fastPort, 0)
 
 
-proc ask(httpMethod, path, ip: string, port: int, userAgent: string, body = ""): string =
+proc ask(httpMethod, path, ip: string, port: int, userAgent: string, body = "",
+    acceptEncoding = ""): string =
   ## Asks a trap for a path as `ip` and returns the whole response once the trap is done
   proc run(): Future[string] {.async.} =
     let socket = newAsyncSocket()
@@ -235,6 +236,8 @@ proc ask(httpMethod, path, ip: string, port: int, userAgent: string, body = ""):
         "\r\nUser-Agent: " & userAgent & "\r\n"
     if body != "":
       request.add("Content-Length: " & $body.len & "\r\n")
+    if acceptEncoding != "":
+      request.add("Accept-Encoding: " & acceptEncoding & "\r\n")
     await socket.send(request & "\r\n" & body)
     while true:
       let data = await socket.recv(4096)
@@ -244,14 +247,15 @@ proc ask(httpMethod, path, ip: string, port: int, userAgent: string, body = ""):
   return waitFor(run())
 
 
-proc get(path, ip: string, port = fastPort, userAgent = "curl"): string =
+proc get(path, ip: string, port = fastPort, userAgent = "curl", acceptEncoding = ""): string =
   ## The body a trap sends for a path
-  return ask("GET", path, ip, port, userAgent).split("\r\n\r\n", maxsplit = 1)[1]
+  return ask("GET", path, ip, port, userAgent, acceptEncoding = acceptEncoding).split(
+      "\r\n\r\n", maxsplit = 1)[1]
 
 
 proc head(path, ip: string): string =
-  ## The response head a trap sends for a path
-  return ask("HEAD", path, ip, fastPort, "curl")
+  ## The response head a trap sends for a path, to a client that takes gzip
+  return ask("HEAD", path, ip, fastPort, "curl", acceptEncoding = "gzip")
 
 
 proc lastCanary(): string =
@@ -323,13 +327,16 @@ suite "live trap":
     waitFor sleepAsync(200)
 
     for _ in 1 .. 3:
-      discard get("/.env", "70.70.70.70", bombPort)
+      discard get("/.env", "70.70.70.70", bombPort, acceptEncoding = "gzip, deflate")
+    # a client that does not take gzip gets an endless answer instead
+    discard ask("HEAD", "/.env", "70.70.70.70", bombPort, "curl")
     let tactics = getDbConnection(bombDb).getAllRows(
         sql"SELECT tactic FROM trap_hits ORDER BY id")
-    check tactics.len == 3
+    check tactics.len == 4
     check tactics[0][0] == "drip"
     check tactics[1][0] == "drip"
     check tactics[2][0] == "bomb"
+    check tactics[3][0] == "endless"
 
   test "listed user agents are trapped whatever they ask for":
     const agentPort = 18094
