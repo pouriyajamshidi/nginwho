@@ -7,7 +7,7 @@ import std/asyncdispatch
 from std/asyncnet import AsyncSocket, close, getPeerAddr, newAsyncSocket,
     setSockOpt, bindAddr, listen, accept
 from std/net import Port, Domain, SOBool, OptReuseAddr
-from std/httpcore import HttpCode, Http200, Http401, Http404
+from std/httpcore import HttpCode, Http200, Http404
 from std/random import Rand, initRand, rand, sample
 from std/hashes import hash
 from std/tables import Table, toTable, `[]`, `[]=`, initTable, hasKey,
@@ -246,8 +246,9 @@ proc playLogin(client: AsyncSocket, req: Request, values: Table[string, string],
         "The password you entered is incorrect. Please try again.</div>"
 
   let body = fill(loginTemplate, page)
-  let status = if req.httpMethod == "POST": Http401 else: Http200
-  await client.sendTimed(trapHead(status, [
+  # a wrong password gets a 200 with the error on the page, like real WordPress.
+  # a 401 would tell a careful bot the login is fake
+  await client.sendTimed(trapHead(Http200, [
     ("Content-Type", "text/html; charset=UTF-8"),
     ("Content-Length", $body.len),
   ]))
