@@ -663,7 +663,7 @@ The trap looks at the path a bot asked for and picks an answer:
 | Backups and database dumps             | `.sql` that never ends, and a gzip bomb for `.zip` and `.gz`              |
 | Admin and login pages                  | A fake login page                                                         |
 | APIs and debug pages                   | A fake settings file, or an answer that never ends                        |
-| Shells and `../` path traversal        | A fake `/etc/passwd`                                                      |
+| Shells, `../` and `file://` in a query | A fake `/etc/passwd`                                                      |
 
 The five kinds of answer:
 
@@ -676,12 +676,15 @@ The five kinds of answer:
 | `bomb`    | A gzip bomb: about 10 MB to send, about 10 GB once the bot unpacks it                 |
 
 - **Bots that come back get a bomb.** After `bomb_after` trapped requests in one day (3 by
-  default), the next one from that IP gets the bomb. Set `bombs = false` to never send one,
-  and bots get an endless answer instead.
+  default), the next one from that IP gets the bomb, if it said it takes gzip. A bot that
+  doesn't, like plain `curl`, gets an endless answer instead, and so does every bot with
+  `bombs = false`.
 - **The same bot sees the same file.** Asking twice gives the same fake content, so it looks
   real. Another bot gets different values.
-- **Fake secrets are recorded.** The fake key a bot got is saved with its visit, and so is
-  anything typed into a fake login. If that key shows up somewhere later, you know who took it.
+- **Fake secrets are recorded.** The fake key a bot got is saved with its visit, and so are
+  the usernames and passwords sent to a fake login or `xmlrpc.php`. If that key shows up
+  somewhere later, you know who took it. The first 1 KB of every trapped POST is saved too,
+  so you can see the code a bot hoped to run.
 - **Limits keep your server safe.** At most 200 bots are held at once, each for at most 15
   minutes. A bot that hangs up frees its place right away. After 1000 hits in a day, an IP is
   still trapped but no longer saved, so a flood can't fill your disk.
@@ -705,9 +708,9 @@ so they show up in your reports like any visit. The bots the trap catches are sa
 The lines that do this are in [The nginx config](#the-nginx-config).
 
 > [!NOTE]
-> Behind Cloudflare, the gzip bomb gets through. A bot that asks for gzip, or for no
-> compression at all, gets it as it was sent. A client that accepts zstd, like a browser, gets
-> nothing, since Cloudflare unpacks the bomb on its side to compress it again. The trap tells
+> Behind Cloudflare, the gzip bomb gets through. A bot that asks for gzip gets it as it was
+> sent. A client that accepts zstd, like a browser, gets nothing, since Cloudflare unpacks the
+> bomb on its side to compress it again. The trap tells
 > CDNs never to cache what it sends, or a cached bomb would go out to bots the trap never sees.
 > Cloudflare gives up if an answer doesn't start within 100 seconds, so the trap always sends
 > its headers right away. Whether the slow drip arrives byte by byte through Cloudflare, and
