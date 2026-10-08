@@ -710,7 +710,9 @@ The lines that do this are in [The nginx config](#the-nginx-config).
 > [!NOTE]
 > Behind Cloudflare, the gzip bomb gets through. A bot that asks for gzip gets it as it was
 > sent. A client that accepts zstd, like a browser, gets nothing, since Cloudflare unpacks the
-> bomb on its side to compress it again. The trap tells
+> bomb on its side to compress it again. Cloudflare tells nginx every visitor takes gzip, so
+> behind it every bot gets the bomb, `curl` too. Most hang up long before it does anything, so
+> `bombs = false` saves a lot of bandwidth and loses little. The trap tells
 > CDNs never to cache what it sends, or a cached bomb would go out to bots the trap never sees.
 > Cloudflare gives up if an answer doesn't start within 100 seconds, so the trap always sends
 > its headers right away. Whether the slow drip arrives byte by byte through Cloudflare, and
