@@ -8,7 +8,8 @@ from std/strutils import split, contains, startsWith, repeat
 from std/options import some, none, isNone, get
 from db_connector/db_sqlite import DbConn, getValue, getAllRows, sql
 
-from trap import TrapConfig, Tactic, classify, trap, findAgent, countHit
+from trap import TrapConfig, Tactic, classify, trap, findAgent, countHit,
+    submittedCredentials
 from database import TrapHit, getDbConnection, createTables, insertTrapHit, finishTrapHit,
     getTopTrappedIPs, getTopTraps, getTopTrappedURIs, getTrappedCredentials, getTrapTotals
 
@@ -84,6 +85,42 @@ suite "classify":
     check $classify("/") == "none"
     check $classify("/posts/hello") == "none"
     check $classify("/index.xml") == "none"
+
+
+suite "submittedCredentials":
+  test "a login form":
+    check submittedCredentials("log=admin&pwd=hunter%212&wp-submit=Log+In") == "tried admin:hunter!2"
+    check submittedCredentials("<?php system('id'); ?>") == ""
+
+  test "an XML-RPC login, alone or many in a system.multicall":
+    check submittedCredentials("""<?xml version="1.0"?><methodCall>
+<methodName>wp.getUsersBlogs</methodName><params>
+<param><value><string>admin</string></value></param>
+<param><value><string>hunter2</string></value></param>
+</params></methodCall>""") == "tried admin:hunter2"
+
+    check submittedCredentials("""<?xml version="1.0"?><methodCall>
+<methodName>system.multicall</methodName><params><param><value><array><data>
+<value><struct>
+<member><name>methodName</name><value><string>wp.getUsersBlogs</string></value></member>
+<member><name>params</name><value><array><data>
+<value><string>admin</string></value><value><string>123456</string></value>
+</data></array></value></member>
+</struct></value>
+<value><struct>
+<member><name>methodName</name><value><string>wp.getUsersBlogs</string></value></member>
+<member><name>params</name><value><array><data>
+<value><string>admin</string></value><value><string>password</string></value>
+</data></array></value></member>
+</struct></value>
+</data></array></value></param></params></methodCall>""") == "tried admin:123456, admin:password"
+
+  test "other XML-RPC calls have no credentials":
+    check submittedCredentials("""<?xml version="1.0"?><methodCall>
+<methodName>pingback.ping</methodName><params>
+<param><value><string>http://a.example/</string></value></param>
+<param><value><string>http://b.example/</string></value></param>
+</params></methodCall>""") == ""
 
 
 suite "countHit":

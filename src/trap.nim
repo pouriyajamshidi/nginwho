@@ -13,7 +13,7 @@ from std/hashes import hash
 from std/tables import Table, toTable, `[]`, `[]=`, initTable, hasKey,
     mgetOrPut, pairs, clear, len
 from std/strutils import toLowerAscii, contains, endsWith, startsWith, replace,
-    split, strip
+    split, strip, join
 from std/strformat import fmt
 from std/times import epochTime, now, format
 from std/uri import decodeUrl
@@ -475,8 +475,31 @@ proc countHit*(ip: string): int =
   return hitsToday[key]
 
 
-proc submittedCredentials(body: string): string =
-  ## Pulls the username and password out of a posted login form
+proc xmlrpcCredentials(body: string): string =
+  ## Pulls the usernames and passwords out of an XML-RPC call to wp.getUsersBlogs, which
+  ## takes them as its only two strings. system.multicall packs many such calls in one
+  if not body.contains("getUsersBlogs"):
+    return ""
+  var values: seq[string]
+  for part in body.split("<string>")[1 .. ^1]:
+    let value = part.split("</string>", maxsplit = 1)[0]
+    # the method names inside a system.multicall
+    if not value.endsWith("getUsersBlogs"):
+      values.add(value)
+
+  var tried: seq[string]
+  for i in countup(0, values.len - 2, 2):
+    tried.add(values[i] & ":" & values[i + 1])
+  if tried.len == 0:
+    return ""
+  return "tried " & tried.join(", ")
+
+
+proc submittedCredentials*(body: string): string =
+  ## Pulls the username and password out of a posted login form or XML-RPC call
+  if body.contains("<methodCall>"):
+    return xmlrpcCredentials(body)
+
   var user, password: string
   for field in body.split('&'):
     let pair = field.split('=', maxsplit = 1)
