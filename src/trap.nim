@@ -542,6 +542,9 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
     return false
   if active >= cfg.maxConnections:
     return false
+  # counted before the first await, or many slow POSTs at once would all get past the check
+  active.inc
+  defer: active.dec
   if trap == noTrap:
     trap = listedAgent
 
@@ -574,14 +577,12 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
   ))
 
   let played = Played(detail: submittedCredentials(body))
-  active.inc
   try:
     await client.play(req, trap, tactic, cfg, rng, played)
   except CatchableError:
     # a bot hanging up mid trap is the normal ending
     discard
   finally:
-    active.dec
     # fill in what we ended up sending and how long we held them
     let seconds = int(epochTime() - started)
     db.finishTrapHit(id, played.bytes, seconds,

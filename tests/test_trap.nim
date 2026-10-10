@@ -369,6 +369,23 @@ suite "live trap":
     check "<script>" notin maze
     check "&lt;script&gt;" in maze
 
+  test "a POST waiting on its body takes a place in the trap":
+    const fullPort = 18097
+    asyncCheck trap(TrapConfig(enabled: true, port: fullPort, maxConnections: 1,
+        maxSeconds: 60, dripMinMs: 0, dripMaxMs: 0, bombs: true, bombAfter: 100),
+        tempDir / "trap_full.db")
+    waitFor sleepAsync(200)
+
+    # says a body is coming and never sends it, so the trap waits on it
+    let waiting = newAsyncSocket()
+    waitFor waiting.connect("127.0.0.1", Port(fullPort))
+    waitFor waiting.send("POST /wp-login.php HTTP/1.1\r\nHost: x\r\nX-Real-IP: 110.0.0.1\r\n" &
+        "Content-Length: 100\r\n\r\n")
+    waitFor sleepAsync(200)
+
+    check get("/.env", "110.0.0.2", fullPort) == "404 Not Found\n"
+    waiting.close()
+
   test "user agents are matched anywhere in the header, case ignored":
     let cfg = TrapConfig(agents: @[("deepseek", some(drip)), ("bot", some(bomb))])
     check findAgent("Mozilla/5.0 (DEEPSEEKBOT)", cfg).get.name == "deepseek"
