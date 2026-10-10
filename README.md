@@ -20,7 +20,7 @@ site itself, so stop nginx first if it uses port 80.
 
 - The server speaks plain HTTP here, so set Cloudflare's SSL mode to Flexible. For HTTPS, see
   [Serving your site without nginx](#serving-your-site-without-nginx).
-- On Fastly, change `cdn = cloudflare` to `cdn = fastly`.
+- On Fastly, change `name = cloudflare` to `name = fastly`.
 - Not behind a CDN? Remove the `show_real_ips` and `block_untrusted_cidrs` lines, or only the
   CDN could reach your site.
 
@@ -31,9 +31,11 @@ curl -fLo nginwho.service https://raw.githubusercontent.com/pouriyajamshidi/ngin
 sudo install -m 644 nginwho.service -D -t /etc/systemd/system/ &&
 sudo mkdir -p /etc/nginwho &&
 sudo tee /etc/nginwho/nginwho.conf > /dev/null <<'EOF' &&
-[nginx]
-process_logs = true
-cdn = cloudflare
+[logs]
+process = true
+
+[cdn]
+name = cloudflare
 show_real_ips = true
 block_untrusted_cidrs = true
 
@@ -118,8 +120,8 @@ many as you like in the same file. Then [run nginwho as a service](#run-as-a-ser
 You run nginx and want to see your most visited pages, your top visitors and what failed.
 
 ```ini
-[nginx]
-process_logs = true
+[logs]
+process = true
 ```
 
 nginwho reads `/var/log/nginx/access.log` and saves new lines every 10 seconds. When you want
@@ -137,8 +139,8 @@ When a CDN sits in front of your site, nginx sees the CDN's address on every req
 fetches the CDN's address list and gives it to nginx, so nginx can find the real visitor IP.
 
 ```ini
-[nginx]
-cdn = cloudflare    # or fastly
+[cdn]
+name = cloudflare    # or fastly
 show_real_ips = true
 ```
 
@@ -158,8 +160,8 @@ If your site is behind a CDN, nobody else should talk to your server directly. P
 are usually scanners trying to get around the CDN's protection.
 
 ```ini
-[nginx]
-cdn = cloudflare    # or fastly
+[cdn]
+name = cloudflare    # or fastly
 block_untrusted_cidrs = true
 ```
 
@@ -229,8 +231,8 @@ nginwho can serve a folder of HTML files by itself, write an access log like ngi
 hand the bots to the trap.
 
 ```ini
-[nginx]
-process_logs = true   # save visits for the reports
+[logs]
+process = true   # save visits for the reports
 
 [server]
 enabled = true
@@ -241,9 +243,8 @@ port = 80
 enabled = true
 ```
 
-There is no nginx config to write. Behind Cloudflare or Fastly, also set
-`show_real_ips = true` under `[nginx]` so the logs and the trap see your visitors' IPs. See
-[Serving your site without nginx](#serving-your-site-without-nginx).
+Behind Cloudflare or Fastly, also set `show_real_ips = true` under `[cdn]` so the logs and the
+trap see your visitors' IPs. See [Serving your site without nginx](#serving-your-site-without-nginx).
 
 ## Installation
 
@@ -318,17 +319,20 @@ Here is every setting with its default:
 # where visits and trap hits are saved
 path = /var/lib/nginwho/nginwho.db
 
-[nginx]
-# save the visits from the access log
-process_logs = false
-# the access log to read. with the server on, the default is /var/log/nginwho/access.log
-log_path = /var/log/nginx/access.log
+[logs]
+# save the visits from the access log, of nginx or the server
+process = false
+# the access log to read. when not set, /var/log/nginx/access.log, or with the server on,
+# /var/log/nginwho/access.log
+# path = /var/log/nginx/access.log
 # seconds between reads of the access log
 interval = 10
 # don't save referrers from this domain and its subdomains, like your own site. off when not set
 # omit_referrer = example.com
+
+[cdn]
 # the CDN in front of your site: cloudflare or fastly
-cdn = cloudflare
+name = cloudflare
 # log real visitor IPs behind the CDN. writes the CDN's addresses for nginx,
 # or with the server on, makes the server read the CDN's header
 show_real_ips = false
@@ -417,7 +421,7 @@ server {
     root  /var/www/html;
     index index.html;
 
-    # nginwho reads this log (process_logs = true). keep nginx's default format
+    # nginwho reads this log (process = true under [logs]). keep nginx's default format
     access_log /var/log/nginx/access.log combined;
 
     # a real missing page shows your 404 page. bots reach the trap through @trap
@@ -810,7 +814,7 @@ port = 80
 
 - `/about/` serves `/about/index.html`, and a missing page gets your `404.html` if you have one.
 - Every visit is written to `/var/log/nginwho/access.log` in nginx's format. Turn on
-  `process_logs` under `[nginx]` and those visits are saved for the reports, as with nginx.
+  `process` under `[logs]` and those visits are saved for the reports, as with nginx.
 - With the trap on, the server hands the bots to it directly. Real files and typos are served
   as usual.
 - Only `GET` and `HEAD` are answered, anything else gets a 405.
@@ -840,14 +844,14 @@ renewal, new visitors get the new certificate without a restart. A broken new ce
 logged and the old one is kept. Behind Cloudflare, a free Cloudflare origin certificate works
 with the Full (strict) SSL mode.
 
-Behind a CDN, every request comes from the CDN's address. Turn on `show_real_ips` under `[nginx]` and
-the server takes the visitor's IP from the CDN's header (`CF-Connecting-IP` or
+Behind a CDN, every request comes from the CDN's address. Turn on `show_real_ips` under `[cdn]`
+and the server takes the visitor's IP from the CDN's header (`CF-Connecting-IP` or
 `Fastly-Client-IP`) instead, for the log and the trap. Anyone can send that header, so it is
 only believed when the request really comes from one of the CDN's addresses.
 
 ```ini
-[nginx]
-cdn = cloudflare
+[cdn]
+name = cloudflare
 show_real_ips = true
 ```
 
@@ -924,7 +928,7 @@ free tier of Grafana Cloud, and you can try it all on your machine first with Do
 - **The database moved** from `/var/log/nginwho.db` to `/var/lib/nginwho/nginwho.db`. If only
   the old one exists, nginwho keeps using it and asks you to move it. Stop nginwho, move the
   file, then start it again.
-- **Reading the nginx log is now off by default.** Add `process_logs = true` under `[nginx]`,
+- **Reading the nginx log is now off by default.** Add `process = true` under `[logs]`,
   or the `--processNginxLogs` flag, to keep saving visits.
 - **The database is upgraded once** the first time the new version starts or runs a report.
   This takes a few seconds on big databases. Older versions can't read an upgraded database,

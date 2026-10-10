@@ -61,18 +61,18 @@ suite "cli":
 
   test "bad config values are reported and the defaults are kept":
     let conf = tempDir / "bad.conf"
-    writeFile(conf, "[nginx]\ninterval = 0\n[server]\nport = 70000\n[trap]\nport = abc\n" &
+    writeFile(conf, "[logs]\ninterval = 0\n[server]\nport = 70000\n[trap]\nport = abc\n" &
         "max_connections = 0\ndrip_min_ms = 900\ndrip_max_ms = 100\n" &
-        "[nginx]\ncdn = akamai\n[trap.agents]\nDeepSeek = slow\n")
+        "[cdn]\nname = akamai\n[trap.agents]\nDeepSeek = slow\n")
     # --report with a missing database reads the config and then stops
     let (output, _) = run("--config=" & quoteShell(conf) & " --report --dbPath=" &
         quoteShell(tempDir / "missing_config.db"))
-    check "Bad value '0' for interval in [nginx]: must be at least 1" in output
+    check "Bad value '0' for interval in [logs]: must be at least 1" in output
     check "Bad value '70000' for port in [server]: must be between 1 and 65535" in output
     check "Bad value 'abc' for port in [trap]" in output
     check "Bad value '0' for max_connections in [trap]: must be at least 1" in output
     check "drip_min_ms (900) is above drip_max_ms (100) in [trap]" in output
-    check "Bad value 'akamai' for cdn in [nginx]: must be cloudflare or fastly" in output
+    check "Bad value 'akamai' for name in [cdn]: must be cloudflare or fastly" in output
     check "Bad value 'slow' for DeepSeek in [trap.agents]: must be drip, endless, maze, login or bomb" in output
 
   test "a database that can't be opened ends the program with an error":

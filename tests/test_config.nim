@@ -23,12 +23,14 @@ suite "config file":
 [database]
 path = /tmp/visits.db
 
-[nginx]
-process_logs = true
-log_path = /tmp/access.log
+[logs]
+process = true
+path = /tmp/access.log
 interval = 30
 omit_referrer = example.com
-cdn = fastly
+
+[cdn]
+name = fastly
 show_real_ips = true
 block_untrusted_cidrs = true
 
@@ -111,3 +113,7 @@ bytespider
   test "a bad port in web_ports keeps the default ports":
     let args = read("[firewall]\nweb_ports = 80 70000\n")
     check args.webPorts == @[80, 443]
+
+  test "settings left under the old [nginx] section are ignored":
+    let args = read("[nginx]\nprocess_logs = true\nshow_real_ips = true\n")
+    check args == Args()

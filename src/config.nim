@@ -125,16 +125,19 @@ proc readConfigFile*(path: string, args: var Args) =
 
   args.dbPath = config.getString("database", "path", args.dbPath)
 
-  args.logPath = config.getString("nginx", "log_path", args.logPath)
-  args.interval = config.get("nginx", "interval", args.interval, parseInterval)
-  args.omitReferrer = config.getString("nginx", "omit_referrer",
-      args.omitReferrer)
-  args.cdn = config.get("nginx", "cdn", args.cdn, parseCdn)
-  args.showRealIPs = config.get("nginx", "show_real_ips", args.showRealIPs, parseBool)
-  args.blockUntrustedCidrs = config.get("nginx", "block_untrusted_cidrs",
+  # older configs had these under [nginx], but the built-in server uses them too
+  if config.hasKey("nginx"):
+    error("[nginx] was split into [logs] and [cdn], its settings are ignored. See the sample config")
+
+  args.processNginxLogs = config.get("logs", "process", args.processNginxLogs, parseBool)
+  args.logPath = config.getString("logs", "path", args.logPath)
+  args.interval = config.get("logs", "interval", args.interval, parseInterval)
+  args.omitReferrer = config.getString("logs", "omit_referrer", args.omitReferrer)
+
+  args.cdn = config.get("cdn", "name", args.cdn, parseCdn)
+  args.showRealIPs = config.get("cdn", "show_real_ips", args.showRealIPs, parseBool)
+  args.blockUntrustedCidrs = config.get("cdn", "block_untrusted_cidrs",
       args.blockUntrustedCidrs, parseBool)
-  args.processNginxLogs = config.get("nginx", "process_logs",
-      args.processNginxLogs, parseBool)
 
   args.serve = config.get("server", "enabled", args.serve, parseBool)
   args.root = config.getString("server", "root", args.root)
