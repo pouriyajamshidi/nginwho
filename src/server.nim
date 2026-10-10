@@ -428,6 +428,8 @@ proc serve*(root, logPath: string, port: Port, address = "::",
   while true:
     try:
       let client = await server.accept()
+      # sends at once, or the body waits up to 40 ms behind the headers on keep-alive
+      client.setSockOpt(OptNoDelay, true, level = IPPROTO_TCP.cint)
       if visitors >= maxVisitors:
         client.close()
       else:

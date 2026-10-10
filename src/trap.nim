@@ -6,7 +6,7 @@
 import std/asyncdispatch
 from std/asyncnet import AsyncSocket, close, getPeerAddr, newAsyncSocket,
     setSockOpt, bindAddr, listen, accept
-from std/net import Port, Domain, SOBool, OptReuseAddr
+from std/net import Port, Domain, SOBool, OptReuseAddr, OptNoDelay, IPPROTO_TCP
 from std/httpcore import HttpCode, Http200, Http404
 from std/random import Rand, initRand, rand, sample
 from std/hashes import hash
@@ -703,6 +703,8 @@ proc trap*(cfg: TrapConfig, dbPath: string, address = "127.0.0.1") {.async.} =
   while true:
     try:
       let client = await server.accept()
+      # sends at once, so a drip goes out a byte at a time and nothing waits behind the headers
+      client.setSockOpt(OptNoDelay, true, level = IPPROTO_TCP.cint)
       asyncCheck handle(client, cfg, db)
     except CatchableError as e:
       # like running out of open files. wait a bit instead of spinning on it
