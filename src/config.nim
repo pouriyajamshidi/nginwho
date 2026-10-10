@@ -148,6 +148,8 @@ proc readConfigFile*(path: string, args: var Args) =
       atLeast(0))
   args.trap.maxSavedHitsADay = config.get("trap", "max_saved_hits_a_day",
       args.trap.maxSavedHitsADay, atLeast(0))
+  args.trap.maxBombsADay = config.get("trap", "max_bombs_a_day",
+      args.trap.maxBombsADay, atLeast(0))
   args.trap.files = config.getString("trap", "files", args.trap.files)
 
   # the pause between drips is picked from min to max, which can't be an empty range

@@ -278,6 +278,23 @@ suite "daily limits":
       check get("/.env", ip, limitPort).contains("AKIA")
     check getDbConnection(limitDb).getValue(sql"SELECT COUNT(*) FROM trap_hits") == "2"
 
+  test "past max_bombs_a_day, a bot gets an endless body instead of a bomb":
+    const bombLimitPort = 18099
+    let bombLimitDb = tempDir / "trap_bomb_limit.db"
+    # max_seconds ends the endless body, and bomb_after 0 bombs every hit
+    asyncCheck trap(TrapConfig(enabled: true, port: bombLimitPort, maxConnections: 10,
+        maxSeconds: 1, dripMinMs: 10, dripMaxMs: 10, bombs: true, bombAfter: 0,
+        maxBombsADay: 1), bombLimitDb)
+    waitFor sleepAsync(200)
+
+    # a HEAD sends no bomb, so it does not use one up
+    discard ask("HEAD", "/.env", "130.0.0.1", bombLimitPort, "curl", acceptEncoding = "gzip")
+    for ip in ["130.0.0.2", "130.0.0.3"]:
+      discard get("/.env", ip, bombLimitPort, acceptEncoding = "gzip")
+    let tactics = getDbConnection(bombLimitDb).getAllRows(
+        sql"SELECT tactic FROM trap_hits ORDER BY id")
+    check tactics == @[@["bomb"], @["bomb"], @["endless"]]
+
 
 suite "live trap":
   test "a bot that hangs up ends its trap":

@@ -54,6 +54,7 @@ type
     bombs*: bool = true
     bombAfter*: int = 3 # trapped hits from one IP in a day before it gets a bomb
     maxSavedHitsADay*: int = 100_000 # from all IPs together, 0 for no limit
+    maxBombsADay*: int = 100 # about 10 MB each to send, 0 for no limit
     agents*: seq[Agent] # first match wins
     files*: string # a folder of fake files to send in place of the built-in ones
 
@@ -114,6 +115,7 @@ var
   active = 0                           # trapped connections right now
   hitsToday = initTable[string, int]() # how often we saw an IP (a /64 for IPv6) today
   savedToday = 0                       # hits saved today, from all IPs
+  bombsToday = 0                       # bombs sent today, to all IPs
   today = ""
 
 
@@ -485,6 +487,7 @@ proc startDay() =
     today = day
     hitsToday.clear()
     savedToday = 0
+    bombsToday = 0
 
 
 proc countHit*(ip: string): int =
@@ -567,7 +570,13 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
   let chosen = if agent.isSome: agent.get.tactic else: none(Tactic)
   # "after N hits": the first N get played with, the next one gets the bomb
   let gzip = req.header("Accept-Encoding").toLowerAscii.contains("gzip")
-  let tactic = tacticFor(trap, req.path, hits > cfg.bombAfter, gzip, cfg, chosen)
+  var tactic = tacticFor(trap, req.path, hits > cfg.bombAfter, gzip, cfg, chosen)
+  # past the day's bombs, a body that never ends costs us far less to send
+  if tactic == bomb and req.httpMethod != "HEAD":
+    if cfg.maxBombsADay == 0 or bombsToday < cfg.maxBombsADay:
+      bombsToday.inc
+    else:
+      tactic = endless
   if save:
     info(fmt"Trapping {ip} in the {tactic} for {req.path} ({trap})")
 
