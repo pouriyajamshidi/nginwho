@@ -71,14 +71,17 @@ type
 
 
 const
-  envTemplate = staticRead("traps/env.txt")
-  credentialsTemplate = staticRead("traps/credentials.txt")
-  gitConfigTemplate = staticRead("traps/git_config.txt")
-  configTemplate = staticRead("traps/config.json")
-  passwdTemplate = staticRead("traps/passwd.txt")
-  actuatorTemplate = staticRead("traps/actuator_env.json")
-  loginTemplate = staticRead("traps/login.html")
-  phpinfoTemplate = staticRead("traps/phpinfo.html")
+  # the fake files, by their file name
+  builtinTemplates = {
+    "env.txt": staticRead("traps/env.txt"),
+    "credentials.txt": staticRead("traps/credentials.txt"),
+    "git_config.txt": staticRead("traps/git_config.txt"),
+    "config.json": staticRead("traps/config.json"),
+    "passwd.txt": staticRead("traps/passwd.txt"),
+    "actuator_env.json": staticRead("traps/actuator_env.json"),
+    "login.html": staticRead("traps/login.html"),
+    "phpinfo.html": staticRead("traps/phpinfo.html"),
+  }.toTable
   # 1 MiB of zeros gzipped. gzip members can be glued together, so sending this
   # file over and over unpacks into one huge stream on their side
   zerosGz = staticRead("traps/zeros.gz")
@@ -103,6 +106,7 @@ const
   maxSavedBytes = 1024 # of the URI, user agent, detail and body
 
 var
+  templates = builtinTemplates         # the fake files we send
   active = 0                           # trapped connections right now
   hitsToday = initTable[string, int]() # how often we saw an IP (a /64 for IPv6) today
   today = ""
@@ -182,7 +186,7 @@ proc fakeFile(trap: Trap, path: string, values: Table[string, string], rng: Rng)
 
   case trap
   of envFile:
-    return (fill(envTemplate, values), "text/plain", awsKey)
+    return (fill(templates["env.txt"], values), "text/plain", awsKey)
   of creds:
     if p.endsWith(".pem") or p.contains("id_rsa") or p.contains("key"):
       # the first line is enough to recognize the key
@@ -191,19 +195,19 @@ proc fakeFile(trap: Trap, path: string, values: Table[string, string], rng: Rng)
       for _ in 2 .. 25:
         key.add(token(rng, 64, base64Chars) & "\n")
       return (key & "-----END RSA PRIVATE KEY-----\n", "text/plain", firstLine)
-    return (fill(credentialsTemplate, values), "text/plain", awsKey)
+    return (fill(templates["credentials.txt"], values), "text/plain", awsKey)
   of gitRepo:
     if p.endsWith("head"):
       return ("ref: refs/heads/main\n", "text/plain", "")
-    return (fill(gitConfigTemplate, values), "text/plain", values["{{TOKEN}}"])
+    return (fill(templates["git_config.txt"], values), "text/plain", values["{{TOKEN}}"])
   of phpFile:
-    return (fill(phpinfoTemplate, values), "text/html", awsKey)
+    return (fill(templates["phpinfo.html"], values), "text/html", awsKey)
   of apiDebug:
-    return (fill(actuatorTemplate, values), "application/json", awsKey)
+    return (fill(templates["actuator_env.json"], values), "application/json", awsKey)
   of rce:
-    return (fill(passwdTemplate, values), "text/plain", "")
+    return (fill(templates["passwd.txt"], values), "text/plain", "")
   of configFile, backup, wordpress, adminPanel, listedAgent, noTrap:
-    return (fill(configTemplate, values), "application/json", awsKey)
+    return (fill(templates["config.json"], values), "application/json", awsKey)
 
 
 proc trapHead(status: HttpCode, headers: openArray[(string, string)]): string =
@@ -226,7 +230,7 @@ proc playLogin(client: AsyncSocket, req: Request, values: Table[string, string],
     page["{{ERROR}}"] = "<div class=\"error\"><strong>Error:</strong> " &
         "The password you entered is incorrect. Please try again.</div>"
 
-  let body = fill(loginTemplate, page)
+  let body = fill(templates["login.html"], page)
   # a wrong password gets a 200 with the error on the page, like real WordPress.
   # a 401 would tell a careful bot the login is fake
   await client.sendTimed(trapHead(Http200, [
