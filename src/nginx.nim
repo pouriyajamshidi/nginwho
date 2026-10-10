@@ -198,8 +198,10 @@ proc readNewLines*(path: string, offset: var int64,
   return data.splitLines()
 
 
-proc isStaticAsset*(requestURI: string): bool =
-  ## Fonts, scripts and styles are not stored, they only add noise
-  # TODO: Decide whether to exclude these or not
-  requestURI.endsWith(".woff2") or requestURI.endsWith(".js") or
-      requestURI.endsWith(".css")
+proc isStaticAsset*(log: Log): bool =
+  ## Fonts, scripts and styles that were served are not stored, they only add noise.
+  ## A failed one is kept, bots look for files like /config.js to find secrets
+  if log.statusCode notin ["200", "304"]:
+    return false
+  let path = log.requestURI.split('?', maxsplit = 1)[0]
+  path.endsWith(".woff2") or path.endsWith(".js") or path.endsWith(".css")

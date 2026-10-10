@@ -221,7 +221,7 @@ proc processAndRecordLogs(args: Args) {.async.} =
 
       let log = parseLogEntry(line, args.omitReferrer)
 
-      if isStaticAsset(log.requestURI):
+      if isStaticAsset(log):
         continue
 
       logs.add(log)

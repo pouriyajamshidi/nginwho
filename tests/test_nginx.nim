@@ -2,7 +2,7 @@ import std/[unittest, os, json]
 from std/options import isSome, isNone, get
 from std/strutils import contains
 
-from nginx import Log, parseLogEntry, isFromDomain, readNewLines, offsetAfterLastInserted
+from nginx import Log, parseLogEntry, isStaticAsset, isFromDomain, readNewLines, offsetAfterLastInserted
 from cdn import Cdn, Cidrs, getCurrentEtag, parseCidrsResponse, populateReverseProxyFile,
     trustRanges, visitorIP
 
@@ -107,6 +107,22 @@ suite "parseLogEntry":
 
   test "empty line":
     check parseLogEntry("", "").nonDefault == ""
+
+
+suite "isStaticAsset":
+  test "served fonts, scripts and styles are skipped":
+    check isStaticAsset(Log(requestURI: "/main.css", statusCode: "200"))
+    check isStaticAsset(Log(requestURI: "/font.woff2", statusCode: "304"))
+
+  test "the query string is not part of the check":
+    check isStaticAsset(Log(requestURI: "/app.js?v=3", statusCode: "200"))
+    check not isStaticAsset(Log(requestURI: "/.env?x=.js", statusCode: "200"))
+
+  test "a failed asset is kept, it is likely a bot looking for secrets":
+    check not isStaticAsset(Log(requestURI: "/config.js", statusCode: "404"))
+
+  test "other files are kept":
+    check not isStaticAsset(Log(requestURI: "/index.html", statusCode: "200"))
 
 
 suite "readNewLines":
