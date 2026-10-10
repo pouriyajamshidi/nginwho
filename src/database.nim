@@ -461,8 +461,6 @@ proc insertTrapHit*(db: DbConn, hit: TrapHit): int64 =
   ## Saves a trapped request as soon as it starts, so we know who tried what even
   ## when the bot is still hanging on a slow drip. Returns the new row id, or -1 on
   ## failure, to update the byte count and duration once the trap ends
-  info(fmt"Saving {hit.tactic} trap hit from {hit.remoteIP} for {hit.requestURI}")
-
   try:
     return db.insertID(sql(fmt"""
       INSERT INTO trap_hits
