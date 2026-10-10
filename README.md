@@ -86,6 +86,7 @@ See what it does with `sudo journalctl -u nginwho -f`, and the numbers with
     - [Locking down your server](#locking-down-your-server)
     - [The trap](#the-trap)
       - [Trapping bots by their name](#trapping-bots-by-their-name)
+      - [Using your own fake files](#using-your-own-fake-files)
     - [Serving your site without nginx](#serving-your-site-without-nginx)
     - [Reports](#reports)
   - [Where nginwho keeps its files](#where-nginwho-keeps-its-files)
@@ -364,6 +365,8 @@ drip_max_ms = 700
 bombs = true
 # an IP gets a bomb after this many trapped hits in one day. IPv6 is counted by /64
 bomb_after = 3
+# a folder of your own fake files. see "Using your own fake files"
+# files = /etc/nginwho/traps
 
 [trap.agents]
 # bots to trap by their user agent, whatever they ask for. see "The trap"
@@ -744,6 +747,42 @@ bytespider
 Behind nginx, a bot only reaches the trap if nginx blocks it with a 403. Block the same names
 in nginx, as in [The nginx config](#the-nginx-config). With the built-in server there is nothing
 else to do.
+
+#### Using your own fake files
+
+The fake files are built into nginwho, so the trap works with nothing else to install. To send
+your own, put them in a folder and point `files` at it:
+
+```ini
+[trap]
+files = /etc/nginwho/traps
+```
+
+A file there with the same name as a built-in one is sent in its place. The others stay as
+they are.
+
+| File                | Sent for                                                    |
+| ------------------- | ----------------------------------------------------------- |
+| `env.txt`           | `.env` files                                                |
+| `credentials.txt`   | `.aws` and other cloud logins                               |
+| `git_config.txt`    | `.git/config`                                               |
+| `phpinfo.html`      | `phpinfo()` pages                                           |
+| `actuator_env.json` | APIs and debug pages                                        |
+| `passwd.txt`        | Shells, `../` and `file://` in a query                      |
+| `login.html`        | The fake login page                                         |
+| `config.json`       | Config files, and any other path that gets a slow drip      |
+
+- The built-in files are in [src/traps](src/traps). Copy one and change what you like.
+- Placeholders get a new made up value for each bot: `{{APP}}`, `{{HOST}}`, `{{IP}}`,
+  `{{USER}}`, `{{PASS}}`, `{{AWS_KEY}}`, `{{AWS_SECRET}}`, `{{STRIPE}}`, `{{TOKEN}}`,
+  `{{HEX}}`, `{{B64}}`, `{{ID}}` and `{{VERSION}}`. `{{PASS}}`, `{{AWS_KEY}}` and
+  `{{AWS_SECRET}}` also come as `2` and `3`, like `{{PASS2}}`, for a second and third value.
+  In `login.html`, `{{ERROR}}` is where the wrong password message goes.
+- The fake secret saved with a visit is the `{{AWS_KEY}}` in the file, or the `{{TOKEN}}` in
+  `git_config.txt`. A file without it saves none.
+- The files are read when nginwho starts, so restart it after a change. A missing folder or
+  an empty or unreadable file is reported in the log, and the built-in file is sent instead. A
+  file with any other name is reported and left alone.
 
 ### Serving your site without nginx
 
