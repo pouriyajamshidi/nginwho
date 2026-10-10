@@ -55,7 +55,8 @@ proc usage(errorCode: int = 0) =
   --lockdown              : Drop everything coming in but SSH, the web ports and replies
                             to the server's own connections, using nftables (default: false)
   --sshPort               : SSH port to keep open with '--lockdown' (default: the port sshd listens on)
-  --webPorts              : Web ports to keep open with '--lockdown', over TCP and UDP (default: 80,443)
+  --webPorts              : Web ports to keep open over TCP with '--lockdown' (default: 80,443)
+  --quicPorts             : Ports to keep open over UDP with '--lockdown', for HTTP/3 (default: none)
   --cdn                   : The CDN in front of your site, cloudflare or fastly (default: cloudflare)
   --processNginxLogs      : Process nginx logs (default: false)
   --serve                 : Serve static files and write nginx style logs to '--logPath' (default: false)
@@ -142,6 +143,7 @@ proc getArgs(): Args =
         of "lockdown": args.lockdown = isOn(p.val)
         of "sshPort": args.sshPort = parsePort(p.val)
         of "webPorts": args.webPorts = parsePorts(p.val)
+        of "quicPorts": args.quicPorts = parsePorts(p.val)
         of "processNginxLogs": args.processNginxLogs = isOn(p.val)
         of "serve": args.serve = isOn(p.val)
         of "root": args.root = p.val
@@ -249,13 +251,13 @@ proc processAndRecordLogs(args: Args) {.async.} =
     await sleepAsync(if moreToRead: 0 else: args.interval)
 
 
-proc keepLockedDown(sshPort: int, webPorts: seq[int]) {.async.} =
+proc keepLockedDown(sshPort: int, webPorts, quicPorts: seq[int]) {.async.} =
   ## Checks the lockdown every few minutes, so it is back soon after a firewall reload
   ## wipes it, and follows sshd when it moves to another port
   while true:
     let sshPorts = if sshPort != 0: @[sshPort] else: findSshPorts()
     try:
-      lockDown(sshPorts, webPorts)
+      lockDown(sshPorts, webPorts, quicPorts)
     except NftError as e:
       # a firewall problem must not stop anything else nginwho runs
       error(e.msg)
@@ -336,7 +338,7 @@ proc main() =
           "Set it to client.ip in your Fastly VCL, see the README")
 
   if args.lockdown:
-    asyncCheck keepLockedDown(args.sshPort, args.webPorts)
+    asyncCheck keepLockedDown(args.sshPort, args.webPorts, args.quicPorts)
 
   if args.showRealIPs or args.blockUntrustedCidrs:
     asyncCheck fetchAndProcessIPCidrs(args.cdn, args.showRealIPs,

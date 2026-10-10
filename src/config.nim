@@ -41,7 +41,8 @@ type
     report*: bool
     lockdown*: bool
     sshPort*: int           # 0 means the port sshd listens on
-    webPorts*: seq[int] = @[80, 443]
+    webPorts*: seq[int] = @[80, 443] # TCP
+    quicPorts*: seq[int]    # UDP, for HTTP/3
     trap*: TrapConfig
 
 
@@ -144,6 +145,7 @@ proc readConfigFile*(path: string, args: var Args) =
   args.lockdown = config.get("firewall", "lockdown", args.lockdown, parseBool)
   args.sshPort = config.get("firewall", "ssh_port", args.sshPort, parsePort)
   args.webPorts = config.get("firewall", "web_ports", args.webPorts, parsePorts)
+  args.quicPorts = config.get("firewall", "quic_ports", args.quicPorts, parsePorts)
 
   args.trap.enabled = config.get("trap", "enabled", args.trap.enabled, parseBool)
   args.trap.port = config.get("trap", "port", args.trap.port, parsePort)

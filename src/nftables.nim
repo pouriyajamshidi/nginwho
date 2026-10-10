@@ -71,14 +71,19 @@ proc replaceChain(chain: JsonNode): seq[JsonNode] =
   ]
 
 
-proc webTraffic(ports = @[80, 443]): seq[JsonNode] =
-  ## Matches TCP and UDP to `ports`. UDP 443 is HTTP/3.
+proc portsMatch(protocol: string, ports: seq[int]): JsonNode =
+  ## Matches `ports` of `protocol`, where "th" is any protocol with ports.
   ## nft lists a set of one port back as the port alone, so one port is given as it is
   let right = if ports.len == 1: %ports[0] else: %*{"set": ports}
+  %*{"match": {"op": "==", "left": {"payload": {"protocol": protocol, "field": "dport"}},
+      "right": right}}
+
+
+proc webTraffic(ports = @[80, 443]): seq[JsonNode] =
+  ## Matches TCP and UDP to `ports`. UDP 443 is HTTP/3
   @[
     %*{"match": {"op": "==", "left": {"meta": {"key": "l4proto"}}, "right": {"set": ["tcp", "udp"]}}},
-    %*{"match": {"op": "==", "left": {"payload": {"protocol": "th", "field": "dport"}},
-        "right": right}}
+    portsMatch("th", ports)
   ]
 
 
@@ -468,7 +473,7 @@ proc acceptOnly*(nftSet: NftSet) =
 proc lockdownBaseChain(): JsonNode = baseChain(lockdownChain, "input", 0, "drop")
 
 
-proc lockdownRules(sshPorts, webPorts: seq[int]): seq[JsonNode] =
+proc lockdownRules(sshPorts, webPorts, quicPorts: seq[int]): seq[JsonNode] =
   ## What a web server lets in. The rest is logged and dropped
   let accept = %*{"accept": nil}
 
@@ -495,31 +500,38 @@ proc lockdownRules(sshPorts, webPorts: seq[int]): seq[JsonNode] =
     result.add(addRule(lockdownChain, @[%*{"match": {"op": "==",
         "left": {"payload": {"protocol": "tcp", "field": "dport"}}, "right": port}}, accept]))
 
-  result.add(addRule(lockdownChain, webTraffic(webPorts) & @[accept]))
+  # an empty set is an error in nft
+  if webPorts.len > 0:
+    result.add(addRule(lockdownChain, @[portsMatch("tcp", webPorts), accept]))
+  # HTTP/3 runs over UDP. only opened when asked for, as most sites don't use it
+  if quicPorts.len > 0:
+    result.add(addRule(lockdownChain, @[portsMatch("udp", quicPorts), accept]))
   result.add(addRule(lockdownChain, @[%*{"counter": {"packets": 0, "bytes": 0}}] &
       limitedLog(logPrefixLockdown)))
 
 
-proc createLockdown*(sshPorts, webPorts: seq[int]): JsonNode =
+proc createLockdown*(sshPorts, webPorts, quicPorts: seq[int]): JsonNode =
   result = %* {"nftables": [{"add": {"table": {"family": "inet", "name": "filter"}}}]}
-  for command in replaceChain(lockdownBaseChain()) & lockdownRules(sshPorts, webPorts):
+  for command in replaceChain(lockdownBaseChain()) & lockdownRules(sshPorts, webPorts, quicPorts):
     result["nftables"].add(command)
 
 
-proc lockdownIsCurrent*(nftOutput: JsonNode, sshPorts, webPorts: seq[int]): bool =
-  chainIsCurrent(inetFilterOnly(nftOutput), lockdownBaseChain(), lockdownRules(sshPorts, webPorts))
+proc lockdownIsCurrent*(nftOutput: JsonNode, sshPorts, webPorts, quicPorts: seq[int]): bool =
+  chainIsCurrent(inetFilterOnly(nftOutput), lockdownBaseChain(),
+      lockdownRules(sshPorts, webPorts, quicPorts))
 
 
-proc lockDown*(sshPorts, webPorts: seq[int]) =
-  ## Drops everything coming in but SSH on `sshPorts`, `webPorts` and what a server needs.
+proc lockDown*(sshPorts, webPorts, quicPorts: seq[int]) =
+  ## Drops everything coming in but SSH on `sshPorts`, TCP on `webPorts`, UDP on `quicPorts`
+  ## and what a server needs.
   ## Raises NftError when the rules can't be checked or applied, or when no SSH port is given
   if sshPorts.len == 0:
     # a wrong guess would lock the user out of their own server
     raise newException(NftError, "Not locking down, the SSH port is not known. " &
         "Set ssh_port under [firewall] or --sshPort")
 
-  if not lockdownIsCurrent(getCurrentRules(), sshPorts, webPorts):
-    writeRulesAndApply(createLockdown(sshPorts, webPorts))
+  if not lockdownIsCurrent(getCurrentRules(), sshPorts, webPorts, quicPorts):
+    writeRulesAndApply(createLockdown(sshPorts, webPorts, quicPorts))
 
 
 proc parseSshPorts*(ssOutput: string): seq[int] =

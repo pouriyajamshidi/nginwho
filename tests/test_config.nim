@@ -45,6 +45,7 @@ key = /etc/ssl/site.key
 lockdown = true
 ssh_port = 65222
 web_ports = 8443 8080 8443
+quic_ports = 443
 
 [trap]
 enabled = true
@@ -75,6 +76,7 @@ files = /etc/nginwho/traps
     check args.lockdown
     check args.sshPort == 65222
     check args.webPorts == @[8080, 8443]
+    check args.quicPorts == @[443]
     check args.trap.enabled
     check args.trap.port == 7000
     check args.trap.maxConnections == 50

@@ -182,7 +182,7 @@ ssh_port = 22
 
 nginwho sets up the firewall so everything coming in is dropped, except SSH, ports 80 and 443,
 and what the server needs to work. If your site is on other ports, list them in `web_ports`,
-like `web_ports = 8080 8443`. Use it with `block_untrusted_cidrs` to also keep everyone
+like `web_ports = 8080 8443`. If your site uses HTTP/3, add `quic_ports = 443`. Use it with `block_untrusted_cidrs` to also keep everyone
 but your CDN away from your site. See [Locking down your server](#locking-down-your-server)
 before you turn this on.
 
@@ -354,8 +354,10 @@ port = 80
 lockdown = false
 # the SSH port to keep open. when not set, the port sshd listens on
 # ssh_port = 22
-# the web ports to keep open, over TCP and UDP. separate them with spaces
+# the web ports to keep open over TCP. separate them with spaces
 web_ports = 80 443
+# the ports to keep open over UDP, for HTTP/3 (QUIC). none by default
+# quic_ports = 443
 
 [trap]
 enabled = false
@@ -507,7 +509,8 @@ Flags do the same as the config file and win over it, which is handy for trying 
   --lockdown              : Drop everything coming in but SSH, the web ports and replies
                             to the server's own connections, using nftables (default: false)
   --sshPort               : SSH port to keep open with '--lockdown' (default: the port sshd listens on)
-  --webPorts              : Web ports to keep open with '--lockdown', over TCP and UDP (default: 80,443)
+  --webPorts              : Web ports to keep open over TCP with '--lockdown' (default: 80,443)
+  --quicPorts             : Ports to keep open over UDP with '--lockdown', for HTTP/3 (default: none)
   --cdn                   : The CDN in front of your site, cloudflare or fastly (default: cloudflare)
   --processNginxLogs      : Process nginx logs (default: false)
   --serve                 : Serve static files and write nginx style logs to '--logPath' (default: false)
@@ -631,9 +634,10 @@ drops everything coming in, except:
 - The ICMPv6 messages IPv6 needs to find the router and its neighbours. Ping is dropped.
 - DHCPv6 replies, so the server keeps its IPv6 address.
 - SSH on `ssh_port`.
-- The ports in `web_ports`, 80 and 443 by default, over TCP and UDP. With
-  `block_untrusted_cidrs` on too, only your CDN gets to ports 80 and 443. It does not cover
-  other ports.
+- The ports in `web_ports`, 80 and 443 by default, over TCP. With `block_untrusted_cidrs` on
+  too, only your CDN gets to ports 80 and 443. It does not cover other ports.
+- The ports in `quic_ports` over UDP, for HTTP/3 (QUIC). None by default, so add
+  `quic_ports = 443` if nginx serves HTTP/3. The built-in server does not speak HTTP/3.
 
 The rest is dropped and logged with the prefix `NGINWHO_INPUT_DROPPED`, at most 10 times a
 minute. Like the CDN rules, the chain is checked every five minutes and put back if a firewall
