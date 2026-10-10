@@ -177,7 +177,7 @@ database left open by mistake, should not be reachable from the internet.
 ```ini
 [firewall]
 lockdown = true
-ssh_port = 22    # the port your SSH listens on
+ssh_port = 22
 ```
 
 nginwho sets up the firewall so everything coming in is dropped, except SSH, ports 80 and 443,
@@ -777,16 +777,16 @@ files = /etc/nginwho/traps
 A file there with the same name as a built-in one is sent in its place. The others stay as
 they are.
 
-| File                | Sent for                                                    |
-| ------------------- | ----------------------------------------------------------- |
-| `env.txt`           | `.env` files                                                |
-| `credentials.txt`   | `.aws` and other cloud logins                               |
-| `git_config.txt`    | `.git/config`                                               |
-| `phpinfo.html`      | `phpinfo()` pages                                           |
-| `actuator_env.json` | APIs and debug pages                                        |
-| `passwd.txt`        | Shells, `../` and `file://` in a query                      |
-| `login.html`        | The fake login page                                         |
-| `config.json`       | Config files, and any other path that gets a slow drip      |
+| File                | Sent for                                               |
+| ------------------- | ------------------------------------------------------ |
+| `env.txt`           | `.env` files                                           |
+| `credentials.txt`   | `.aws` and other cloud logins                          |
+| `git_config.txt`    | `.git/config`                                          |
+| `phpinfo.html`      | `phpinfo()` pages                                      |
+| `actuator_env.json` | APIs and debug pages                                   |
+| `passwd.txt`        | Shells, `../` and `file://` in a query                 |
+| `login.html`        | The fake login page                                    |
+| `config.json`       | Config files, and any other path that gets a slow drip |
 
 - The built-in files are in [src/traps](src/traps). Copy one and change what you like.
 - Placeholders get a new made up value for each bot: `{{APP}}`, `{{HOST}}`, `{{IP}}`,
