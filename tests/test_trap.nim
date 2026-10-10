@@ -6,10 +6,11 @@ from std/asyncnet import newAsyncSocket, connect, send, recv, recvLine, close
 from std/net import Port
 from std/strutils import split, contains, startsWith, repeat
 from std/options import some, none, isNone, get
+import std/tables
 from db_connector/db_sqlite import DbConn, getValue, getAllRows, sql
 
 from trap import TrapConfig, Tactic, classify, trap, findAgent, countHit,
-    submittedCredentials
+    submittedCredentials, loadTemplates
 from database import TrapHit, getDbConnection, createTables, insertTrapHit, finishTrapHit,
     getTopTrappedIPs, getTopTraps, getTopTrappedURIs, getTrappedCredentials, getTrapTotals
 
@@ -381,3 +382,38 @@ suite "live trap":
     for _ in 2 .. 1001:
       discard get("/wp-login.php", "90.0.0.1")
     check db.getValue(sql"SELECT COUNT(*) FROM trap_hits WHERE remote_ip = '90.0.0.1'") == "1000"
+
+
+# last, since the trap keeps its fake files for the whole process and this changes them
+suite "user files":
+  let filesDir = tempDir / "files"
+  createDir(filesDir)
+  writeFile(filesDir / "env.txt", "MY_KEY={{AWS_KEY}}\n")
+  writeFile(filesDir / "login.html", "")          # empty, so not used
+  writeFile(filesDir / ".env", "typo")            # not a name we know
+  createSymlink(filesDir / "nowhere", filesDir / "config.json") # can't be read
+
+  test "a file with the name of a built-in one takes its place":
+    let user = loadTemplates(filesDir)
+    let builtin = loadTemplates("")
+    check user["env.txt"] == "MY_KEY={{AWS_KEY}}\n"
+    check user["passwd.txt"] == builtin["passwd.txt"]
+
+  test "a missing folder, an empty or unreadable file and an unknown name keep the built-in files":
+    let builtin = loadTemplates("")
+    check loadTemplates(tempDir / "missing") == builtin
+    let user = loadTemplates(filesDir)
+    check user["login.html"] == builtin["login.html"]
+    check user["config.json"] == builtin["config.json"]
+    check not user.hasKey(".env")
+
+  test "the trap sends the user file with its placeholders filled":
+    const filesPort = 18095
+    asyncCheck trap(TrapConfig(enabled: true, port: filesPort, maxConnections: 10,
+        maxSeconds: 60, dripMinMs: 0, dripMaxMs: 0, bombs: true, bombAfter: 100,
+        files: filesDir), tempDir / "trap_files.db")
+    waitFor sleepAsync(200)
+
+    let body = get("/.env", "100.0.0.1", filesPort)
+    check body.startsWith("MY_KEY=AKIA")
+    check "{{" notin body

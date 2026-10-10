@@ -19,7 +19,8 @@ from std/times import epochTime, now, format
 from std/uri import decodeUrl
 from std/xmltree import escape
 from std/options import Option, some, none, isSome, isNone, get
-from std/logging import info, error
+from std/logging import info, warn, error
+from std/os import dirExists, walkDir, PathComponent, extractFilename
 from db_connector/db_sqlite import DbConn
 
 from nginx import dateFormat
@@ -53,6 +54,7 @@ type
     bombs*: bool = true
     bombAfter*: int = 3 # trapped hits from one IP in a day before it gets a bomb
     agents*: seq[Agent] # first match wins
+    files*: string # a folder of fake files to send in place of the built-in ones
 
   Trap = enum
     ## What the bot was after
@@ -614,8 +616,36 @@ proc handle(client: AsyncSocket, cfg: TrapConfig, db: DbConn) {.async.} =
     discard
 
 
+proc loadTemplates*(dir: string): Table[string, string] =
+  ## The built-in fake files, with the ones in `dir` that have the same name in their
+  ## place. A file we can't use is logged and the built-in one is kept, so the trap
+  ## always has something to send
+  result = builtinTemplates
+  if dir == "":
+    return
+  if not dirExists(dir):
+    error(fmt"Trap files folder {dir} does not exist. Using the built-in files")
+    return
+
+  for kind, path in walkDir(dir):
+    let name = extractFilename(path)
+    if kind notin {pcFile, pcLinkToFile} or not result.hasKey(name):
+      warn(fmt"Trap file {path} does not have the name of a built-in file, so it is not used")
+      continue
+    try:
+      let text = readFile(path)
+      if text == "":
+        error(fmt"Trap file {path} is empty. Using the built-in {name}")
+        continue
+      result[name] = text
+      info(fmt"Trap sends {path} in place of the built-in {name}")
+    except IOError as e:
+      error(fmt"Could not read trap file {path}: {e.msg}. Using the built-in {name}")
+
+
 proc trapHook*(cfg: TrapConfig, dbPath: string): TrapHook =
   ## For --serve, where no nginx sits in front: the server hands its requests to the trap itself
+  templates = loadTemplates(cfg.files)
   let db = getDbConnection(dbPath)
   createTables(db)
   return proc (client: AsyncSocket, req: Request, remoteIP: string,
@@ -625,6 +655,7 @@ proc trapHook*(cfg: TrapConfig, dbPath: string): TrapHook =
 
 proc trap*(cfg: TrapConfig, dbPath: string, address = "127.0.0.1") {.async.} =
   ## Listens for the requests nginx could not answer
+  templates = loadTemplates(cfg.files)
   let db = getDbConnection(dbPath)
   createTables(db)
 
