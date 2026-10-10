@@ -231,6 +231,21 @@ suite "nftables":
       let before = applyInNamespace(@[], setup)
       check not requiredChanges(before, cidrs).withInputPolicy
 
+  test "other web ports, and only one, are blocked and seen as current":
+    if not canRunNft():
+      skip()
+    else:
+      var others = cidrs
+      others.ports = @[443, 8080]
+      var ruleset = applyInNamespace(@[createRules(others, allChanges)])
+      check requiredChanges(ruleset, others) == NftAttrs()
+      # the old ports are replaced in the nginwho chain. the input chain gets a rule for the new ones
+      check requiredChanges(ruleset, cidrs) == NftAttrs(withNginwhoChain: true, withInputPolicy: true)
+
+      others.ports = @[8080]
+      ruleset = applyInNamespace(@[createRules(others, allChanges)])
+      check requiredChanges(ruleset, others) == NftAttrs()
+
   test "the ports sshd listens on are read from ss":
     let ss = """
 LISTEN 0      128    0.0.0.0:65222 0.0.0.0:* users:(("sshd",pid=1118,fd=5))

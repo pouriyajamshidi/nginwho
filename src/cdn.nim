@@ -118,9 +118,9 @@ proc getCdnCIDRs(cdn: Cdn): Future[Option[Cidrs]] {.async.} =
   return parseCidrsResponse(cdn, jsonResponse)
 
 
-proc blockOthers(cdn: Cdn, cidrs: Cidrs) =
+proc blockOthers(cdn: Cdn, cidrs: Cidrs, ports: seq[int]) =
   try:
-    acceptOnly(NftSet(name: cdn.name, ipv4: cidrs.ipv4, ipv6: cidrs.ipv6))
+    acceptOnly(NftSet(name: cdn.name, ipv4: cidrs.ipv4, ipv6: cidrs.ipv6, ports: ports))
   except NftError as e:
     # a firewall problem must not stop the real IPs or anything else nginwho runs
     error(e.msg)
@@ -181,10 +181,11 @@ proc populateReverseProxyFile*(filePath: string, cidrs: Cidrs): bool =
 
 
 proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
-    blockUntrustedCidrs, serve: bool) {.async.} =
+    blockUntrustedCidrs, serve: bool, webPorts: seq[int]) {.async.} =
   ## Fetches the CDN's ranges every six hours. `showRealIPs` writes them for nginx.
   ## With `serve` our own server knows the CDN by them.
-  ## `blockUntrustedCidrs` lets only them through nftables. Each works without the other
+  ## `blockUntrustedCidrs` lets only them reach `webPorts` through nftables.
+  ## Each works without the other
   info(fmt"Fetching and processing {cdn.name} CIDRs")
 
   while true:
@@ -198,7 +199,7 @@ proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
     let cidrs = fetched.get()
 
     if blockUntrustedCidrs:
-      blockOthers(cdn, cidrs)
+      blockOthers(cdn, cidrs, webPorts)
 
     if serve:
       trustRanges(cidrs)
@@ -216,7 +217,7 @@ proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
     for _ in 1 .. refreshMs div firewallCheckMs:
       await sleepAsync(firewallCheckMs)
       if blockUntrustedCidrs:
-        blockOthers(cdn, cidrs)
+        blockOthers(cdn, cidrs, webPorts)
 
 
 proc samePrefix(a, b: openArray[uint8], bits: int): bool =

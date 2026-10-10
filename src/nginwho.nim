@@ -7,6 +7,8 @@ from std/os import getFileInfo, FileInfo, FileId, dirExists, fileExists,
 from std/net import Port
 from std/posix import RLimit, getrlimit, setrlimit, RLIMIT_NOFILE
 from std/parseopt import CmdLineKind, initOptParser, next
+from std/algorithm import sorted
+from std/sequtils import deduplicate
 from std/logging import addHandler, newConsoleLogger, info, error, warn,
     setLogFilter, lvlError
 
@@ -55,8 +57,8 @@ proc usage(errorCode: int = 0) =
   --lockdown              : Drop everything coming in but SSH, the web ports and replies
                             to the server's own connections, using nftables (default: false)
   --sshPort               : SSH port to keep open with '--lockdown' (default: the port sshd listens on)
-  --webPorts              : Web ports to keep open over TCP with '--lockdown' (default: 80,443)
-  --quicPorts             : Ports to keep open over UDP with '--lockdown', for HTTP/3 (default: none)
+  --webPorts              : Web ports to keep open over TCP with '--lockdown'. Only the CDN reaches them with '--blockUntrustedCidrs' (default: 80,443)
+  --quicPorts             : Ports to keep open over UDP with '--lockdown', for HTTP/3. Only the CDN reaches them with '--blockUntrustedCidrs' (default: none)
   --cdn                   : The CDN in front of your site, cloudflare or fastly (default: cloudflare)
   --processNginxLogs      : Process nginx logs (default: false)
   --serve                 : Serve static files and write nginx style logs to '--logPath' (default: false)
@@ -341,8 +343,10 @@ proc main() =
     asyncCheck keepLockedDown(args.sshPort, args.webPorts, args.quicPorts)
 
   if args.showRealIPs or args.blockUntrustedCidrs:
+    # HTTP/3 must not get around the CDN either. sorted, as nft lists them back
+    let webPorts = sorted(deduplicate(args.webPorts & args.quicPorts))
     asyncCheck fetchAndProcessIPCidrs(args.cdn, args.showRealIPs,
-        args.blockUntrustedCidrs, args.serve)
+        args.blockUntrustedCidrs, args.serve, webPorts)
 
   runForever()
 

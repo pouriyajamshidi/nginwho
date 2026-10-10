@@ -16,6 +16,7 @@ type
     name*: string # the CDN, its Sets are <name>_IPv4 and <name>_IPv6
     ipv4*: JsonNode
     ipv6*: JsonNode
+    ports*: seq[int] = @[80, 443] # sorted, only the CDN can reach them over TCP and UDP
 
   NftAttrs* = object
     ## The parts of the ruleset nginwho still has to add
@@ -79,8 +80,8 @@ proc portsMatch(protocol: string, ports: seq[int]): JsonNode =
       "right": right}}
 
 
-proc webTraffic(ports = @[80, 443]): seq[JsonNode] =
-  ## Matches TCP and UDP to `ports`. UDP 443 is HTTP/3
+proc webTraffic(ports: seq[int]): seq[JsonNode] =
+  ## Matches TCP and UDP to `ports`, so HTTP/3 can't get around the CDN either
   @[
     %*{"match": {"op": "==", "left": {"meta": {"key": "l4proto"}}, "right": {"set": ["tcp", "udp"]}}},
     portsMatch("th", ports)
@@ -273,11 +274,11 @@ proc createSet(cidrs: JsonNode, setName, setType: string): seq[JsonNode] =
   return @[emptySet, %*{"flush": {"set": setId}}, ipSet]
 
 
-proc createNginwhoIPPolicy(protocol, setName, logPrefix: string): seq[JsonNode] =
+proc createNginwhoIPPolicy(protocol, setName, logPrefix: string, ports: seq[int]): seq[JsonNode] =
   ## A rule that logs and a rule that drops web traffic from outside the Set.
   ## `protocol` is "ip" or "ip6", as nft names them.
   ## The port comes first, so traffic to other ports, like SSH, skips the Set lookup
-  let notFromCdn = webTraffic() & @[
+  let notFromCdn = webTraffic(ports) & @[
     %*{"match": {"op": "!=", "left": {"payload": {"protocol": protocol, "field": "saddr"}},
         "right": fmt"@{setName}"}}
   ]
@@ -294,8 +295,8 @@ proc nginwhoBaseChain(): JsonNode = baseChain(nginwhoChain, nginwhoHook, nginwho
 proc nginwhoRules(nftSet: NftSet): seq[JsonNode] =
   # the server's own traffic does not come through the CDN
   @[addRule(nginwhoChain, @[fromLoopback(), %*{"accept": nil}])] &
-    createNginwhoIPPolicy("ip", nftSet.setNameV4, logPrefixV4) &
-    createNginwhoIPPolicy("ip6", nftSet.setNameV6, logPrefixV6)
+    createNginwhoIPPolicy("ip", nftSet.setNameV4, logPrefixV4, nftSet.ports) &
+    createNginwhoIPPolicy("ip6", nftSet.setNameV6, logPrefixV6, nftSet.ports)
 
 
 proc createInputChain(): JsonNode =
@@ -317,10 +318,10 @@ proc createInputChain(): JsonNode =
   }
 
 
-proc createInputChainPolicy(): JsonNode =
+proc createInputChainPolicy(ports: seq[int]): JsonNode =
   info("Creating input chain policy")
 
-  let expr = webTraffic() & @[%*{"counter": {"packets": 0, "bytes": 0}}, %*{"accept": nil}]
+  let expr = webTraffic(ports) & @[%*{"counter": {"packets": 0, "bytes": 0}}, %*{"accept": nil}]
 
   return %* {"add": {"rule": {"family": "inet", "table": "filter", "chain": inputChain,
       "expr": expr}}}
@@ -348,7 +349,7 @@ proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
     rules["nftables"].add(createInputChain())
 
   if nftAttrs.withInputPolicy:
-    rules["nftables"].add(createInputChainPolicy())
+    rules["nftables"].add(createInputChainPolicy(nftSet.ports))
 
   info("Successfully created nftables rules")
 
@@ -410,18 +411,19 @@ proc inputChainExists(nftOutput: JsonNode): bool =
   warn(fmt"{inputChain} does not exist")
 
 
-proc inputChainHasPolicy(nftOutput: JsonNode): bool =
-  ## Any rule in the input chain for ports 80 and 443 counts, like `tcp dport { 80, 443 } accept`
+proc inputChainHasPolicy(nftOutput: JsonNode, ports: seq[int]): bool =
+  ## Any rule in the input chain for `ports` counts, like `tcp dport { 80, 443 } accept`
   ## from older versions or the user's own
   info("Checking nftables input chain for existing policy")
 
+  let wanted = portsMatch("th", ports)["match"]["right"]
   for node in nftOutput:
     if node{"rule", "chain"}.getStr() != inputChain:
       continue
 
     for item in node["rule"]["expr"]:
       # {} gives nil instead of raising when a rule has another shape
-      if item{"match", "right", "set"} == %*[80, 443]:
+      if item{"match", "right"} == wanted:
         info("input chain already has the required policy")
         return true
 
@@ -438,7 +440,7 @@ proc requiredChanges*(nftOutput: JsonNode, nftSet: NftSet): NftAttrs =
         nftOutput, nftSet.ipv6, nftSet.setNameV6),
     withNginwhoChain: not chainIsCurrent(nftOutput, nginwhoBaseChain(), nginwhoRules(nftSet)),
     withInputChain: not inputChainExists(nftOutput),
-    withInputPolicy: not inputChainHasPolicy(nftOutput),
+    withInputPolicy: not inputChainHasPolicy(nftOutput, nftSet.ports),
   )
 
 
@@ -461,6 +463,11 @@ proc acceptOnly*(nftSet: NftSet) =
 
   if nftSet.ipv4.len == 0 and nftSet.ipv6.len == 0:
     warn("Received empty NFT Sets")
+    return
+
+  # an empty set is an error in nft
+  if nftSet.ports.len == 0:
+    warn("No web ports to block, web_ports and quic_ports are both empty")
     return
 
   let nftAttrs = requiredChanges(getCurrentRules(), nftSet)
