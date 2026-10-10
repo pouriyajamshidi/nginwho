@@ -1,5 +1,5 @@
 [Unit]
-Description=nginwho - nginx log parser and analyzer
+Description=nginwho - saves nginx logs, shows real IPs behind a CDN, guards the firewall, traps bots and serves static sites
 After=network.target
 
 [Service]
