@@ -534,8 +534,9 @@ database at `/var/lib/nginwho/nginwho.db`.
 
 - It only reads what was added since last time, so a big log is no problem.
 - After a restart it picks up where it stopped, and it notices when the log is rotated.
-- Requests for fonts, scripts and styles (`.woff2`, `.js`, `.css`) are not saved. They only add
-  noise, so reports show fewer requests than the raw log.
+- Fonts, scripts and styles (`.woff2`, `.js`, `.css`) that were served (status 200 or 304) are
+  not saved. They only add noise, so reports show fewer requests than the raw log. A failed one,
+  like a 404 on `/config.js`, is saved, since it is likely a bot looking for secrets.
 - It does not need nginx to be installed. Any program that writes the same log format works.
 
 > [!WARNING]
