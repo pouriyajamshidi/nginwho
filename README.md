@@ -365,6 +365,10 @@ drip_max_ms = 700
 bombs = true
 # an IP gets a bomb after this many trapped hits in one day. IPv6 is counted by /64
 bomb_after = 3
+# bombs sent in one day, to all IPs. each is about 10 MB to send. 0 for no limit
+max_bombs_a_day = 100
+# hits saved in one day, from all IPs. past it bots are still trapped. 0 for no limit
+max_saved_hits_a_day = 100000
 # a folder of your own fake files. see "Using your own fake files"
 # files = /etc/nginwho/traps
 
@@ -682,7 +686,8 @@ The five kinds of answer:
 - **Bots that come back get a bomb.** After `bomb_after` trapped requests in one day (3 by
   default), the next one from that IP gets the bomb, if it said it takes gzip. A bot that
   doesn't, like plain `curl`, gets an endless answer instead, and so does every bot with
-  `bombs = false`.
+  `bombs = false`. After `max_bombs_a_day` bombs in a day (100 by default, about 1 GB to
+  send), bots get an endless answer too, so no one can make you send terabytes.
 - **The same bot sees the same file.** Asking twice gives the same fake content, so it looks
   real. Another bot gets different values.
 - **Fake secrets are recorded.** The fake key a bot got is saved with its visit, and so are
@@ -691,7 +696,8 @@ The five kinds of answer:
   so you can see the code a bot hoped to run.
 - **Limits keep your server safe.** At most 200 bots are held at once, each for at most 15
   minutes. A bot that hangs up frees its place right away. After 1000 hits in a day, an IP is
-  still trapped but no longer saved, so a flood can't fill your disk.
+  still trapped but no longer saved, and after `max_saved_hits_a_day` hits from all IPs
+  together (100,000 by default), no one is, so a flood from many IPs can't fill your disk.
 
 Gzip bombs only hurt clients that unpack as they read. Go's `net/http` and Python's
 `requests`, which most scanners are built on, get the full 10 GB. `curl --compressed` stops
