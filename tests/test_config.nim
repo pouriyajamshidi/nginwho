@@ -113,7 +113,3 @@ bytespider
   test "a bad port in web_ports keeps the default ports":
     let args = read("[firewall]\nweb_ports = 80 70000\n")
     check args.webPorts == @[80, 443]
-
-  test "settings left under the old [nginx] section are ignored":
-    let args = read("[nginx]\nprocess_logs = true\nshow_real_ips = true\n")
-    check args == Args()

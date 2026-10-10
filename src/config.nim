@@ -125,10 +125,6 @@ proc readConfigFile*(path: string, args: var Args) =
 
   args.dbPath = config.getString("database", "path", args.dbPath)
 
-  # older configs had these under [nginx], but the built-in server uses them too
-  if config.hasKey("nginx"):
-    error("[nginx] was split into [logs] and [cdn], its settings are ignored. See the sample config")
-
   args.processNginxLogs = config.get("logs", "process", args.processNginxLogs, parseBool)
   args.logPath = config.getString("logs", "path", args.logPath)
   args.interval = config.get("logs", "interval", args.interval, parseInterval)
