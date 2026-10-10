@@ -612,7 +612,7 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
         substr(played.detail, 0, maxSavedBytes - 1))
     # the dashboard adds these up to show how much bot time we wasted
     if save:
-      info(fmt"Trap held {ip} for {seconds} seconds in the {tactic}, sent {played.bytes} bytes")
+      info(fmt"Trap held {ip} for {seconds} seconds in the {tactic} for {req.path}, sent {played.bytes} bytes")
   return true
 
 
