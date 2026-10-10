@@ -264,6 +264,21 @@ proc lastCanary(): string =
   getDbConnection(fastDb).getValue(sql"SELECT detail FROM trap_hits ORDER BY id DESC LIMIT 1")
 
 
+# before the other live traps, since the counts of the day are shared by every trap in the process
+suite "daily limits":
+  test "past max_saved_hits_a_day, hits are trapped but not saved":
+    const limitPort = 18098
+    let limitDb = tempDir / "trap_limit.db"
+    asyncCheck trap(TrapConfig(enabled: true, port: limitPort, maxConnections: 10,
+        maxSeconds: 60, dripMinMs: 0, dripMaxMs: 0, bombs: true, bombAfter: 100,
+        maxSavedHitsADay: 2), limitDb)
+    waitFor sleepAsync(200)
+
+    for ip in ["120.0.0.1", "120.0.0.2", "120.0.0.3"]:
+      check get("/.env", ip, limitPort).contains("AKIA")
+    check getDbConnection(limitDb).getValue(sql"SELECT COUNT(*) FROM trap_hits") == "2"
+
+
 suite "live trap":
   test "a bot that hangs up ends its trap":
     proc hangUpEarly() {.async.} =

@@ -53,6 +53,7 @@ type
     dripMaxMs*: int = 700
     bombs*: bool = true
     bombAfter*: int = 3 # trapped hits from one IP in a day before it gets a bomb
+    maxSavedHitsADay*: int = 100_000 # from all IPs together, 0 for no limit
     agents*: seq[Agent] # first match wins
     files*: string # a folder of fake files to send in place of the built-in ones
 
@@ -101,7 +102,8 @@ const
       "meridian", "quanta"]
   users = ["admin", "deploy", "jenkins", "svc-backup", "mgarcia", "twong", "pkoch"]
 
-  # a flood of hits would fill the disk. past these they are still trapped, just not saved
+  # a flood of hits would fill the disk. past this, and past max_saved_hits_a_day,
+  # they are still trapped, just not saved
   maxSavedHits = 1000 # per IP per day
   # IPs counted in a day. past it a new IP is not counted, so it never gets the bomb
   maxCountedIPs = 100_000
@@ -111,6 +113,7 @@ var
   templates = builtinTemplates         # the fake files we send
   active = 0                           # trapped connections right now
   hitsToday = initTable[string, int]() # how often we saw an IP (a /64 for IPv6) today
+  savedToday = 0                       # hits saved today, from all IPs
   today = ""
 
 
@@ -475,15 +478,19 @@ proc findAgent*(userAgent: string, cfg: TrapConfig): Option[Agent] =
       return some(agent)
 
 
-proc countHit*(ip: string): int =
-  ## How often we saw an IP today, this hit included. An IPv6 user is counted by
-  ## their /64, so moving to another address in it does not start over.
-  ## Yesterday's counts are dropped
+proc startDay() =
+  ## Drops yesterday's counts
   let day = now().format("yyyy-MM-dd")
   if day != today:
     today = day
     hitsToday.clear()
+    savedToday = 0
 
+
+proc countHit*(ip: string): int =
+  ## How often we saw an IP today, this hit included. An IPv6 user is counted by
+  ## their /64, so moving to another address in it does not start over
+  startDay()
   let key = ipKey(ip)
   if not hitsToday.hasKey(key) and hitsToday.len >= maxCountedIPs:
     return 1
@@ -553,7 +560,10 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
     trap = listedAgent
 
   let hits = countHit(ip)
-  let save = hits <= maxSavedHits
+  let save = hits <= maxSavedHits and
+      (cfg.maxSavedHitsADay == 0 or savedToday < cfg.maxSavedHitsADay)
+  if save:
+    savedToday.inc
   let chosen = if agent.isSome: agent.get.tactic else: none(Tactic)
   # "after N hits": the first N get played with, the next one gets the bomb
   let gzip = req.header("Accept-Encoding").toLowerAscii.contains("gzip")

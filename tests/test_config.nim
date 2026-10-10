@@ -52,6 +52,7 @@ drip_min_ms = 100
 drip_max_ms = 200
 bombs = false
 bomb_after = 5
+max_saved_hits_a_day = 0
 files = /etc/nginwho/traps
 """)
     check args.dbPath == "/tmp/visits.db"
@@ -77,6 +78,7 @@ files = /etc/nginwho/traps
     check args.trap.dripMaxMs == 200
     check not args.trap.bombs
     check args.trap.bombAfter == 5
+    check args.trap.maxSavedHitsADay == 0
     check args.trap.files == "/etc/nginwho/traps"
 
   test "a missing file keeps every default":
