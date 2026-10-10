@@ -20,7 +20,7 @@ from database import getDbConnection, closeDbConnection,
 from report import report
 from server import serve, RealIP, Request, header
 from trap import trap, trapHook
-from config import Args, readConfigFile, parsePort, parseInterval, parseCdn,
+from config import Args, readConfigFile, parsePort, parsePorts, parseInterval, parseCdn,
     defaultConfigFile, defaultDbPath, oldDbPath, nginxLogPath, serveLogPath
 
 
@@ -52,9 +52,10 @@ proc usage(errorCode: int = 0) =
   --showRealIps           : Show real IP of visitors by getting the CDN's CIDRs to include in nginx config,
                             or with '--serve' to trust the CDN's header. Self-updates every six hours (default: false)
   --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows the CDN's CIDRs (default: false)
-  --lockdown              : Drop everything coming in but SSH, ports 80 and 443 and replies
+  --lockdown              : Drop everything coming in but SSH, the web ports and replies
                             to the server's own connections, using nftables (default: false)
   --sshPort               : SSH port to keep open with '--lockdown' (default: the port sshd listens on)
+  --webPorts              : Web ports to keep open with '--lockdown', over TCP and UDP (default: 80,443)
   --cdn                   : The CDN in front of your site, cloudflare or fastly (default: cloudflare)
   --processNginxLogs      : Process nginx logs (default: false)
   --serve                 : Serve static files and write nginx style logs to '--logPath' (default: false)
@@ -140,6 +141,7 @@ proc getArgs(): Args =
         of "blockUntrustedCidrs": args.blockUntrustedCidrs = isOn(p.val)
         of "lockdown": args.lockdown = isOn(p.val)
         of "sshPort": args.sshPort = parsePort(p.val)
+        of "webPorts": args.webPorts = parsePorts(p.val)
         of "processNginxLogs": args.processNginxLogs = isOn(p.val)
         of "serve": args.serve = isOn(p.val)
         of "root": args.root = p.val
@@ -247,13 +249,13 @@ proc processAndRecordLogs(args: Args) {.async.} =
     await sleepAsync(if moreToRead: 0 else: args.interval)
 
 
-proc keepLockedDown(sshPort: int) {.async.} =
+proc keepLockedDown(sshPort: int, webPorts: seq[int]) {.async.} =
   ## Checks the lockdown every few minutes, so it is back soon after a firewall reload
   ## wipes it, and follows sshd when it moves to another port
   while true:
     let sshPorts = if sshPort != 0: @[sshPort] else: findSshPorts()
     try:
-      lockDown(sshPorts)
+      lockDown(sshPorts, webPorts)
     except NftError as e:
       # a firewall problem must not stop anything else nginwho runs
       error(e.msg)
@@ -334,7 +336,7 @@ proc main() =
           "Set it to client.ip in your Fastly VCL, see the README")
 
   if args.lockdown:
-    asyncCheck keepLockedDown(args.sshPort)
+    asyncCheck keepLockedDown(args.sshPort, args.webPorts)
 
   if args.showRealIPs or args.blockUntrustedCidrs:
     asyncCheck fetchAndProcessIPCidrs(args.cdn, args.showRealIPs,

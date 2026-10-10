@@ -179,7 +179,8 @@ ssh_port = 22    # the port your SSH listens on
 ```
 
 nginwho sets up the firewall so everything coming in is dropped, except SSH, ports 80 and 443,
-and what the server needs to work. Use it with `block_untrusted_cidrs` to also keep everyone
+and what the server needs to work. If your site is on other ports, list them in `web_ports`,
+like `web_ports = 8080 8443`. Use it with `block_untrusted_cidrs` to also keep everyone
 but your CDN away from your site. See [Locking down your server](#locking-down-your-server)
 before you turn this on.
 
@@ -345,10 +346,12 @@ port = 80
 # key = /etc/ssl/example.com.key
 
 [firewall]
-# drop everything coming in but SSH, ports 80 and 443, and what the server needs to work
+# drop everything coming in but SSH, the web ports, and what the server needs to work
 lockdown = false
 # the SSH port to keep open. when not set, the port sshd listens on
 # ssh_port = 22
+# the web ports to keep open, over TCP and UDP. separate them with spaces
+web_ports = 80 443
 
 [trap]
 enabled = false
@@ -497,9 +500,10 @@ Flags do the same as the config file and win over it, which is handy for trying 
   --showRealIps           : Show real IP of visitors by getting the CDN's CIDRs to include in nginx config,
                             or with '--serve' to trust the CDN's header. Self-updates every six hours (default: false)
   --blockUntrustedCidrs   : Block untrusted IP addresses using nftables. Only allows the CDN's CIDRs (default: false)
-  --lockdown              : Drop everything coming in but SSH, ports 80 and 443 and replies
+  --lockdown              : Drop everything coming in but SSH, the web ports and replies
                             to the server's own connections, using nftables (default: false)
   --sshPort               : SSH port to keep open with '--lockdown' (default: the port sshd listens on)
+  --webPorts              : Web ports to keep open with '--lockdown', over TCP and UDP (default: 80,443)
   --cdn                   : The CDN in front of your site, cloudflare or fastly (default: cloudflare)
   --processNginxLogs      : Process nginx logs (default: false)
   --serve                 : Serve static files and write nginx style logs to '--logPath' (default: false)
@@ -623,8 +627,9 @@ drops everything coming in, except:
 - The ICMPv6 messages IPv6 needs to find the router and its neighbours. Ping is dropped.
 - DHCPv6 replies, so the server keeps its IPv6 address.
 - SSH on `ssh_port`.
-- Ports 80 and 443, over TCP and UDP. With `block_untrusted_cidrs` on too, only your CDN gets
-  this far.
+- The ports in `web_ports`, 80 and 443 by default, over TCP and UDP. With
+  `block_untrusted_cidrs` on too, only your CDN gets to ports 80 and 443. It does not cover
+  other ports.
 
 The rest is dropped and logged with the prefix `NGINWHO_INPUT_DROPPED`, at most 10 times a
 minute. Like the CDN rules, the chain is checked every five minutes and put back if a firewall
@@ -632,8 +637,9 @@ reload wipes it.
 
 The chain is nginwho's alone, and your own rules stay as they are. But a packet has to get
 through every chain, so a port you open in your own `input` chain is still dropped by
-`nginwho_input`. Anything else that needs to be reached from outside, like a VPN or the
-[built-in server](#serving-your-site-without-nginx) on a port other than 80, stops working.
+`nginwho_input`. Anything else that needs to be reached from outside, like a VPN, stops
+working. If your site, or the [built-in server](#serving-your-site-without-nginx), is on other
+ports, list them in `web_ports`.
 
 When `ssh_port` is not set, nginwho uses the ports `sshd` listens on. It can't see them when
 systemd starts SSH through `ssh.socket`, like on newer Ubuntu, so set `ssh_port` there. With no

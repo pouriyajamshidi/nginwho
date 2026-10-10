@@ -1,9 +1,11 @@
 ## Reads /etc/nginwho/nginwho.conf. Command line flags win over it
 
 from std/parsecfg import loadConfig, Config, getSectionValue
-from std/strutils import parseInt, parseBool, parseEnum, toLowerAscii
+from std/strutils import parseInt, parseBool, parseEnum, toLowerAscii, split
 from std/strformat import fmt
 from std/os import fileExists
+from std/algorithm import sorted
+from std/sequtils import deduplicate
 from std/tables import hasKey, `[]`, pairs
 from std/options import some, none
 from std/logging import info, error
@@ -39,6 +41,7 @@ type
     report*: bool
     lockdown*: bool
     sshPort*: int           # 0 means the port sshd listens on
+    webPorts*: seq[int] = @[80, 443]
     trap*: TrapConfig
 
 
@@ -47,6 +50,15 @@ proc parsePort*(value: string): int =
   result = parseInt(value)
   if result < 1 or result > 65535:
     raise newException(ValueError, "must be between 1 and 65535")
+
+
+proc parsePorts*(value: string): seq[int] =
+  ## A list like "80 443" or "80,443". The config file cuts a value at a comma, so it
+  ## takes spaces. Sorted, as nft lists them back
+  for port in value.split({',', ' '}):
+    if port != "":
+      result.add(parsePort(port))
+  result = sorted(deduplicate(result))
 
 
 proc parseInterval*(value: string): int =
@@ -132,6 +144,7 @@ proc readConfigFile*(path: string, args: var Args) =
 
   args.lockdown = config.get("firewall", "lockdown", args.lockdown, parseBool)
   args.sshPort = config.get("firewall", "ssh_port", args.sshPort, parsePort)
+  args.webPorts = config.get("firewall", "web_ports", args.webPorts, parsePorts)
 
   args.trap.enabled = config.get("trap", "enabled", args.trap.enabled, parseBool)
   args.trap.port = config.get("trap", "port", args.trap.port, parsePort)

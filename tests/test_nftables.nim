@@ -245,22 +245,32 @@ LISTEN 0      4096         *:22          *:* users:(("systemd",pid=1,fd=86))
 
   test "no lockdown without an SSH port":
     expect NftError:
-      lockDown(@[])
+      lockDown(@[], @[80, 443])
 
   test "real nft accepts the lockdown and the next run sees nothing to change":
     if not canRunNft():
       skip()
     else:
-      let ruleset = applyInNamespace(@[createLockdown(@[65222])])
-      check lockdownIsCurrent(ruleset, @[65222])
-      check not lockdownIsCurrent(ruleset, @[22])
+      let ruleset = applyInNamespace(@[createLockdown(@[65222], @[80, 443])])
+      check lockdownIsCurrent(ruleset, @[65222], @[80, 443])
+      check not lockdownIsCurrent(ruleset, @[22], @[80, 443])
+
+  test "other web ports, and only one, are seen as current too":
+    if not canRunNft():
+      skip()
+    else:
+      var ruleset = applyInNamespace(@[createLockdown(@[65222], @[8080, 8443])])
+      check lockdownIsCurrent(ruleset, @[65222], @[8080, 8443])
+      check not lockdownIsCurrent(ruleset, @[65222], @[80, 443])
+      ruleset = applyInNamespace(@[createLockdown(@[65222], @[8080])])
+      check lockdownIsCurrent(ruleset, @[65222], @[8080])
 
   test "a new SSH port replaces the old one":
     if not canRunNft():
       skip()
     else:
-      let ruleset = applyInNamespace(@[createLockdown(@[22]), createLockdown(@[65222])])
-      check lockdownIsCurrent(ruleset, @[65222])
+      let ruleset = applyInNamespace(@[createLockdown(@[22], @[80, 443]), createLockdown(@[65222], @[80, 443])])
+      check lockdownIsCurrent(ruleset, @[65222], @[80, 443])
 
   test "the lockdown leaves the user's input chain and the nginwho chain alone":
     if not canRunNft():
@@ -269,9 +279,9 @@ LISTEN 0      4096         *:22          *:* users:(("systemd",pid=1,fd=86))
       let setup = "nft add table inet filter && " &
           "nft 'add chain inet filter input { type filter hook input priority filter; policy accept; }' && " &
           "nft add rule inet filter input udp dport 51820 accept"
-      let ruleset = applyInNamespace(@[createRules(cidrs, allChanges), createLockdown(@[65222])], setup)
+      let ruleset = applyInNamespace(@[createRules(cidrs, allChanges), createLockdown(@[65222], @[80, 443])], setup)
       check requiredChanges(ruleset, cidrs) == NftAttrs()
-      check lockdownIsCurrent(ruleset, @[65222])
+      check lockdownIsCurrent(ruleset, @[65222], @[80, 443])
       var userRule = false
       for node in ruleset:
         if node{"rule", "chain"}.getStr() == "input" and

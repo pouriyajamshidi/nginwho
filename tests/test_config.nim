@@ -42,6 +42,7 @@ key = /etc/ssl/site.key
 [firewall]
 lockdown = true
 ssh_port = 65222
+web_ports = 8443 8080 8443
 
 [trap]
 enabled = true
@@ -71,6 +72,7 @@ files = /etc/nginwho/traps
     check args.key == "/etc/ssl/site.key"
     check args.lockdown
     check args.sshPort == 65222
+    check args.webPorts == @[8080, 8443]
     check args.trap.enabled
     check args.trap.port == 7000
     check args.trap.maxConnections == 50
@@ -105,3 +107,7 @@ bytespider
     let args = read("[trap]\ndrip_min_ms = 900\ndrip_max_ms = 100\n")
     check args.trap.dripMinMs == Args().trap.dripMinMs
     check args.trap.dripMaxMs == Args().trap.dripMaxMs
+
+  test "a bad port in web_ports keeps the default ports":
+    let args = read("[firewall]\nweb_ports = 80 70000\n")
+    check args.webPorts == @[80, 443]
