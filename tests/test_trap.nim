@@ -417,3 +417,15 @@ suite "user files":
     let body = get("/.env", "100.0.0.1", filesPort)
     check body.startsWith("MY_KEY=AKIA")
     check "{{" notin body
+
+  test "a user file without the secret saves no canary":
+    writeFile(filesDir / "credentials.txt", "nothing to see\n")
+    const noSecretPort = 18096
+    asyncCheck trap(TrapConfig(enabled: true, port: noSecretPort, maxConnections: 10,
+        maxSeconds: 60, dripMinMs: 0, dripMaxMs: 0, bombs: true, bombAfter: 100,
+        files: filesDir), tempDir / "trap_no_secret.db")
+    waitFor sleepAsync(200)
+
+    check get("/.aws/credentials", "100.0.0.2", noSecretPort) == "nothing to see\n"
+    check getDbConnection(tempDir / "trap_no_secret.db").getValue(
+        sql"SELECT detail FROM trap_hits ORDER BY id DESC LIMIT 1") == ""

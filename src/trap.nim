@@ -184,11 +184,14 @@ proc fakeFile(trap: Trap, path: string, values: Table[string, string], rng: Rng)
   ## The fake file a bot gets for the path it asked for, and the fake secret in it
   ## that we can trace back to them. A file without a secret has no canary
   let p = path.toLowerAscii
-  let awsKey = values["{{AWS_KEY}}"]
+  var
+    name = "config.json"
+    contentType = "application/json"
+    secret = "{{AWS_KEY}}" # the placeholder that becomes the canary
 
   case trap
   of envFile:
-    return (fill(templates["env.txt"], values), "text/plain", awsKey)
+    (name, contentType) = ("env.txt", "text/plain")
   of creds:
     if p.endsWith(".pem") or p.contains("id_rsa") or p.contains("key"):
       # the first line is enough to recognize the key
@@ -197,19 +200,24 @@ proc fakeFile(trap: Trap, path: string, values: Table[string, string], rng: Rng)
       for _ in 2 .. 25:
         key.add(token(rng, 64, base64Chars) & "\n")
       return (key & "-----END RSA PRIVATE KEY-----\n", "text/plain", firstLine)
-    return (fill(templates["credentials.txt"], values), "text/plain", awsKey)
+    (name, contentType) = ("credentials.txt", "text/plain")
   of gitRepo:
     if p.endsWith("head"):
       return ("ref: refs/heads/main\n", "text/plain", "")
-    return (fill(templates["git_config.txt"], values), "text/plain", values["{{TOKEN}}"])
+    (name, contentType, secret) = ("git_config.txt", "text/plain", "{{TOKEN}}")
   of phpFile:
-    return (fill(templates["phpinfo.html"], values), "text/html", awsKey)
+    (name, contentType) = ("phpinfo.html", "text/html")
   of apiDebug:
-    return (fill(templates["actuator_env.json"], values), "application/json", awsKey)
+    name = "actuator_env.json"
   of rce:
-    return (fill(templates["passwd.txt"], values), "text/plain", "")
+    (name, contentType, secret) = ("passwd.txt", "text/plain", "")
   of configFile, backup, wordpress, adminPanel, listedAgent, noTrap:
-    return (fill(templates["config.json"], values), "application/json", awsKey)
+    discard
+
+  let text = templates[name]
+  # a file from the user may leave the secret out, and then there is nothing to trace
+  let canary = if secret != "" and text.contains(secret): values[secret] else: ""
+  return (fill(text, values), contentType, canary)
 
 
 proc trapHead(status: HttpCode, headers: openArray[(string, string)]): string =
