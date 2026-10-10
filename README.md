@@ -165,8 +165,9 @@ name = cloudflare    # or fastly
 block_untrusted_cidrs = true
 ```
 
-nginwho sets up the firewall (nftables) so only the CDN can reach ports 80 and 443. Your SSH
-and everything else stay as they are. See
+nginwho sets up the firewall (nftables) so only the CDN can reach ports 80 and 443, or the
+ones in `web_ports` and `quic_ports` under `[firewall]`. Your SSH and everything else stay as
+they are. See
 [Blocking everyone but your CDN](#blocking-everyone-but-your-cdn) before you turn this on.
 
 ### I want my server closed to everything but SSH and my site
@@ -336,7 +337,7 @@ name = cloudflare
 # log real visitor IPs behind the CDN. writes the CDN's addresses for nginx,
 # or with the server on, makes the server read the CDN's header
 show_real_ips = false
-# only let the CDN reach ports 80 and 443
+# only let the CDN reach web_ports and quic_ports under [firewall]
 block_untrusted_cidrs = false
 
 [server]
@@ -509,8 +510,8 @@ Flags do the same as the config file and win over it, which is handy for trying 
   --lockdown              : Drop everything coming in but SSH, the web ports and replies
                             to the server's own connections, using nftables (default: false)
   --sshPort               : SSH port to keep open with '--lockdown' (default: the port sshd listens on)
-  --webPorts              : Web ports to keep open over TCP with '--lockdown' (default: 80,443)
-  --quicPorts             : Ports to keep open over UDP with '--lockdown', for HTTP/3 (default: none)
+  --webPorts              : Web ports to keep open over TCP with '--lockdown'. Only the CDN reaches them with '--blockUntrustedCidrs' (default: 80,443)
+  --quicPorts             : Ports to keep open over UDP with '--lockdown', for HTTP/3. Only the CDN reaches them with '--blockUntrustedCidrs' (default: none)
   --cdn                   : The CDN in front of your site, cloudflare or fastly (default: cloudflare)
   --processNginxLogs      : Process nginx logs (default: false)
   --serve                 : Serve static files and write nginx style logs to '--logPath' (default: false)
@@ -595,7 +596,8 @@ written to `/etc/nginx`. The server reads the real IP from the CDN's header itse
 ### Blocking everyone but your CDN
 
 Every six hours, nginwho gets your CDN's address list and updates your nftables firewall so
-that only those addresses can reach ports 80 and 443, over TCP and over UDP for HTTP/3.
+that only those addresses can reach your web ports, over TCP and over UDP for HTTP/3. These
+are 80 and 443, or the ones in `web_ports` and `quic_ports` under `[firewall]`.
 Anyone else is dropped, and the drop is logged with the prefix `NGINWHO_DROPPED_v4` or
 `NGINWHO_DROPPED_v6`, at most 10 times a minute each, so a flood can't fill your logs. If the
 list can't be fetched, for example right after a boot with no network yet, it tries again
@@ -607,7 +609,7 @@ nginwho does not touch the rules you already have. It only adds its own parts ne
 - The `inet filter` table, if you don't have one.
 - Two sets with the CDN's addresses, like `Cloudflare_IPv4` and `Cloudflare_IPv6`.
 - Its own chain called `nginwho`, which drops web traffic from everyone else.
-- One rule in your `input` chain that lets ports 80 and 443 in, only if you don't have one
+- One rule in your `input` chain that lets the web ports in, only if you don't have one
   already. Without it your own rules could drop the CDN's traffic.
 
 Only what changed is updated, so when the CDN adds one address, only that address is added.
@@ -620,7 +622,7 @@ don't block the new one.
 
 > [!IMPORTANT]
 > A firewall mistake can lock you out of your server. What nginwho adds only drops traffic to
-> ports 80 and 443, so SSH and everything else stay as your own rules have them.
+> the web ports, so SSH and everything else stay as your own rules have them.
 
 If something goes wrong with nftables, nginwho logs it and keeps the other features running.
 
@@ -635,7 +637,7 @@ drops everything coming in, except:
 - DHCPv6 replies, so the server keeps its IPv6 address.
 - SSH on `ssh_port`.
 - The ports in `web_ports`, 80 and 443 by default, over TCP. With `block_untrusted_cidrs` on
-  too, only your CDN gets to ports 80 and 443. It does not cover other ports.
+  too, only your CDN gets to them.
 - The ports in `quic_ports` over UDP, for HTTP/3 (QUIC). None by default, so add
   `quic_ports = 443` if nginx serves HTTP/3. The built-in server does not speak HTTP/3.
 

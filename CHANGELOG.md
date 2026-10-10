@@ -30,7 +30,7 @@ All notable changes to **nginwho** are listed here.
 - The `etag` in `/etc/nginx/nginwho` is now a hash of the CIDRs, since Fastly's API has no etag. nginx is reloaded once after upgrading.
 - The `nginwho` nftables chain only keeps the drop rules for the current CDN. Any other rule in it is removed.
 - The `nginwho` nftables chain runs at the `raw` priority (`-300`) instead of `-10`, before connection tracking, so dropped packets cost less. The old chain is replaced on the first run.
-- `--blockUntrustedCidrs` blocks UDP to ports 80 and 443 too, so HTTP/3 (QUIC) can't reach the server without going through the CDN. The port is checked before the CDN's addresses, so traffic to other ports, like SSH, skips that lookup.
+- `--blockUntrustedCidrs` blocks UDP to the web ports too, so HTTP/3 (QUIC) can't reach the server without going through the CDN. The web ports are 80 and 443, or the ones in `--webPorts` and `--quicPorts` (or `web_ports` and `quic_ports` under `[firewall]`). The port is checked before the CDN's addresses, so traffic to other ports, like SSH, skips that lookup.
 - The `NGINWHO_DROPPED_v4` and `NGINWHO_DROPPED_v6` log lines are limited to 10 a minute each, so a flood no longer writes one line per packet. Every dropped packet is still counted.
 - `--blockUntrustedCidrs` checks its nftables rules every five minutes and puts back what is missing. Before, a firewall reload with `flush ruleset`, like `systemctl reload nftables`, left the server open until the next update, up to six hours later.
 - An nftables error is logged and no longer stops nginwho, so log collection, the trap and the server keep running.
