@@ -392,10 +392,11 @@ proc classify*(path: string, query = ""): Trap =
 
   # Spring boot endpoints first, so /actuator/env is not read as a plain .env file
   if p.anyOf(["actuator", "jolokia", "heapdump"]): return apiDebug
-  if p.anyOf([".env", "environ", "sendgrid"]) or p.endsWith(
+  if p.anyOf([".env", "/env.", "__env", "environ", "sendgrid", ".dev.vars"]) or p.endsWith(
       "/env"): return envFile
   if p.anyOf([".git", ".svn", ".hg", ".bzr"]): return gitRepo
-  if p.anyOf(["wp-", "wordpress", "xmlrpc", "wlwmanifest"]): return wordpress
+  if p.anyOf(["wp-", "wordpress", "xmlrpc", "wlwmanifest", "web-stories", "readme.html",
+      "license.txt"]) or p.endsWith("/wp"): return wordpress
   if p.anyOf([".aws", "aws.json", "aws.yml", "aws.yaml", "credential", ".ssh", "id_rsa",
               "id_ed25519", ".npmrc", ".pypirc", ".netrc", ".s3cfg", ".boto",
               "rclone",
@@ -405,10 +406,15 @@ proc classify*(path: string, query = ""): Trap =
               "privatekey",
               "private-key", "keyfile", ".key", ".pem", ".bash", ".zsh",
               ".claude", ".mcp",
-              ".cursor", ".codex"]):
+              ".cursor", ".codex",
+              # keys for AI and other paid APIs, and logins for databases and mail
+              "anthropic", "openai", "groq", "vertex", "bedrock", "litellm", "opencode",
+              "keys.json", "token", "vault", "twilio", "mailgun", "google-services",
+              "gc-service", "aws-exports", "azure", ".pgpass", ".my.cnf", ".msmtprc",
+              "s3cmd", "boto.cfg", "dbeaver", ".yarnrc"]):
     return creds
   if p.anyOf([".sql", ".bak", ".backup", ".old", ".zip", ".tar", ".gz", ".tgz", ".rar",
-              ".7z", ".swp", ".log", "dump", "backup"]):
+              ".7z", ".swp", ".log", "error_log", "dump", "backup"]):
     return backup
   # path traversal: ../ on linux, ..\ on windows, ..; for tomcat. the path is already
   # decoded, so %2e%2e and %5c are the ones encoded twice
@@ -416,7 +422,7 @@ proc classify*(path: string, query = ""): Trap =
     return rce
   if p.anyOf(["passwd", "/bin/sh", "jndi", "${", "shell", "cgi-bin",
               "/cmd", "getcmd", "eval", ".sh", ".asp", ".jsp", ".cgi", "php-cgi",
-              "/functionrouter"]):
+              "/functionrouter", "/etc/", "/proc/"]):
     return rce
   # admin and login pages before .php, so a login page like /administrator/index.php
   # gets the fake login that harvests credentials, not the generic php trap
@@ -424,10 +430,14 @@ proc classify*(path: string, query = ""): Trap =
               "cpanel", "backoffice", "webmail", "/manager", "file-manager",
               "console",
               "portal", "panel", "secure", "account", "/auth", "reset-password",
-              "forgot-password", "/ecp/", "zabbix"]):
+              "forgot-password", "/ecp/", "zabbix",
+              # VPN and appliance logins
+              "logonpoint", "/vpn/", "webinterface", "fortisandbox", "/aspera"]):
     return adminPanel
   if p.anyOf([".php", "phpinfo", "phpmyadmin", "adminer", "_profiler", "_ignition",
-              "artisan", "_debugbar", "livewire", "telescope"]):
+              "php_info", "php-info", "artisan", "debugbar", "livewire", "telescope",
+              # Joomla
+              "/plugins/editors", "/media/system/", "/language/en-gb"]):
     return phpFile
   if p.anyOf(["config", "appsettings", "settings", "application.yml", "application.properties",
               "docker", ".vscode", ".idea", "sftp", ".htaccess", ".htpasswd",
@@ -435,13 +445,19 @@ proc classify*(path: string, query = ""): Trap =
               "vercel", "netlify", ".travis", "gradle", "package.json",
               "composer.json",
               "manifest.json", ".vite", "values.yaml", ".toml", ".ds_store", ".amplifyrc",
-              "sugar_version"]):
+              "sugar_version", "database.", "parameters.yml", "phinx", "schema.prisma",
+              "airflow.cfg", "application-", "deploy.json", "/conf.", ".conf", "main.cf",
+              "sendmail.cf", "web.xml", "composer.lock", "compose.y", "sam-template"]):
     return configFile
   if p.anyOf(["/api", "graphql", "swagger", "openapi", "/debug", "server-status",
               "server-info", "/info", "/health", "/mcp", "/sse", "/metrics",
               "/solr",
               "/vendor", "autodiscover", "/owa", "/hudson", "/jenkins",
-              "/nacos", "/druid", ".axd", "/v2/_catalog"]):
+              "/nacos", "/druid", ".axd", "/v2/_catalog", "__debug__", "/_next/", "/_flight",
+              "/rails/", "/inngest", "read-document", "exec-py", "/model/invoke",
+              "/postgres/", "rds-data", "/geoserver",
+              # Docker and etcd left open
+              "/containers/json", "/v2/keys"]):
     return apiDebug
   return classifyQuery(query)
 
