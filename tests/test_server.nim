@@ -187,6 +187,12 @@ suite "server with the trap":
     # without the trap it is still a plain 400
     check get("/../../../../../../../etc/passwd").startsWith("HTTP/1.1 400")
 
+  test "a real page asked for with a probing query is trapped, a real link's query is not":
+    let probe = get("/?rest_route=/age-gate/v3/check&age_gate[lang]=../../wp-config", port = trapPort)
+    check probe.startsWith("HTTP/1.1 200")
+    check probe.body != "home"
+    check get("/?ref=example.com", port = trapPort).body == "home"
+
   test "a listed user agent is trapped even on a real page":
     let page = get("/", "User-Agent: DeepSeekBot\r\n", port = trapPort)
     check page.startsWith("HTTP/1.1 200")

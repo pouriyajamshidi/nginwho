@@ -560,9 +560,9 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
   ## comes from a listed user agent. Returns false when it is neither or the trap is
   ## full, so the caller answers as usual
   let agent = findAgent(req.header("User-Agent"), cfg)
-  # with --serve every request comes here, and a page we can serve is only
-  # trapped for a listed user agent, so most skip classify
-  if agent.isNone and not miss:
+  # with --serve every request comes here, and a page we can serve is only trapped
+  # for a listed user agent or a query that probes, so most skip classify
+  if agent.isNone and not miss and classifyQuery(req.query) == noTrap:
     return false
   var trap = classify(req.path, req.query)
   if agent.isNone and trap == noTrap:
