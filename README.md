@@ -455,6 +455,10 @@ server {
         # never reach the trap, so keep the two lists the same
         if ($http_user_agent ~* (deepseek|gptbot|bytespider)) { return 403; }
 
+        # a real page asked for with a query that probes, like /?rest_route= or
+        # ?file=../../etc/passwd, goes to the trap too. a real link's ?ref= is served as usual
+        if ($args ~* "(\.\.|%2e%2e|(file|php|unix)(:|%3a)|(/|%2f)(etc|proc|root)(/|%2f)|win\.ini|169\.254\.169\.254|metadata\.google|(<|%3c)script|rest_route)") { return 403; }
+
         # a missing file goes to the trap. known probe paths get trapped,
         # a real typo gets the 404 page through @trap
         try_files $uri $uri/ @trap;
