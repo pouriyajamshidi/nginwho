@@ -82,6 +82,16 @@ suite "classify":
     check $classify("/view", "?page=..%2F..%2Fetc%2Fpasswd") == "rce"
     check $classify("/posts/hello", "?utm_source=newsletter") == "none"
 
+  test "the query probes seen on real pages, which got a plain 200, are trapped":
+    check $classify("/", "?rest_route=/age-gate/v3/check&age_gate[lang]=../../wp-config") == "rce"
+    check $classify("/", "?rest_route=/gravitysmtp/v1/tests/mock-data") == "wordpress"
+    check $classify("/", "?url=http%3A%2F%2F169.254.169.254%2Flatest%2Fmeta-data%2F") == "rce"
+    check $classify("/", "?target=http%3A%2F%2Fmetadata.google.internal%2FcomputeMetadata") == "rce"
+    check $classify("/", "?s=%22%3E%3Cscript%3Ealert(1)%3C/script%3E") == "rce"
+    check $classify("/", "?unix:AAAAAAAAAAAA") == "rce"
+    check $classify("/posts/hello/", "?_hsenc=p2ANqtz-abc&utm_medium=email") == "none"
+    check $classify("/posts/hello/", "?ref=example.com") == "none"
+
   test "innocent paths are not trapped":
     check $classify("/") == "none"
     check $classify("/posts/hello") == "none"

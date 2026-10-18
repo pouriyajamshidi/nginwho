@@ -366,9 +366,28 @@ proc play(client: AsyncSocket, req: Request, trap: Trap, tactic: Tactic,
       await client.dripBody(body, cfg, rng, deadline, played)
 
 
+proc classifyQuery*(query: string): Trap =
+  ## What the bot was looking for in the query alone, like ?filename=file:///root/.ssh/id_rsa.
+  ## A real link's ?ref= or ?utm_source= is not trapped
+  if query == "":
+    return noTrap
+  let q = decodeUrl(query).toLowerAscii
+
+  # files on the server, the cloud's metadata service that hands out its keys,
+  # and scripts they hope we show back
+  if q.anyOf(["file://", "php://", "/etc/", "/proc/", "/root/", "../", "..\\", "win.ini",
+              "169.254.169.254", "metadata.google", "<script", "unix:"]):
+    return rce
+  # WordPress takes its API calls in the query too, like /?rest_route=/wp/v2/users
+  if q.contains("rest_route"):
+    return wordpress
+
+  return noTrap
+
+
 proc classify*(path: string, query = ""): Trap =
-  ## What the bot was looking for. The query only counts when it asks for a file on
-  ## the server, so a real link with a query is not trapped
+  ## What the bot was looking for. The query only counts when it probes, see
+  ## classifyQuery, so a real link with a query is not trapped
   let p = path.toLowerAscii
 
   # Spring boot endpoints first, so /actuator/env is not read as a plain .env file
@@ -376,8 +395,7 @@ proc classify*(path: string, query = ""): Trap =
   if p.anyOf([".env", "environ", "sendgrid"]) or p.endsWith(
       "/env"): return envFile
   if p.anyOf([".git", ".svn", ".hg", ".bzr"]): return gitRepo
-  if p.anyOf(["wp-", "wordpress", "xmlrpc", "wlwmanifest",
-      "rest_route"]): return wordpress
+  if p.anyOf(["wp-", "wordpress", "xmlrpc", "wlwmanifest"]): return wordpress
   if p.anyOf([".aws", "aws.json", "aws.yml", "aws.yaml", "credential", ".ssh", "id_rsa",
               "id_ed25519", ".npmrc", ".pypirc", ".netrc", ".s3cfg", ".boto",
               "rclone",
@@ -425,12 +443,7 @@ proc classify*(path: string, query = ""): Trap =
               "/vendor", "autodiscover", "/owa", "/hudson", "/jenkins",
               "/nacos", "/druid", ".axd", "/v2/_catalog"]):
     return apiDebug
-  # like ?filename=file:///root/.ssh/id_rsa
-  if decodeUrl(query).toLowerAscii.anyOf(["file://", "php://", "/etc/", "/proc/",
-      "/root/", "../", "..\\", "win.ini"]):
-    return rce
-
-  return noTrap
+  return classifyQuery(query)
 
 
 proc tacticForPath(trap: Trap, p: string): Tactic =
