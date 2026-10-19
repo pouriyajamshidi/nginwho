@@ -389,7 +389,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum(count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` [$__range])) or vector(0)",
+          "expr": "sum(count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)\\]?$` [$__range])) or vector(0)",
           "queryType": "instant",
           "instant": true,
           "range": false
@@ -1584,7 +1584,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum by (trap) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` [$__auto]))",
+          "expr": "sum by (trap) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)\\]?$` [$__auto]))",
           "legendFormat": "{{trap}}"
         }
       ],
@@ -1611,7 +1611,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum by (tactic) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` [$__auto]))",
+          "expr": "sum by (tactic) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)\\]?$` [$__auto]))",
           "legendFormat": "{{tactic}}"
         }
       ],
@@ -1639,7 +1639,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "topk(20, sum by (ip, country_name) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` [$__range])))",
+          "expr": "topk(20, sum by (ip, country_name) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)\\]?$` [$__range])))",
           "queryType": "instant",
           "instant": true,
           "range": false
@@ -1717,7 +1717,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "topk(20, sum by (path, trap) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` [$__range])))",
+          "expr": "topk(20, sum by (path, trap) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)\\]?$` [$__range])))",
           "queryType": "instant",
           "instant": true,
           "range": false
@@ -1807,7 +1807,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "topk(20, sum by (country_name) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` | country_name != \"\" [$__range])))",
+          "expr": "topk(20, sum by (country_name) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)\\]?$` | country_name != \"\" [$__range])))",
           "queryType": "instant",
           "instant": true,
           "range": false
@@ -1881,7 +1881,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "topk(20, sum by (network) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` | network != \"\" [$__range])))",
+          "expr": "topk(20, sum by (network) (count_over_time({job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)\\]?$` | network != \"\" [$__range])))",
           "queryType": "instant",
           "instant": true,
           "range": false
@@ -1954,7 +1954,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "{job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)$` | line_format \"{{.ip}}  {{.tactic}}  {{.trap}}  {{.path}}\""
+          "expr": "{job=\"syslog\"} |= \"nginwho\" |= \"Trapping \" | regexp `Trapping (?P<ip>\\S+) in the (?P<tactic>\\S+) for (?P<path>.*) \\((?P<trap>[^)]*)\\)\\]?$` | line_format \"{{.ip}}  {{.tactic}}  {{.trap}}  {{.path}}\""
         }
       ],
       "gridPos": {
