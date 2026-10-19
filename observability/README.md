@@ -234,6 +234,15 @@ change them to this one.
 nginwho's output reaches `/var/log/syslog` through rsyslog. Ubuntu has it, on Debian install
 it with `sudo apt install rsyslog`.
 
+Ubuntu's rsyslog merges the same line logged twice in a row into one
+`message repeated N times` line. A bot asking for the same path a few times in one second then
+counts as one trap hit. Turn this off so every hit is counted:
+
+```bash
+sudo sed -i 's/^\$RepeatedMsgReduction on/$RepeatedMsgReduction off/' /etc/rsyslog.conf &&
+sudo systemctl restart rsyslog
+```
+
 ### 3. Get the country data
 
 `ip66-update` downloads the ip66.dev database and restarts Alloy. Run it once now and let
