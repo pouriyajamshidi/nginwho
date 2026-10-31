@@ -423,9 +423,12 @@ proc classify*(path: string, query = ""): Trap =
   # decoded, so %2e%2e and %5c are the ones encoded twice
   if p.anyOf(["../", "..\\", "..;", "%2e%2e", "%5c"]) or p.endsWith("/.."):
     return rce
+  # /cmd, /cmd.php and /proc/self/cmdline, but not the /cmd/ folder of a Go project
+  # in a link, like pkg.go.dev/github.com/cilium/ebpf/cmd/bpf2go/
   if p.anyOf(["passwd", "/bin/sh", "jndi", "${", "shell", "cgi-bin",
-              "/cmd", "getcmd", "eval", ".sh", ".asp", ".jsp", ".cgi", "php-cgi",
-              "/functionrouter", "/etc/", "/proc/"]):
+              "/cmd.", "/cmd_", "cmdline", "/cmdb", "getcmd", "eval", ".sh", ".asp",
+              ".jsp", ".cgi", "php-cgi",
+              "/functionrouter", "/etc/", "/proc/"]) or p.endsWith("/cmd"):
     return rce
   # admin and login pages before .php, so a login page like /administrator/index.php
   # gets the fake login that harvests credentials, not the generic php trap

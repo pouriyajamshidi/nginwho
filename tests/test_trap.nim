@@ -47,6 +47,10 @@ suite "classify":
     check $classify("/../../etc/passwd") == "rce"
     check $classify("/cgi-bin/test.cgi") == "rce"
     check $classify("/getcmd") == "rce"
+    check $classify("/cmd") == "rce"
+    check $classify("/cmd.php") == "rce"
+    check $classify("/debug/pprof/cmdline") == "rce"
+    check $classify("/api/v2/cmdb/system/admin") == "rce"
     check $classify("/deploy.sh") == "rce"
     check $classify("/..%5c..%5cwindows/win.ini") == "rce"
     check $classify("/..\\..\\windows/win.ini") == "rce"
@@ -125,6 +129,9 @@ suite "classify":
   test "search engines asking for a sitemap are not trapped":
     check $classify("/sitemap.xml.gz") == "none"
     check $classify("/sitemap_index.xml") == "none"
+
+  test "a link that lost its https:// and points to a Go project's /cmd/ is not trapped":
+    check $classify("/posts/x/pkg.go.dev/github.com/cilium/ebpf@v0.10.0/cmd/bpf2go/") == "none"
 
 
 suite "submittedCredentials":
