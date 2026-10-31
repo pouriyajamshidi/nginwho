@@ -122,6 +122,10 @@ suite "classify":
     check $classify("/posts/hello") == "none"
     check $classify("/index.xml") == "none"
 
+  test "search engines asking for a sitemap are not trapped":
+    check $classify("/sitemap.xml.gz") == "none"
+    check $classify("/sitemap_index.xml") == "none"
+
 
 suite "submittedCredentials":
   test "a login form":

@@ -390,6 +390,9 @@ proc classify*(path: string, query = ""): Trap =
   ## classifyQuery, so a real link with a query is not trapped
   let p = path.toLowerAscii
 
+  # search engines ask for sitemaps a site may not have, like /sitemap.xml.gz,
+  # which would look like a backup
+  if p.contains("sitemap"): return classifyQuery(query)
   # Spring boot endpoints first, so /actuator/env is not read as a plain .env file
   if p.anyOf(["actuator", "jolokia", "heapdump"]): return apiDebug
   if p.anyOf([".env", "/env.", "__env", "environ", "sendgrid", ".dev.vars"]) or p.endsWith(
