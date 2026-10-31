@@ -472,7 +472,10 @@ proc tacticForPath(trap: Trap, p: string): Tactic =
   ## What a bot gets for a path, `p` is lowercase
   case trap
   of wordpress:
-    if p.anyOf(["login", "wp-admin"]): login
+    # admin-ajax.php takes plugin calls, mostly asking for files like wp-config.php.
+    # a login page there gets no password, and bots leave before its slow answer
+    if p.contains("admin-ajax"): drip
+    elif p.anyOf(["login", "wp-admin"]): login
     elif p.contains("xmlrpc"): endless
     else: drip
   of adminPanel: login

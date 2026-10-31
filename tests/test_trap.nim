@@ -394,6 +394,14 @@ suite "live trap":
     check db.getValue(sql"SELECT body FROM trap_hits ORDER BY id DESC LIMIT 1") ==
         payload[0 ..< 1024]
 
+  test "a plugin call to admin-ajax.php gets a fake file, other wp-admin pages the login":
+    let db = getDbConnection(fastDb)
+    discard ask("POST", "/wp-admin/admin-ajax.php", "45.9.1.13", fastPort, "curl",
+        "action=recover_exit&tpf=../../wp-config.php")
+    check db.getValue(sql"SELECT tactic FROM trap_hits ORDER BY id DESC LIMIT 1") == "drip"
+    discard get("/wp-admin/", "45.9.1.13")
+    check db.getValue(sql"SELECT tactic FROM trap_hits ORDER BY id DESC LIMIT 1") == "login"
+
   test "the same bot sees the same key, another bot a different one":
     let key = get("/.ssh/id_rsa", "45.9.1.10")
     check get("/.ssh/id_rsa", "45.9.1.10") == key
