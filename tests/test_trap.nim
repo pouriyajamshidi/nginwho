@@ -107,6 +107,32 @@ suite "classify":
     check $classify("/_next/rsc") == "api"
     check $classify("/rds-data/ExecuteStatement") == "api"
 
+  test "the probes that got a plain 404 in late October are trapped":
+    check $classify("/horizon") == "admin"
+    check $classify("/pulse") == "admin"
+    check $classify("/sidekiq") == "admin"
+    check $classify("/pma") == "admin"
+    check $classify("/Gemfile.lock") == "config"
+    check $classify("/yarn.lock") == "config"
+    check $classify("/go.sum") == "config"
+    check $classify("/requirements.txt") == "config"
+    check $classify("/pnpm-workspace.yaml") == "config"
+    check $classify("/turbo.json") == "config"
+    check $classify("/postman_collection.json") == "config"
+    check $classify("/node_modules/.package-lock.json") == "config"
+    check $classify("/static/js/main.js.map") == "config"
+    check $classify("/pages/index.astro.mjs.map") == "config"
+    check $classify("/s/x/_/;/META-INF/maven/com.atlassian.jira/jira-webapp-dist/pom.properties") ==
+        "config"
+    check $classify("/prod.auto.tfvars") == "creds"
+    check $classify("/website.db") == "backup"
+    check $classify("/export.dmp") == "backup"
+    check $classify("/v1/models") == "api"
+    check $classify("/rest/workflows") == "api"
+    check $classify("/elmah") == "api"
+    check $classify("/cf_scripts/scripts/ajax/ckeditor/ckeditor.js") == "api"
+    check $classify("/_payload.json") == "api"
+
   test "a file on the server asked for in the query is trapped":
     check $classify("/__vite_rsc_findSourceMapURL", "?filename=file:///root/.ssh/id_rsa") == "rce"
     check $classify("/view", "?page=..%2F..%2Fetc%2Fpasswd") == "rce"

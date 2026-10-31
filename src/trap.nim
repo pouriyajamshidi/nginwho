@@ -414,10 +414,11 @@ proc classify*(path: string, query = ""): Trap =
               "anthropic", "openai", "groq", "vertex", "bedrock", "litellm", "opencode",
               "keys.json", "token", "vault", "twilio", "mailgun", "google-services",
               "gc-service", "aws-exports", "azure", ".pgpass", ".my.cnf", ".msmtprc",
-              "s3cmd", "boto.cfg", "dbeaver", ".yarnrc", ".htpasswd"]):
+              "s3cmd", "boto.cfg", "dbeaver", ".yarnrc", ".htpasswd", ".tfvars"]):
     return creds
   if p.anyOf([".sql", ".bak", ".backup", ".old", ".zip", ".tar", ".gz", ".tgz", ".rar",
-              ".7z", ".swp", ".log", "error_log", "dump", "backup"]):
+              ".7z", ".swp", ".log", "error_log", "dump", "backup", ".dmp",
+              ".sqlite"]) or p.endsWith(".db"):
     return backup
   # path traversal: ../ on linux, ..\ on windows, ..; for tomcat. the path is already
   # decoded, so %2e%2e and %5c are the ones encoded twice
@@ -438,7 +439,10 @@ proc classify*(path: string, query = ""): Trap =
               "portal", "panel", "secure", "account", "/auth", "reset-password",
               "forgot-password", "/ecp/", "zabbix",
               # VPN and appliance logins
-              "logonpoint", "/vpn/", "webinterface", "fortisandbox", "/aspera"]):
+              "logonpoint", "/vpn/", "webinterface", "fortisandbox", "/aspera",
+              # dashboards of Laravel and Rails, and phpMyAdmin's short name
+              "/horizon", "/pulse", "/nova", "/filament", "/sidekiq", "/letter_opener",
+              "/pma"]):
     return adminPanel
   if p.anyOf([".php", "phpinfo", "phpmyadmin", "adminer", "_profiler", "_ignition",
               "php_info", "php-info", "artisan", "debugbar", "livewire", "telescope",
@@ -453,14 +457,22 @@ proc classify*(path: string, query = ""): Trap =
               "manifest.json", ".vite", "values.yaml", ".toml", ".ds_store", ".amplifyrc",
               "sugar_version", "database.", "parameters.yml", "phinx", "schema.prisma",
               "airflow.cfg", "application-", "deploy.json", "/conf.", ".conf", "main.cf",
-              "sendmail.cf", "web.xml", "composer.lock", "compose.y", "sam-template"]):
+              "sendmail.cf", "web.xml", "compose.y", "sam-template",
+              # lock files and project files, which list what the app is built from
+              ".lock", "gemfile", "pipfile", "go.sum", "go.mod", "requirements.txt",
+              "pnpm-", "lerna.json", "nx.json", "turbo.json", "rush.json", "cdk.json",
+              "pulumi.y", "railway.json", "/app.json", "postman", "/node_modules",
+              "server.js", "meta-inf",
+              # source maps, which hold the source code
+              "js.map", ".css.map"]):
     return configFile
   if p.anyOf(["/api", "graphql", "swagger", "openapi", "/debug", "server-status",
               "server-info", "/info", "/health", "/mcp", "/sse", "/metrics",
               "/solr",
               "/vendor", "autodiscover", "/owa", "/hudson", "/jenkins",
               "/nacos", "/druid", ".axd", "/v2/_catalog", "__debug__", "/_next/", "/_flight",
-              "/rails/", "/inngest", "read-document", "exec-py", "/model/invoke",
+              "/rails/", "/inngest", "read-document", "exec-py", "/invoke", "/v1/models",
+              "/elmah", "/rest/", "/cf_scripts", "/cfide", "/_payload",
               "/postgres/", "rds-data", "/geoserver",
               # Docker and etcd left open
               "/containers/json", "/v2/keys"]):
