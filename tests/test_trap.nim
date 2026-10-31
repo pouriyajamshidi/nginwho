@@ -145,6 +145,7 @@ suite "classify":
     check $classify("/", "?target=http%3A%2F%2Fmetadata.google.internal%2FcomputeMetadata") == "rce"
     check $classify("/", "?s=%22%3E%3Cscript%3Ealert(1)%3C/script%3E") == "rce"
     check $classify("/", "?unix:AAAAAAAAAAAA") == "rce"
+    check $classify("/fonts/", "?phpinfo=-1") == "php"
     check $classify("/posts/hello/", "?_hsenc=p2ANqtz-abc&utm_medium=email") == "none"
     check $classify("/posts/hello/", "?ref=example.com") == "none"
 

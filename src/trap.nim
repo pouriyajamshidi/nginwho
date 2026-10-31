@@ -381,6 +381,8 @@ proc classifyQuery*(query: string): Trap =
   # WordPress takes its API calls in the query too, like /?rest_route=/wp/v2/users
   if q.contains("rest_route"):
     return wordpress
+  if q.contains("phpinfo"):
+    return phpFile
 
   return noTrap
 
