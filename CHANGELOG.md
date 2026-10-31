@@ -44,6 +44,7 @@ All notable changes to **nginwho** are listed here.
 - `--blockUntrustedCidrs` creates the `inet filter` table when there is none. Before, it stopped with an example to start from, and took any `inet` table, like one from firewalld, for `inet filter`.
 - `--omitReferrer` (`omit_referrer`) only drops referrers from that domain and its subdomains. Before, it matched anywhere in the referrer, so a search like `google.com/search?q=example.com` was dropped too.
 - Only fonts, scripts and styles that were served are skipped, and the query is no longer part of the check. Before, `/.env?x=.js` was never saved, and neither was a 404 on `/config.js`.
+- nginwho needs Nim 2.4.0 or newer to build. With it, fetching the CDN ranges checks that the HTTPS certificate is for that host. Before, any valid certificate for any host was accepted.
 
 ### Removed
 

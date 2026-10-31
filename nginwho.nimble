@@ -10,5 +10,5 @@ bin           = @["nginwho"]
 
 # Dependencies
 
-requires "nim >= 2.2.0"
+requires "nim >= 2.4.0"
 requires "db_connector >= 0.1.0"

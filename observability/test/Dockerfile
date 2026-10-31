@@ -1,5 +1,5 @@
 # builds nginwho from this repo, then runs it on a small Debian
-FROM nimlang/nim:2.2.12 AS build
+FROM nimlang/nim:2.4.0 AS build
 WORKDIR /src
 COPY nginwho.nimble config.nims ./
 COPY src ./src
