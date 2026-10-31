@@ -414,7 +414,7 @@ proc classify*(path: string, query = ""): Trap =
               "anthropic", "openai", "groq", "vertex", "bedrock", "litellm", "opencode",
               "keys.json", "token", "vault", "twilio", "mailgun", "google-services",
               "gc-service", "aws-exports", "azure", ".pgpass", ".my.cnf", ".msmtprc",
-              "s3cmd", "boto.cfg", "dbeaver", ".yarnrc"]):
+              "s3cmd", "boto.cfg", "dbeaver", ".yarnrc", ".htpasswd"]):
     return creds
   if p.anyOf([".sql", ".bak", ".backup", ".old", ".zip", ".tar", ".gz", ".tgz", ".rar",
               ".7z", ".swp", ".log", "error_log", "dump", "backup"]):
@@ -446,7 +446,7 @@ proc classify*(path: string, query = ""): Trap =
               "/plugins/editors", "/media/system/", "/language/en-gb"]):
     return phpFile
   if p.anyOf(["config", "appsettings", "settings", "application.yml", "application.properties",
-              "docker", ".vscode", ".idea", "sftp", ".htaccess", ".htpasswd",
+              "docker", ".vscode", ".idea", "sftp", ".htaccess",
               "serverless",
               "vercel", "netlify", ".travis", "gradle", "package.json",
               "composer.json",

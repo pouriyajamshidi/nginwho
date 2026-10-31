@@ -90,6 +90,7 @@ suite "classify":
     check $classify("/anthropic.json") == "creds"
     check $classify("/.vault-token") == "creds"
     check $classify("/.pgpass") == "creds"
+    check $classify("/.htpasswd") == "creds"
     check $classify("/etc/boto.cfg") == "creds"
     check $classify("/error_log") == "backup"
     check $classify("/proc/self/cgroup") == "rce"
