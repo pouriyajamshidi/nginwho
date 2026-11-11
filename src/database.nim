@@ -488,21 +488,11 @@ proc finishTrapHit*(db: DbConn, id: int64, bytesSent, seconds: int,
     error(fmt"Could not update trap hit {id}: {e.msg}")
 
 
-const
-  # seconds as "3h 20m", "12m" or "45s", so the report reads at a glance
-  humanSeconds = """
-    CASE
-      WHEN SUM(seconds) >= 3600 THEN printf('%dh %dm', SUM(seconds)/3600, (SUM(seconds)%3600)/60)
-      WHEN SUM(seconds) >= 60 THEN printf('%dm', SUM(seconds)/60)
-      ELSE printf('%ds', SUM(seconds))
-    END"""
-
-
 proc getTopTrappedIPs*(db: DbConn, num: int, since = ""): seq[Row] =
-  ## The busiest bots, with how long they were held. Last column is the hit count
+  ## The busiest bots, with how many seconds they were held. Last column is the hit count
   info(fmt"Getting top {num} trapped IPs")
   return db.getAllRows(sql(fmt"""
-    SELECT remote_ip, {humanSeconds}, COUNT(*) AS hits
+    SELECT remote_ip, SUM(seconds), COUNT(*) AS hits
     FROM trap_hits
     WHERE date >= {toUnixOrAll}
     GROUP BY remote_ip
@@ -511,10 +501,10 @@ proc getTopTrappedIPs*(db: DbConn, num: int, since = ""): seq[Row] =
 
 
 proc getTopTraps*(db: DbConn, num: int, since = ""): seq[Row] =
-  ## What the bots were after and what we did about it
+  ## What the bots were after, what we did about it and how many seconds it held them
   info(fmt"Getting top {num} traps")
   return db.getAllRows(sql(fmt"""
-    SELECT trap, tactic, {humanSeconds}, COUNT(*) AS hits
+    SELECT trap, tactic, SUM(seconds), COUNT(*) AS hits
     FROM trap_hits
     WHERE date >= {toUnixOrAll}
     GROUP BY trap, tactic

@@ -20,6 +20,8 @@ const
   # long URIs and user agents would break the table
   maxColumnWidth = 50
   barWidth = 20
+  # the queries give this column as seconds, showResults turns it into "3h 20m"
+  timeWasted = "Time wasted"
 
 type
   Report = object
@@ -43,10 +45,10 @@ let reports = [
   Report(name: "Top non-defaults", columns: @["Log line"],
       query: getNonDefaults, allTimeOnly: true),
   # trap reports: who probed us and what we did to them
-  Report(name: "Trap: top attackers", columns: @["IP address", "Time wasted"],
+  Report(name: "Trap: top attackers", columns: @["IP address", timeWasted],
       query: getTopTrappedIPs, isTrap: true),
   Report(name: "Trap: what they wanted", columns: @["Target", "Tactic",
-      "Time wasted"], query: getTopTraps, isTrap: true),
+      timeWasted], query: getTopTraps, isTrap: true),
   Report(name: "Trap: top probed paths", columns: @["URI", "Target"],
       query: getTopTrappedURIs, isTrap: true),
   Report(name: "Trap: credentials tried", columns: @["IP address",
@@ -193,7 +195,7 @@ proc formatTable*(columns: seq[string], rows: seq[Row], total: int,
 
 
 proc formatSeconds*(seconds: int): string =
-  ## "3h 20m", "12m" or "45s", the same as the time columns of the trap reports
+  ## "3h 20m", "12m" or "45s", so the time columns read at a glance
   if seconds >= 3600:
     return fmt"{seconds div 3600}h {seconds mod 3600 div 60}m"
   if seconds >= 60:
@@ -204,7 +206,11 @@ proc formatSeconds*(seconds: int): string =
 proc showResults(db: DbConn, report: Report, num: int, window: TimeWindow) =
   # worked out once, so the rows and the totals cover the same time
   let start = since(window)
-  let rows = report.query(db, num, start)
+  var rows = report.query(db, num, start)
+  let timeColumn = report.columns.find(timeWasted)
+  if timeColumn >= 0:
+    for row in rows.mitems:
+      row[timeColumn] = formatSeconds(parseInt(row[timeColumn]))
 
   let windowName = if report.allTimeOnly: "all time" else: window.name
   let trapTotals = if report.isTrap: getTrapTotals(db, start) else: (0, 0, 0)

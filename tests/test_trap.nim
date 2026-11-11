@@ -249,6 +249,7 @@ suite "trap hits":
     let ips = getTopTrappedIPs(db, 10)
     check ips.len == 2
     check ips[0][0] == "45.9.1.10" # the busiest first
+    check ips[0][1] == "30"        # seconds, report.nim makes them readable
     check ips[0][^1] == "3"        # last column is the hit count
 
     let uris = getTopTrappedURIs(db, 10)
@@ -257,6 +258,7 @@ suite "trap hits":
 
     let traps = getTopTraps(db, 10)
     check traps[0][0] == "env"
+    check traps[0][2] == "30"
 
   test "credentials typed into the fake login are reported":
     let db = newDb()
