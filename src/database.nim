@@ -326,7 +326,9 @@ proc execPrepared(db: DbConn, statement: SqlPrepared, values: varargs[string]) =
     dbError(db)
 
 
-proc upsert(db: DbConn, table, column: string, values: seq[string]) =
+proc upsert(db: DbConn, column: string, values: seq[string]) =
+  ## Adds the values to the lookup table of `column`, which has its name with an s
+  let table = column & "s"
   info(fmt"Processing {table} table")
 
   if values.len < 1:
@@ -381,7 +383,7 @@ proc normalizeNginwhoTable(db: DbConn, logs: seq[Log]) =
   defer: discard finalize(PStmt(defaultQuery))
 
   for log in logs:
-    # TODO: handle non-default logs
+    # a non-default log is only counted in the non_defaults table
     if log.nonDefault != "":
       continue
     execPrepared(db, defaultQuery,
@@ -435,16 +437,16 @@ proc insertLogs*(db: DbConn, logs: seq[Log]): bool =
   try:
     # IMMEDIATE takes the write lock up front, so busy_timeout applies to the whole insert
     db.exec(sql"BEGIN IMMEDIATE")
-    upsert(db, "remote_ips", "remote_ip", remoteIPs)
-    upsert(db, "http_methods", "http_method", httpMethods)
-    upsert(db, "request_uris", "request_uri", requestURIs)
-    upsert(db, "status_codes", "status_code", statusCodes)
-    upsert(db, "response_sizes", "response_size", responseSizes)
-    upsert(db, "referrers", "referrer", referrers)
-    upsert(db, "user_agents", "user_agent", userAgents)
-    upsert(db, "non_defaults", "non_default", nonDefaults)
-    upsert(db, "remote_users", "remote_user", remoteUsers)
-    upsert(db, "authenticated_users", "authenticated_user", authenticatedUsers)
+    upsert(db, "remote_ip", remoteIPs)
+    upsert(db, "http_method", httpMethods)
+    upsert(db, "request_uri", requestURIs)
+    upsert(db, "status_code", statusCodes)
+    upsert(db, "response_size", responseSizes)
+    upsert(db, "referrer", referrers)
+    upsert(db, "user_agent", userAgents)
+    upsert(db, "non_default", nonDefaults)
+    upsert(db, "remote_user", remoteUsers)
+    upsert(db, "authenticated_user", authenticatedUsers)
 
     normalizeNginwhoTable(db, logs)
 
