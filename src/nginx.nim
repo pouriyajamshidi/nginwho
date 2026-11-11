@@ -94,7 +94,9 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
   # the URI is everything between the method and the protocol, spaces and all
   let methodEnd = request.find(' ')
   let protocolStart = request.rfind(' ')
-  if head.len != 5 or status.len != 2 or protocolStart - methodEnd < 2:
+  # methodEnd < 1 is a request with no method, like " / HTTP/1.1". saved with an
+  # empty method it breaks the insert of the whole batch
+  if head.len != 5 or status.len != 2 or methodEnd < 1 or protocolStart - methodEnd < 2:
     error(fmt"Could not parse: {logLine}")
     return nonDefault
 
