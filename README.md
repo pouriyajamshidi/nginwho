@@ -310,8 +310,9 @@ After you change the config file, run `sudo systemctl restart nginwho`.
 ## The config file
 
 nginwho reads `/etc/nginwho/nginwho.conf` when it starts. Use `--config` to read another file.
-A missing file is fine: everything is off and the defaults below are used. A bad value is
-reported in the log and its default is kept.
+A missing file is fine: everything is off and the defaults below are used. A bad value, like
+`lockdown = ture`, stops nginwho with an error that names the key and its section, the same as
+a bad flag does. `sudo systemctl status nginwho` shows it.
 
 Here is every setting with its default:
 
@@ -767,8 +768,7 @@ bytespider
 - The value on the right is one of `drip`, `endless`, `maze`, `login` or `bomb`. It always wins,
   even over the answer the path would get.
 - **A name on its own gets the default:** the same answer any bot gets for that path, and a slow
-  drip for a normal page. A value nginwho doesn't know is reported in the log and the default
-  is used.
+  drip for a normal page. A value nginwho doesn't know stops it with an error.
 - If two names match, the first one in the list wins.
 
 Behind nginx, a bot only reaches the trap if nginx blocks it with a 403. Block the same names
