@@ -142,8 +142,9 @@ proc trustRanges*(cidrs: Cidrs) =
 proc getCurrentEtag*(configFile: string = cidrFile): string =
   info("Getting current CIDRs ETAG")
 
+  # normal on the first run, the file is written after this
   if not fileExists(configFile):
-    error(fmt"{configFile} does not exist")
+    info(fmt"{configFile} does not exist yet")
     return
 
   for line in lines(configFile):
