@@ -1,5 +1,5 @@
-import std/[asyncdispatch, httpcore, json]
-from std/httpclient import newAsyncHttpClient, close, get, code, body
+import std/[asyncdispatch, json]
+from std/httpclient import newAsyncHttpClient, close, getContent
 from std/strformat import fmt
 from std/options import Option, none, some, isNone, get
 from std/strutils import startsWith, split, join, toHex, capitalizeAscii, parseInt
@@ -98,19 +98,15 @@ proc getCdnCIDRs(cdn: Cdn): Future[Option[Cidrs]] {.async.} =
   var jsonResponse: JsonNode
 
   try:
-    let request = client.get(apiUrl)
+    # the whole answer is under the timeout, not only its headers. an API that stalls
+    # halfway would stop the fetches and the firewall checks for good
+    let request = client.getContent(apiUrl)
 
     if not await request.withTimeout(timeoutMs):
       error(fmt"Call to {apiUrl} timed out")
       return none(Cidrs)
 
-    let response = request.read()
-
-    if response.code != Http200:
-      error(fmt"Call to {apiUrl} failed")
-      return none(Cidrs)
-
-    jsonResponse = parseJson(await response.body)
+    jsonResponse = parseJson(request.read())
   except CatchableError as e:
     error(fmt"Call to {apiUrl} failed: {e.msg}")
     return none(Cidrs)
