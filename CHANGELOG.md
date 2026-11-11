@@ -60,6 +60,9 @@ All notable changes to **nginwho** are listed here.
 - A request for only slashes, like `GET //` from scanners, broke the insert of every log read with it. It is saved as sent now.
 - A space in the request or the referrer moved the other fields of the log line to the wrong place, and part of the referrer ended up in the user agent. Each quoted field is now read whole.
 - The user from the `Authorization` header (`$remote_user` in the nginx log) was never saved. It is now saved in the `remote_users` table.
+- A request with no method, like `" / HTTP/1.1"` from scanners, broke the insert of every log read with it. It is saved as a non-default log now.
+- A log line with a date that can't be read still had its IP counted in the top IP addresses. Only the line itself is saved now.
+- `--showRealIps` and `--blockUntrustedCidrs` stopped updating when the CDN's API sent part of its answer and then went quiet, and the firewall rules were no longer checked. The whole answer has 10 seconds now, and a slow one is tried again after a minute.
 
 ## [2.4.1]
 
