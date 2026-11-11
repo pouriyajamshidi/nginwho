@@ -107,11 +107,23 @@ bytespider
       ("bytespider", none(Tactic)),
     ]
 
-  test "a drip minimum above the maximum keeps both defaults":
-    let args = read("[trap]\ndrip_min_ms = 900\ndrip_max_ms = 100\n")
-    check args.trap.dripMinMs == Args().trap.dripMinMs
-    check args.trap.dripMaxMs == Args().trap.dripMaxMs
+  test "a bad value raises, naming the key and its section":
+    expect ValueError:
+      discard read("[firewall]\nlockdown = ture\n")
+    try:
+      discard read("[cdn]\nblock_untrusted_cidrs = yse\n")
+      fail()
+    except ValueError as e:
+      check e.msg == "Bad value 'yse' for block_untrusted_cidrs in [cdn]: cannot interpret as a bool: yse"
 
-  test "a bad port in web_ports keeps the default ports":
-    let args = read("[firewall]\nweb_ports = 80 70000\n")
-    check args.webPorts == @[80, 443]
+  test "a bad port in web_ports raises":
+    expect ValueError:
+      discard read("[firewall]\nweb_ports = 80 70000\n")
+
+  test "a drip minimum above the maximum raises":
+    expect ValueError:
+      discard read("[trap]\ndrip_min_ms = 900\ndrip_max_ms = 100\n")
+
+  test "a bad tactic in [trap.agents] raises":
+    expect ValueError:
+      discard read("[trap.agents]\ngptbot = mazee\n")

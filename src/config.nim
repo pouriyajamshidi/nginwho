@@ -8,7 +8,7 @@ from std/algorithm import sorted
 from std/sequtils import deduplicate
 from std/tables import hasKey, `[]`, pairs
 from std/options import some, none
-from std/logging import info, error
+from std/logging import info
 
 from trap import TrapConfig, Agent, Tactic
 from cdn import Cdn
@@ -99,20 +99,19 @@ proc getString(config: Config, section, key: string, fallback: string): string =
 
 proc get[T](config: Config, section, key: string, fallback: T, parse: proc (
     value: string): T): T =
-  ## Parses the value with `parse`. A missing or bad value keeps `fallback`
+  ## Parses the value with `parse`. A missing value keeps `fallback`, a bad one raises ValueError
   let value = config.getSectionValue(section, key)
   if value == "":
     return fallback
   try:
     return parse(value)
   except ValueError as e:
-    error(fmt"Bad value '{value}' for {key} in [{section}]: {e.msg}. Keeping the default")
-    return fallback
+    raise newException(ValueError, fmt"Bad value '{value}' for {key} in [{section}]: {e.msg}")
 
 
 proc readConfigFile*(path: string, args: var Args) =
   ## Fills `args` from the config file. A missing file is fine, the defaults stand.
-  ## Raises IOError when the file can't be read
+  ## Raises IOError when the file can't be read, and ValueError on a bad value
   if not fileExists(path):
     return
 
@@ -168,10 +167,8 @@ proc readConfigFile*(path: string, args: var Args) =
 
   # the pause between drips is picked from min to max, which can't be an empty range
   if args.trap.dripMinMs > args.trap.dripMaxMs:
-    error(fmt"drip_min_ms ({args.trap.dripMinMs}) is above drip_max_ms ({args.trap.dripMaxMs}) " &
-        "in [trap]. Keeping the defaults for both")
-    args.trap.dripMinMs = TrapConfig().dripMinMs
-    args.trap.dripMaxMs = TrapConfig().dripMaxMs
+    raise newException(ValueError, fmt"drip_min_ms ({args.trap.dripMinMs}) is above " &
+        fmt"drip_max_ms ({args.trap.dripMaxMs}) in [trap]")
 
   # user agents to always trap. a name on its own gets the default: what any bot
   # gets for that path, and a drip for a normal page
@@ -182,5 +179,5 @@ proc readConfigFile*(path: string, args: var Args) =
         try:
           agent.tactic = some(parseTactic(value))
         except ValueError as e:
-          error(fmt"Bad value '{value}' for {name} in [trap.agents]: {e.msg}. Keeping the default")
+          raise newException(ValueError, fmt"Bad value '{value}' for {name} in [trap.agents]: {e.msg}")
       args.trap.agents.add(agent)

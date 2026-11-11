@@ -114,7 +114,11 @@ proc getArgs(): Args =
     of cmdShortOption, cmdLongOption:
       if configParser.key == "config": configPath = configParser.val
     of cmdArgument: discard
-  readConfigFile(configPath, args)
+  try:
+    readConfigFile(configPath, args)
+  except ValueError as e:
+    error(e.msg)
+    quit(1)
 
   var p = initOptParser()
 
