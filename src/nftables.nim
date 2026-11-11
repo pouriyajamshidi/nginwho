@@ -239,21 +239,8 @@ proc createSet(cidrs: JsonNode, setName, setType: string): seq[JsonNode] =
 
   let setId = %* {"family": "inet", "table": "filter", "name": setName}
 
-  var ipSet = %* {
-    "add": {
-      "set": {
-        "family": "inet",
-        "name": setName,
-        "table": "filter",
-        "type": setType,
-        "handle": 50,
-        "flags": [
-            "interval"
-    ],
-    "elem": []
-  }
-    }
-  }
+  var ipSet = %*{"add": {"set": {"family": "inet", "table": "filter", "name": setName,
+      "type": setType, "flags": ["interval"], "elem": []}}}
 
   for cidr in validCidrs(cidrs):
     let ipAndPrefixLen = cidr.split("/")
@@ -302,20 +289,7 @@ proc nginwhoRules(nftSet: NftSet): seq[JsonNode] =
 proc createInputChain(): JsonNode =
   info("Creating input chain")
 
-  return %* {
-    "add": {
-      "chain": {
-        "family": "inet",
-        "table": "filter",
-        "name": inputChain,
-        "handle": 1,
-        "type": "filter",
-        "hook": "input",
-        "prio": 0,
-        "policy": "accept"
-    }
-  }
-  }
+  return %*{"add": {"chain": baseChain(inputChain, "input", 0, "accept")}}
 
 
 proc createInputChainPolicy(ports: seq[int]): JsonNode =
@@ -358,10 +332,9 @@ proc setExists(nftOutput: JsonNode, setName: string): bool =
   info(fmt"Checking nftables {setName} Set existence")
 
   for node in nftOutput:
-    if node.contains("set"):
-      if node["set"]["name"].getStr() == setName:
-        info(fmt"Found nftables {setName} Set")
-        return true
+    if node{"set", "name"}.getStr() == setName:
+      info(fmt"Found nftables {setName} Set")
+      return true
 
   warn(fmt"Set {setName} does not exist")
 
@@ -373,9 +346,7 @@ proc setChanged(nftOutput: JsonNode, newCidrs: JsonNode,
   var currentSets = newSeq[string]()
 
   for node in nftOutput:
-    if not node.contains("set"):
-      continue
-    if node["set"]["name"].getStr() == setName:
+    if node{"set", "name"}.getStr() == setName:
       # an empty Set has no elem at all
       for elem in node["set"]{"elem"}.getElems():
         # nft lists single addresses like 1.2.3.4/32 as a plain string
@@ -401,10 +372,9 @@ proc inputChainExists(nftOutput: JsonNode): bool =
   info("Checking nftables input chain existence")
 
   for node in nftOutput:
-    if node.contains("chain"):
-      if node["chain"]["name"].getStr() == inputChain:
-        info(fmt"Found nftables {inputChain} chain")
-        return true
+    if node{"chain", "name"}.getStr() == inputChain:
+      info(fmt"Found nftables {inputChain} chain")
+      return true
 
   warn(fmt"{inputChain} does not exist")
 
