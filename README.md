@@ -449,7 +449,7 @@ server {
     }
 
     location / {
-        # a static site only needs GET and HEAD. a POST to a fake login still reaches the trap
+        # a static site only needs GET and HEAD. anything else comes from a bot and goes to the trap
         if ($request_method !~ ^(GET|HEAD)$) { return 405; }
 
         # the bots under [trap.agents] in nginwho.conf. nginx must send them a 403, or they
@@ -730,8 +730,9 @@ if someone opens it.
 
 The trap listens on `127.0.0.1:7777`. nginx sends it the requests it would answer with 403,
 404 or 405. For a path that isn't a known probe, the trap says 404 and nginx shows your normal
-404 page, so real visitors never notice anything. If nginwho is not running, nginx acts like a
-normal site and shows the 404 page.
+404 page, so real visitors never notice anything. A POST, or any method but `GET` and `HEAD`,
+is trapped whatever the path, as a static site never takes one. If nginwho is not running,
+nginx acts like a normal site and shows the 404 page.
 
 nginx logs the requests the trap lets go, like a scraper you blocked asking for a normal page,
 so they show up in your reports like any visit. The bots the trap catches are saved in
@@ -828,7 +829,8 @@ port = 80
   `process` under `[logs]` and those visits are saved for the reports, as with nginx.
 - With the trap on, the server hands the bots to it directly. Real files and typos are served
   as usual.
-- Only `GET` and `HEAD` are answered, anything else gets a 405.
+- Only `GET` and `HEAD` are answered, anything else gets a 405. With the trap on, it is trapped
+  instead.
 - A path that tries to leave `root` with `../` gets a 400. With the trap on, it is trapped
   instead, whether the file exists or not.
 - Dot files like `.git` and `.env` are never served, only `.well-known`.
@@ -911,7 +913,8 @@ The trap reports show how long each bot was held. For example, "what they wanted
   4  agent      drip    2h 5m          64    6.4%  ███
 ```
 
-`agent` is a bot trapped by its name while asking for a normal page. The title of each trap
+`agent` is a bot trapped by its name while asking for a normal page, and `post` is a POST to
+a normal page, which only bots send to a static site. The title of each trap
 report also shows how much bot time the trap wasted in the chosen time window, like
 `(9,412 trap hits, 41h 7m of bot time wasted)`.
 
