@@ -147,6 +147,19 @@ suite "server":
     check get("/.env").startsWith("HTTP/1.1 404")
     check get("/.well-known/security.txt").body == "contact"
 
+  test "a file the server may not read gets a 403 and a log line":
+    writeFile(root / "secret.html", "secret")
+    setFilePermissions(root / "secret.html", {})
+    var file: File
+    if open(file, root / "secret.html"):
+      # root reads every file, run_tests.sh drops that power so this test runs
+      file.close()
+      skip()
+    else:
+      check get("/secret.html").startsWith("HTTP/1.1 403")
+      check "\"GET /secret.html HTTP/1.1\" 403 " in readFile(logPath)
+    removeFile(root / "secret.html")
+
   test "writes logs the nginx parser understands":
     discard get("/posts/hello/", "Referer: https://example.com/\r\nUser-Agent: Mozilla/5.0 (X11)\r\n")
     let log = parseLogEntry(readFile(logPath).strip().splitLines()[^1], "")

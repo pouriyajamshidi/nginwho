@@ -107,8 +107,11 @@ proc sendText(client: AsyncSocket, req: Request, status: HttpCode,
 proc sendFile(client: AsyncSocket, req: Request, path: string, status: HttpCode,
     keepAlive: bool): Future[tuple[status: HttpCode,
         bytesSent: int]] {.async.} =
-  ## Sends a file in chunks so big files don't sit in memory
-  let file = open(path)
+  ## Sends a file in chunks so big files don't sit in memory.
+  ## A file the server may not read gets a 403, like nginx
+  var file: File
+  if not open(file, path):
+    return (Http403, await client.sendText(req, Http403, keepAlive))
   defer: file.close()
 
   let
