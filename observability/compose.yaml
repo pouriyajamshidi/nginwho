@@ -32,9 +32,10 @@ services:
       - ./test/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./test/site:/usr/share/nginx/html:ro
       - *varlog
+    # 127.0.0.1, so only this machine reaches the test setup. Grafana here asks for no login
     ports:
-      - "8081:80"
-      - "12345:12345" # Alloy's page
+      - "127.0.0.1:8081:80"
+      - "127.0.0.1:12345:12345" # Alloy's page
 
   nginwho:
     build: *build
@@ -65,7 +66,7 @@ services:
       - nginwho-serve-db:/var/lib/nginwho
       - *varlog
     ports:
-      - "8082:80"
+      - "127.0.0.1:8082:80"
 
   nginx-exporter:
     image: nginx/nginx-prometheus-exporter:1.5.0
@@ -123,7 +124,7 @@ services:
       - ./test/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./dashboard.json:/var/lib/grafana/dashboards/dashboard.json:ro
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
 
   traffic:
     image: curlimages/curl:8.22.0
