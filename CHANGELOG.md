@@ -64,6 +64,7 @@ All notable changes to **nginwho** are listed here.
 - A log line with a date that can't be read still had its IP counted in the top IP addresses. Only the line itself is saved now.
 - `--showRealIps` and `--blockUntrustedCidrs` stopped updating when the CDN's API sent part of its answer and then went quiet, and the firewall rules were no longer checked. The whole answer has 10 seconds now, and a slow one is tried again after a minute.
 - When the nginx log was rotated, the lines written to it since the last read were never saved, up to `--interval` seconds of visits on every rotation. The old log is now read to its end before moving to the new one.
+- Any other log line missing a field the database needs, like the two above, is saved as a non-default log, so it can't break the insert of the logs read with it.
 
 ## [2.4.1]
 
