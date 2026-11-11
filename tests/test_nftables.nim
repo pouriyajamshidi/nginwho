@@ -12,8 +12,8 @@ const allChanges = NftAttrs(withV4Set: true, withV6Set: true,
 let tempDir = getTempDir() / "nginwho_test_nftables"
 createDir(tempDir)
 
-let cidrs = NftSet(name: "Cloudflare", ipv4: %*["173.245.48.0/20",
-    "103.21.244.0/22"], ipv6: %*["2400:cb00::/32", "2606:4700::/32"])
+let cidrs = NftSet(name: "Cloudflare", ipv4: %*["173.245.48.0/20", "103.21.244.0/22"],
+    ipv6: %*["2400:cb00::/32", "2606:4700::/32"])
 
 
 proc canRunNft(): bool =
@@ -51,15 +51,15 @@ suite "nftables":
       check body["set"]["name"].getStr() == "Cloudflare_IPv6"
 
   test "invalid CIDRs are skipped instead of crashing":
-    let withJunk = NftSet(name: "Cloudflare", ipv4: %*["173.245.48.0/20",
-        "junk", 42], ipv6: %*["2400:cb00::/32"])
-    let elems = createRules(withJunk, NftAttrs(withV4Set: true))["nftables"][
-        ^1]["add"]["set"]["elem"]
+    let withJunk = NftSet(name: "Cloudflare", ipv4: %*["173.245.48.0/20", "junk", 42],
+        ipv6: %*["2400:cb00::/32"])
+    let elems =
+        createRules(withJunk, NftAttrs(withV4Set: true))["nftables"][^1]["add"]["set"]["elem"]
     check elems == %*[{"prefix": {"addr": "173.245.48.0", "len": 20}}]
 
   test "junk CIDRs are dropped":
-    check validCidrs(%*["1.2.3.0/24", "not-an-ip/8", "1.2.3.0/33",
-        "1.2.3.0/abc", "1.2.3.0/24/1", "2001:db8::/32"]) == @["1.2.3.0/24", "2001:db8::/32"]
+    check validCidrs(%*["1.2.3.0/24", "not-an-ip/8", "1.2.3.0/33", "1.2.3.0/abc", "1.2.3.0/24/1",
+        "2001:db8::/32"]) == @["1.2.3.0/24", "2001:db8::/32"]
 
   test "single IPs without a prefix length get one":
     check validCidrs(%*["1.2.3.4", "2001:db8::1"]) == @["1.2.3.4/32", "2001:db8::1/128"]
@@ -77,8 +77,8 @@ suite "nftables":
       skip()
     else:
       let ruleset = applyInNamespace(@[createRules(cidrs, allChanges)])
-      let newCidrs = NftSet(name: "Cloudflare", ipv4: %*["173.245.48.0/20",
-          "103.21.244.0/22", "141.101.64.0/18"], ipv6: cidrs.ipv6)
+      let newCidrs = NftSet(name: "Cloudflare",
+          ipv4: %*["173.245.48.0/20", "103.21.244.0/22", "141.101.64.0/18"], ipv6: cidrs.ipv6)
       check requiredChanges(ruleset, newCidrs) == NftAttrs(withV4Set: true)
 
   test "single IPs are applied and the next run sees nothing to change":
@@ -86,8 +86,8 @@ suite "nftables":
     if not canRunNft():
       skip()
     else:
-      let single = NftSet(name: "Cloudflare", ipv4: %*["1.2.3.4", "5.6.7.8/32",
-          "173.245.48.0/20"], ipv6: %*["2001:db8::1", "2400:cb00::/32"])
+      let single = NftSet(name: "Cloudflare", ipv4: %*["1.2.3.4", "5.6.7.8/32", "173.245.48.0/20"],
+          ipv6: %*["2001:db8::1", "2400:cb00::/32"])
       let ruleset = applyInNamespace(@[createRules(single, allChanges)])
       check requiredChanges(ruleset, single) == NftAttrs()
 
@@ -123,8 +123,8 @@ suite "nftables":
       var rules: seq[string]
       for node in after:
         # the loopback rule has no Set
-        if node.contains("rule") and node["rule"]["chain"].getStr() ==
-            "nginwho" and node["rule"]["expr"].len > 2:
+        if node.contains("rule") and node["rule"]["chain"].getStr() == "nginwho" and
+            node["rule"]["expr"].len > 2:
           # the ports come first, then the Set
           rules.add(node["rule"]["expr"][2]["match"]["right"].getStr())
       # a rule that logs and a rule that drops for each
@@ -222,8 +222,7 @@ suite "nftables":
       let before = applyInNamespace(@[], setup)
       check requiredChanges(before, cidrs).withNginwhoChain
 
-      let after = applyInNamespace(@[createRules(cidrs, requiredChanges(before,
-          cidrs))], setup)
+      let after = applyInNamespace(@[createRules(cidrs, requiredChanges(before, cidrs))], setup)
       check requiredChanges(after, cidrs) == NftAttrs()
       for node in after:
         if node{"chain", "name"}.getStr() == "nginwho":
@@ -283,8 +282,7 @@ LISTEN 0      4096         *:22          *:* users:(("systemd",pid=1,fd=86))
     if not canRunNft():
       skip()
     else:
-      var ruleset = applyInNamespace(@[createLockdown(@[65222], @[8080, 8443],
-          @[])])
+      var ruleset = applyInNamespace(@[createLockdown(@[65222], @[8080, 8443], @[])])
       check lockdownIsCurrent(ruleset, @[65222], @[8080, 8443], @[])
       check not lockdownIsCurrent(ruleset, @[65222], @[80, 443], @[])
       ruleset = applyInNamespace(@[createLockdown(@[65222], @[8080], @[])])

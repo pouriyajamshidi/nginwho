@@ -1,13 +1,11 @@
 ## Runs the static server in this process and talks to it over a real socket
 
 import std/[unittest, asyncdispatch, os]
-from std/asyncnet import AsyncSocket, newAsyncSocket, connect, send, recv,
-    close, wrapSocket,
+from std/asyncnet import AsyncSocket, newAsyncSocket, connect, send, recv, close, wrapSocket,
     getPeerCertificates
 from std/net import Port, newContext
 from std/osproc import execCmd
-from std/strutils import split, splitLines, startsWith, endsWith, strip,
-    contains, count,
+from std/strutils import split, splitLines, startsWith, endsWith, strip, contains, count,
     repeat
 
 from db_connector/db_sqlite import getValue, sql
@@ -43,9 +41,8 @@ const trapPort = Port(18093)
 let trapLogPath = tempDir / "trap_access.log"
 let trapDb = tempDir / "trap.db"
 asyncCheck serve(root, trapLogPath, trapPort, "127.0.0.1", trapHook(TrapConfig(
-    enabled: true, maxConnections: 10, maxSeconds: 60, dripMinMs: 0,
-    dripMaxMs: 0, bombs: true, bombAfter: 100,
-    agents: @[("deepseek", none(Tactic))]), trapDb))
+    enabled: true, maxConnections: 10, maxSeconds: 60, dripMinMs: 0, dripMaxMs: 0,
+    bombs: true, bombAfter: 100, agents: @[("deepseek", none(Tactic))]), trapDb))
 
 
 proc request(raw: string, port = port): string =
@@ -261,9 +258,8 @@ let key = tempDir / "key.pem"
 let trusted = tempDir / "trusted.pem" # the certificate the client trusts
 
 proc makeCert(name: string) =
-  doAssert execCmd("openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=" &
-      name & " -addext subjectAltName=IP:127.0.0.1 -keyout " & key & " -out " &
-      cert &
+  doAssert execCmd("openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=" & name &
+      " -addext subjectAltName=IP:127.0.0.1 -keyout " & key & " -out " & cert &
       " 2>/dev/null") == 0
   copyFile(cert, trusted)
 

@@ -261,11 +261,9 @@ proc showTotals(db: DbConn) =
   let trapHits = getSpan(db, "trap_hits")
   # non-default logs are saved without a date
   let lines = formatTotals(@[
-    ("Requests", insertSep($requests.count, ','), requests.first,
-        requests.last),
+    ("Requests", insertSep($requests.count, ','), requests.first, requests.last),
     ("Non-default logs", insertSep($getTotalNonDefaults(db), ','), "", ""),
-    ("Trap hits", insertSep($trapHits.count, ','), trapHits.first,
-        trapHits.last),
+    ("Trap hits", insertSep($trapHits.count, ','), trapHits.first, trapHits.last),
     ("Bot time wasted", formatSeconds(getTrapTotals(db).seconds), "", ""),
   ])
 

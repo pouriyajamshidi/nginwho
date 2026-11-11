@@ -76,15 +76,15 @@ proc portsMatch(protocol: string, ports: seq[int]): JsonNode =
   ## Matches `ports` of `protocol`, where "th" is any protocol with ports.
   ## nft lists a set of one port back as the port alone, so one port is given as it is
   let right = if ports.len == 1: %ports[0] else: %*{"set": ports}
-  %*{"match": {"op": "==", "left": {"payload": {"protocol": protocol,
-      "field": "dport"}}, "right": right}}
+  %*{"match": {"op": "==", "left": {"payload": {"protocol": protocol, "field": "dport"}},
+      "right": right}}
 
 
 proc webTraffic(ports: seq[int]): seq[JsonNode] =
   ## Matches TCP and UDP to `ports`, so HTTP/3 can't get around the CDN either
   @[
-    %*{"match": {"op": "==", "left": {"meta": {"key": "l4proto"}}, "right": {
-        "set": ["tcp", "udp"]}}},
+    %*{"match": {"op": "==", "left": {"meta": {"key": "l4proto"}},
+        "right": {"set": ["tcp", "udp"]}}},
     portsMatch("th", ports)
   ]
 
@@ -98,8 +98,8 @@ proc limitedLog(prefix: string): seq[JsonNode] =
   ## Logs at most 10 packets a minute, so a flood can't fill the system log.
   ## A packet over the limit does not match, so this must be its own rule and never
   ## part of a drop rule, or the packet would get through
-  @[%*{"limit": {"rate": 10, "burst": 5, "per": "minute"}}, %*{"log": {
-      "prefix": prefix}}]
+  @[%*{"limit": {"rate": 10, "burst": 5, "per": "minute"}},
+    %*{"log": {"prefix": prefix}}]
 
 
 proc addRule(chain: string, expr: seq[JsonNode]): JsonNode =
@@ -115,8 +115,7 @@ proc withoutCounters(expr: JsonNode): JsonNode =
       result.add(item)
 
 
-proc chainIsCurrent(nftOutput: JsonNode, chain: JsonNode, rules: seq[
-    JsonNode]): bool =
+proc chainIsCurrent(nftOutput: JsonNode, chain: JsonNode, rules: seq[JsonNode]): bool =
   ## True when the chain is hooked as `chain` says and has only `rules`, in the same order
   let name = chain["name"].getStr()
   info(fmt"Checking nftables {name} chain")
@@ -265,25 +264,25 @@ proc createSet(cidrs: JsonNode, setName, setType: string): seq[JsonNode] =
   return @[emptySet, %*{"flush": {"set": setId}}, ipSet]
 
 
-proc createNginwhoIPPolicy(protocol, setName, logPrefix: string, ports: seq[
-    int]): seq[JsonNode] =
+proc createNginwhoIPPolicy(protocol, setName, logPrefix: string,
+    ports: seq[int]): seq[JsonNode] =
   ## A rule that logs and a rule that drops web traffic from outside the Set.
   ## `protocol` is "ip" or "ip6", as nft names them.
   ## The port comes first, so traffic to other ports, like SSH, skips the Set lookup
   let notFromCdn = webTraffic(ports) & @[
-    %*{"match": {"op": "!=", "left": {"payload": {"protocol": protocol,
-        "field": "saddr"}}, "right": fmt"@{setName}"}}
+    %*{"match": {"op": "!=", "left": {"payload": {"protocol": protocol, "field": "saddr"}},
+        "right": fmt"@{setName}"}}
   ]
 
   return @[
     addRule(nginwhoChain, notFromCdn & limitedLog(logPrefix)),
-    addRule(nginwhoChain, notFromCdn & @[%*{"counter": {"packets": 0,
-        "bytes": 0}}, %*{"drop": nil}])
+    addRule(nginwhoChain, notFromCdn & @[%*{"counter": {"packets": 0, "bytes": 0}},
+        %*{"drop": nil}])
   ]
 
 
-proc nginwhoBaseChain(): JsonNode = baseChain(nginwhoChain, nginwhoHook,
-    nginwhoPrio, "accept")
+proc nginwhoBaseChain(): JsonNode =
+  baseChain(nginwhoChain, nginwhoHook, nginwhoPrio, "accept")
 
 
 proc nginwhoRules(nftSet: NftSet): seq[JsonNode] =
@@ -302,16 +301,15 @@ proc createInputChain(): JsonNode =
 proc createInputChainPolicy(ports: seq[int]): JsonNode =
   info("Creating input chain policy")
 
-  return addRule(inputChain, webTraffic(ports) & @[%*{"counter": {"packets": 0,
-      "bytes": 0}}, %*{"accept": nil}])
+  return addRule(inputChain, webTraffic(ports) & @[%*{"counter": {"packets": 0, "bytes": 0}},
+      %*{"accept": nil}])
 
 
 proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
   info("Creating nftables rules")
 
   # adding a table that exists does nothing, so this makes `inet filter` only when there is none
-  var rules = %* {"nftables": [{"add": {"table": {"family": "inet",
-      "name": "filter"}}}]}
+  var rules = %* {"nftables": [{"add": {"table": {"family": "inet", "name": "filter"}}}]}
 
   if nftAttrs.withV4Set:
     for command in createSet(nftSet.ipv4, nftSet.setNameV4, "ipv4_addr"):
@@ -410,10 +408,10 @@ proc requiredChanges*(nftOutput: JsonNode, nftSet: NftSet): NftAttrs =
   ## Compares the current ruleset with what nginwho needs and returns the missing parts
   let nftOutput = inetFilterOnly(nftOutput)
   return NftAttrs(
-    withV4Set: not setExists(nftOutput, nftSet.setNameV4) or setChanged(
-        nftOutput, nftSet.ipv4, nftSet.setNameV4),
-    withV6Set: not setExists(nftOutput, nftSet.setNameV6) or setChanged(
-        nftOutput, nftSet.ipv6, nftSet.setNameV6),
+    withV4Set: not setExists(nftOutput, nftSet.setNameV4) or
+        setChanged(nftOutput, nftSet.ipv4, nftSet.setNameV4),
+    withV6Set: not setExists(nftOutput, nftSet.setNameV6) or
+        setChanged(nftOutput, nftSet.ipv6, nftSet.setNameV6),
     withNginwhoChain: not chainIsCurrent(nftOutput, nginwhoBaseChain(),
         nginwhoRules(nftSet)),
     withInputChain: not inputChainExists(nftOutput),
@@ -464,8 +462,8 @@ proc lockdownRules(sshPorts, webPorts, quicPorts: seq[int]): seq[JsonNode] =
   result = @[
     addRule(lockdownChain, @[fromLoopback(), accept]),
     # replies to connections the server made, like DNS lookups and updates
-    addRule(lockdownChain, @[%*{"match": {"op": "in", "left": {"ct": {
-        "key": "state"}}, "right": ["established", "related"]}}, accept]),
+    addRule(lockdownChain, @[%*{"match": {"op": "in", "left": {"ct": {"key": "state"}},
+        "right": ["established", "related"]}}, accept]),
     # IPv6 can't find the router or its neighbours without these. ICMP errors about a
     # connection are let in as related. in the order nft lists them
     addRule(lockdownChain, @[%*{"match": {"op": "==",
@@ -475,17 +473,16 @@ proc lockdownRules(sshPorts, webPorts, quicPorts: seq[int]): seq[JsonNode] =
         accept]),
     # DHCPv6 answers from another address than it was asked on, so it is not seen as a reply
     addRule(lockdownChain, @[
-      %*{"match": {"op": "==", "left": {"meta": {"key": "nfproto"}},
-          "right": "ipv6"}},
-      %*{"match": {"op": "==", "left": {"payload": {"protocol": "udp",
-          "field": "dport"}}, "right": 546}},
+      %*{"match": {"op": "==", "left": {"meta": {"key": "nfproto"}}, "right": "ipv6"}},
+      %*{"match": {"op": "==", "left": {"payload": {"protocol": "udp", "field": "dport"}},
+          "right": 546}},
       accept])
   ]
 
   for port in sshPorts:
     result.add(addRule(lockdownChain, @[%*{"match": {"op": "==",
         "left": {"payload": {"protocol": "tcp", "field": "dport"}},
-            "right": port}}, accept]))
+        "right": port}}, accept]))
 
   # an empty set is an error in nft
   if webPorts.len > 0:
@@ -493,15 +490,14 @@ proc lockdownRules(sshPorts, webPorts, quicPorts: seq[int]): seq[JsonNode] =
   # HTTP/3 runs over UDP. only opened when asked for, as most sites don't use it
   if quicPorts.len > 0:
     result.add(addRule(lockdownChain, @[portsMatch("udp", quicPorts), accept]))
-  result.add(addRule(lockdownChain, @[%*{"counter": {"packets": 0,
-      "bytes": 0}}] & limitedLog(logPrefixLockdown)))
+  result.add(addRule(lockdownChain, @[%*{"counter": {"packets": 0, "bytes": 0}}] &
+      limitedLog(logPrefixLockdown)))
 
 
 proc createLockdown*(sshPorts, webPorts, quicPorts: seq[int]): JsonNode =
-  result = %* {"nftables": [{"add": {"table": {"family": "inet",
-      "name": "filter"}}}]}
-  for command in replaceChain(lockdownBaseChain()) & lockdownRules(sshPorts,
-      webPorts, quicPorts):
+  result = %* {"nftables": [{"add": {"table": {"family": "inet", "name": "filter"}}}]}
+  for command in replaceChain(lockdownBaseChain()) &
+      lockdownRules(sshPorts, webPorts, quicPorts):
     result["nftables"].add(command)
 
 

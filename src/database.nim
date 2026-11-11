@@ -215,8 +215,8 @@ proc getTotalNonDefaults*(db: DbConn): int =
   return parseInt(db.getValue(sql"SELECT IFNULL(SUM(count), 0) FROM non_defaults"))
 
 
-proc getSpan*(db: DbConn, table: string): tuple[count: int, first,
-    last: string] =
+proc getSpan*(db: DbConn, table: string):
+    tuple[count: int, first, last: string] =
   ## How many rows the nginwho or trap_hits table has, and the dates of the first and last one.
   ## The dates are empty when the table is
   let row = db.getRow(sql(fmt"""

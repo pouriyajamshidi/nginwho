@@ -222,8 +222,7 @@ suite "offsetAfterLastInserted":
     check offsetIn(a & "\n" & b & "\n", parseLogEntry(a, "")) == a.len + 1
 
   test "same request repeated in one second is matched from the end":
-    check offsetIn(a & "\n" & a & "\n" & b & "\n", parseLogEntry(a, "")) == 2 *
-        (a.len + 1)
+    check offsetIn(a & "\n" & a & "\n" & b & "\n", parseLogEntry(a, "")) == 2 * (a.len + 1)
 
   test "nothing new":
     check offsetIn(a & "\n", parseLogEntry(a, "")) == a.len + 1

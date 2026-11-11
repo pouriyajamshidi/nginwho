@@ -19,8 +19,8 @@ suite "report table":
         "█".repeat(20)
 
   test "non-ASCII values line up":
-    let lines = formatTable(@["URI", "Status"], @[@["/café", "404", "2"], @[
-        "/ab", "500", "1"]], 3)
+    let lines = formatTable(@["URI", "Status"],
+        @[@["/café", "404", "2"], @["/ab", "500", "1"]], 3)
     check lines[1].startsWith("1  /café  404     ")
     check lines[2].startsWith("2  /ab    500     ")
 
