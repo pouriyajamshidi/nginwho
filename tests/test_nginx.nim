@@ -102,7 +102,10 @@ suite "parseLogEntry":
 
   test "a request without a method is non-default":
     let line = """203.0.113.7 - - [13/Sep/2026:10:15:32 +0000] " / HTTP/1.1" 400 1 "-" "curl/8.0""""
-    check parseLogEntry(line, "").nonDefault == line
+    let log = parseLogEntry(line, "")
+    check log.nonDefault == line
+    # an empty method fails the insert of the whole batch, so nothing else is kept
+    check log.remoteIP == ""
 
   test "a bad date becomes non-default instead of crashing":
     let bad = """203.0.113.7 - - [99/Foo/2026:10:15:32 +0000] "GET / HTTP/1.1" 200 1 "-" "curl/8.0""""

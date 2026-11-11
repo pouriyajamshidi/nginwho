@@ -94,9 +94,7 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
   # the URI is everything between the method and the protocol, spaces and all
   let methodEnd = request.find(' ')
   let protocolStart = request.rfind(' ')
-  # methodEnd < 1 is a request with no method, like " / HTTP/1.1". saved with an
-  # empty method it breaks the insert of the whole batch
-  if head.len != 5 or status.len != 2 or methodEnd < 1 or protocolStart - methodEnd < 2:
+  if head.len != 5 or status.len != 2 or protocolStart - methodEnd < 2:
     error(fmt"Could not parse: {logLine}")
     return nonDefault
 
@@ -120,8 +118,8 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
   # goes for referrers, which is why a saved referrer never ends with a slash
   if requestURI.endsWith("/") and requestURI.len > 1:
     let stripped = requestURI.strip(leading = false, chars = {'/'})
-    # a URI of only slashes, like `//` from scanners, is kept as sent. stripped it is
-    # empty, and an empty value breaks the insert of the whole batch
+    # a URI of only slashes, like `//` from scanners, is kept as sent. stripped it
+    # would be empty, and the line would be saved as non-default
     if stripped != "":
       requestURI = stripped
   log.requestURI = requestURI
@@ -140,10 +138,16 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
     log.referrer = referrer
 
   log.userAgent = parts[5]
-  # nginx writes "" for an empty User-Agent header. store it like a missing one,
-  # an empty value breaks the insert of the whole batch
+  # nginx writes "" for an empty User-Agent header. store it like a missing one
   if log.userAgent == "":
     log.userAgent = "-"
+
+  # these columns are NOT NULL in the database. one empty value fails the insert of the
+  # whole batch, so such a line is saved as non-default instead
+  if "" in [log.date, log.remoteIP, log.httpMethod, log.requestURI, log.statusCode,
+      log.responseSize, log.userAgent]:
+    error(fmt"Could not parse: {logLine}")
+    return nonDefault
 
   return log
 
