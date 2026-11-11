@@ -727,11 +727,16 @@ proc loadTemplates*(dir: string): Table[string, string] =
       error(fmt"Could not read trap file {path}: {e.msg}. Using the built-in {name}")
 
 
+proc setupTrap(cfg: TrapConfig, dbPath: string): DbConn =
+  ## What trap and trapHook both need before the first request: the fake files and the database
+  templates = loadTemplates(cfg.files)
+  result = getDbConnection(dbPath)
+  createTables(result)
+
+
 proc trapHook*(cfg: TrapConfig, dbPath: string): TrapHook =
   ## For --serve, where no nginx sits in front: the server hands its requests to the trap itself
-  templates = loadTemplates(cfg.files)
-  let db = getDbConnection(dbPath)
-  createTables(db)
+  let db = setupTrap(cfg, dbPath)
   return proc (client: AsyncSocket, req: Request, remoteIP: string,
       miss: bool): Future[bool] =
     client.trapRequest(req, remoteIP, cfg, db, miss)
@@ -739,9 +744,7 @@ proc trapHook*(cfg: TrapConfig, dbPath: string): TrapHook =
 
 proc trap*(cfg: TrapConfig, dbPath: string, address = "127.0.0.1") {.async.} =
   ## Listens for the requests nginx could not answer
-  templates = loadTemplates(cfg.files)
-  let db = getDbConnection(dbPath)
-  createTables(db)
+  let db = setupTrap(cfg, dbPath)
 
   let server = newAsyncSocket(Domain.AF_INET)
   server.setSockOpt(OptReuseAddr, true)
