@@ -1,7 +1,6 @@
 import std/asyncdispatch
 from std/strformat import fmt
 from std/strutils import parseBool, splitLines, startsWith, split, strip
-from db_connector/db_common import DbError
 from std/os import getFileInfo, dirExists, fileExists, createDir, parentDir
 from std/net import Port
 from std/posix import RLimit, getrlimit, setrlimit, RLIMIT_NOFILE
@@ -373,6 +372,9 @@ proc main() =
   runForever()
 
 when isMainModule:
+  # imported here, as it is only used here. At the top, the tests warn it is not used
+  from db_connector/db_common import DbError
+
   try:
     main()
   except DbError, IOError, OSError:
