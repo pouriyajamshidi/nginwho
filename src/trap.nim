@@ -92,6 +92,8 @@ const
 
   bombMembers = 10_000 # 1 MiB of zeros each, about 10 GB unpacked
   maxBodyBytes = 8192 # read of a trapped POST, enough for a login form
+  # a path with one of these looks like a download, so it can get a bomb
+  archives = [".gz", ".zip", ".tar", ".7z", ".rar", ".tgz"]
 
   # for the fake secrets
   alphanumeric = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -235,7 +237,7 @@ proc trapHead(status: HttpCode, headers: openArray[(string, string)]): string =
 
 
 proc playLogin(client: AsyncSocket, req: Request, values: Table[string, string],
-    rng: Rng, deadline: float, played: Played) {.async.} =
+    rng: Rng, played: Played) {.async.} =
   ## A login page that takes its time and then says the password was wrong
   var page = values
 
@@ -334,11 +336,10 @@ proc play(client: AsyncSocket, req: Request, trap: Trap, tactic: Tactic,
 
   case tactic
   of login:
-    await client.playLogin(req, values, rng, deadline, played)
+    await client.playLogin(req, values, rng, played)
   of bomb:
     # a download keeps its gzip through Cloudflare, a page gets unpacked by the client
-    let download = req.path.toLowerAscii.anyOf([".gz", ".zip", ".tar", ".7z",
-        ".rar", ".tgz"])
+    let download = req.path.toLowerAscii.anyOf(archives)
     var headers = @[("Content-Type", if download: "application/gzip" else: "text/plain")]
     if not download:
       headers.add(("Content-Encoding", "gzip"))
@@ -494,8 +495,7 @@ proc tacticForPath(trap: Trap, p: string): Tactic =
     else: drip
   of adminPanel: login
   of backup:
-    if p.anyOf([".gz", ".zip", ".tar", ".7z", ".rar",
-        ".tgz"]): bomb else: endless
+    if p.anyOf(archives): bomb else: endless
   of phpFile:
     if p.anyOf(["phpinfo", "info.php"]): drip else: bomb
   of gitRepo:
