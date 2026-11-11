@@ -17,7 +17,7 @@ from cdn import Cdn
 const
   defaultConfigFile* = "/etc/nginwho/nginwho.conf"
   defaultDbPath* = "/var/lib/nginwho/nginwho.db"
-  oldDbPath* = "/var/log/nginwho.db" # where versions before 2.5.0 kept it
+  oldDbPath* = "/var/log/nginwho.db" # where versions before 3.0.0 kept it
   nginxLogPath* = "/var/log/nginx/access.log"
   serveLogPath* = "/var/log/nginwho/access.log"
 

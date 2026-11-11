@@ -151,7 +151,7 @@ loki.process "geoip" {
 //
 
 // nginwho database size
-// nginwho 2.5.0 and up keep it in /var/lib/nginwho, older versions in /var/log/nginwho.db.
+// nginwho 3.0.0 and up keep it in /var/lib/nginwho, older versions in /var/log/nginwho.db.
 // the -wal file holds the newest writes until SQLite moves them into the database
 
 otelcol.receiver.file_stats "default" {
