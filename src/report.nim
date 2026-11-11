@@ -202,14 +202,16 @@ proc formatSeconds*(seconds: int): string =
 
 
 proc showResults(db: DbConn, report: Report, num: int, window: TimeWindow) =
-  let rows = report.query(db, num, since(window))
+  # worked out once, so the rows and the totals cover the same time
+  let start = since(window)
+  let rows = report.query(db, num, start)
 
   let windowName = if report.allTimeOnly: "all time" else: window.name
-  let trapTotals = if report.isTrap: getTrapTotals(db, since(window)) else: (0, 0, 0)
+  let trapTotals = if report.isTrap: getTrapTotals(db, start) else: (0, 0, 0)
   let total =
     if report.isTrap: trapTotals.hits
     elif report.allTimeOnly: getTotalNonDefaults(db)
-    else: getTotalRequests(db, since(window))
+    else: getTotalRequests(db, start)
 
   let unit =
     if report.isTrap: fmt"trap hits, {formatSeconds(trapTotals.seconds)} of bot time wasted"
