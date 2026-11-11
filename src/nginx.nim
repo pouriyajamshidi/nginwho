@@ -157,10 +157,11 @@ proc offsetAfterLastInserted*(path: string, lastLog: Log): int64 =
   let file = open(path)
   defer: file.close()
 
+  let prefix = lastLog.remoteIP & " "
   var line: string
   while file.readLine(line):
     # parsing every line is slow, most lines are from another IP
-    if not line.startsWith(lastLog.remoteIP & " "):
+    if not line.startsWith(prefix):
       continue
 
     let log = parseLogEntry(line, "")
