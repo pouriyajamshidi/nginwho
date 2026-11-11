@@ -2,7 +2,7 @@
 
 import std/[asyncdispatch, net, httpcore, os]
 from std/strutils import find, contains, strip, split, startsWith, endsWith,
-    toHex, replace, removePrefix, toLowerAscii, parseInt
+    toHex, removePrefix, toLowerAscii, parseInt
 from std/times import fromUnix, utc, format, now, getTime, toUnix, Time, `==`
 from std/asyncnet import AsyncSocket, recvLine, recv, send, close, getPeerAddr,
     newAsyncSocket, setSockOpt, bindAddr, listen, accept, wrapConnectedSocket
@@ -216,8 +216,7 @@ proc escapeLog(value: string): string =
 proc accessLogLine*(remoteIP, request: string, status, bytesSent: int,
     referrer, userAgent: string): string =
   ## Builds a line in nginx's default "combined" format
-  let now = now()
-  let time = now.format("dd/MMM/yyyy:HH:mm:ss ") & now.format("zzz").replace(":", "")
+  let time = now().format("dd/MMM/yyyy:HH:mm:ss ZZZ")
   let referrer = if referrer == "": "-" else: escapeLog(referrer)
   fmt"""{remoteIP} - - [{time}] "{escapeLog(request)}" {status} {bytesSent} "{referrer}" "{escapeLog(userAgent)}"""" & "\n"
 
