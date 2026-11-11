@@ -321,10 +321,8 @@ proc createInputChain(): JsonNode =
 proc createInputChainPolicy(ports: seq[int]): JsonNode =
   info("Creating input chain policy")
 
-  let expr = webTraffic(ports) & @[%*{"counter": {"packets": 0, "bytes": 0}}, %*{"accept": nil}]
-
-  return %* {"add": {"rule": {"family": "inet", "table": "filter", "chain": inputChain,
-      "expr": expr}}}
+  return addRule(inputChain, webTraffic(ports) & @[%*{"counter": {"packets": 0, "bytes": 0}},
+      %*{"accept": nil}])
 
 
 proc createRules*(nftSet: NftSet, nftAttrs: NftAttrs): JsonNode =
