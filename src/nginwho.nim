@@ -2,8 +2,7 @@ import std/asyncdispatch
 from std/strformat import fmt
 from std/strutils import parseBool, splitLines, startsWith, split, strip
 from db_connector/db_common import DbError
-from std/os import getFileInfo, FileInfo, FileId, dirExists, fileExists,
-    createDir, parentDir
+from std/os import getFileInfo, dirExists, fileExists, createDir, parentDir
 from std/net import Port
 from std/posix import RLimit, getrlimit, setrlimit, RLIMIT_NOFILE
 from std/parseopt import CmdLineKind, initOptParser, next
@@ -177,6 +176,15 @@ proc getArgs(): Args =
   return args
 
 
+proc isReplaced(file: File, path: string): bool =
+  ## True when `path` is no longer the open file, like after a log rotation renamed it
+  try:
+    return getFileInfo(path).id != getFileInfo(file).id
+  except OSError:
+    # renamed, and the new one is not made yet
+    return true
+
+
 proc processAndRecordLogs(args: Args) {.async.} =
   info("Processing log entries")
 
@@ -186,40 +194,41 @@ proc processAndRecordLogs(args: Args) {.async.} =
   createTables(db)
 
   var
+    # kept open between reads, so the lines nginx writes to it after a log rotation renamed it are not lost
+    file: File
     offset: int64 = 0
-    fileId: FileId
     failedInserts = 0
 
   while true:
-    var fileInfo: FileInfo
-    try:
-      fileInfo = getFileInfo(args.logPath)
-    except OSError as e:
-      warn(fmt"Could not read {args.logPath}: {e.msg}")
-      await sleepAsync(args.interval)
-      continue
-
     var
+      size: int64
       logs: seq[Log]
       lines: seq[string]
       previousOffset: int64
 
     try:
-      # first run, rotated or truncated log. skip the lines saved before a restart,
-      # a new log has none of them so this starts from the beginning
-      if fileInfo.id.file != fileId or fileInfo.size < offset:
-        fileId = fileInfo.id.file
-        offset = offsetAfterLastInserted(args.logPath, getLastRow(db))
+      if file == nil:
+        file = open(args.logPath)
+        # skip the lines saved before a restart. a new log has none of them,
+        # so this starts from the beginning
+        offset = offsetAfterLastInserted(file, getLastRow(db))
 
-      if fileInfo.size == offset:
+      size = getFileInfo(file).size
+      # truncated, or rotated and the old file is read to its end. start over with the file at the path
+      if size < offset or (size == offset and isReplaced(file, args.logPath)):
+        file.close()
+        file = nil
+        continue
+
+      if size == offset:
         info(fmt"{args.logPath} has no new logs... sleeping")
         await sleepAsync(args.interval)
         continue
 
       previousOffset = offset
-      lines = readNewLines(args.logPath, offset)
-    except IOError as e:
-      warn(fmt"Could not read {args.logPath}: {e.msg}")
+      lines = readNewLines(file, offset)
+    except IOError, OSError:
+      warn(fmt"Could not read {args.logPath}: {getCurrentExceptionMsg()}")
       await sleepAsync(args.interval)
       continue
 
@@ -251,7 +260,7 @@ proc processAndRecordLogs(args: Args) {.async.} =
         failedInserts = 0
 
     # a big log is read in chunks, keep going without waiting until it is caught up
-    let moreToRead = failedInserts == 0 and fileInfo.size - previousOffset > readChunkBytes
+    let moreToRead = failedInserts == 0 and size - previousOffset > readChunkBytes
     await sleepAsync(if moreToRead: 0 else: args.interval)
 
 

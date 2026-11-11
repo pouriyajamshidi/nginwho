@@ -92,10 +92,17 @@ suite "database":
 """)
 
     proc readAndInsert(offset: var int64) =
+      let file = open(path)
+      defer: file.close()
       var logs: seq[Log]
-      for line in readNewLines(path, offset):
+      for line in readNewLines(file, offset):
         logs.add(parseLogEntry(line, ""))
       check insertLogs(db, logs)
+
+    proc lastInsertedIn(path: string): int64 =
+      let file = open(path)
+      defer: file.close()
+      offsetAfterLastInserted(file, db.getLastRow())
 
     var offset: int64 = 0
     readAndInsert(offset)
@@ -105,11 +112,11 @@ suite "database":
     f.write("""2.2.2.2 - - [13/Sep/2026:10:00:01 +0000] "GET /b HTTP/1.1" 200 1 "-" "curl/8.0"""" & "\n")
     f.close()
 
-    offset = offsetAfterLastInserted(path, db.getLastRow())
+    offset = lastInsertedIn(path)
     readAndInsert(offset)
     check db.count("nginwho") == 3
 
-    offset = offsetAfterLastInserted(path, db.getLastRow())
+    offset = lastInsertedIn(path)
     readAndInsert(offset)
     check db.count("nginwho") == 3
 

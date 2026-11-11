@@ -133,52 +133,71 @@ suite "isStaticAsset":
 
 suite "readNewLines":
   let path = tempDir / "access.log"
+  var file: File
+
+  proc append(path, text: string) =
+    let f = open(path, fmAppend)
+    f.write(text)
+    f.close()
 
   setup:
     writeFile(path, "")
+    file = open(path)
+
+  teardown:
+    file.close()
 
   test "reads only what was added since the last read":
     var offset: int64 = 0
     writeFile(path, "one\ntwo\n")
-    check readNewLines(path, offset) == @["one", "two"]
+    check readNewLines(file, offset) == @["one", "two"]
     check offset == 8
 
-    check readNewLines(path, offset).len == 0
+    check readNewLines(file, offset).len == 0
 
-    let f = open(path, fmAppend)
-    f.write("three\n")
-    f.close()
-    check readNewLines(path, offset) == @["three"]
+    append(path, "three\n")
+    check readNewLines(file, offset) == @["three"]
 
   test "leaves a half written last line for the next read":
     var offset: int64 = 0
     writeFile(path, "one\ntw")
-    check readNewLines(path, offset) == @["one"]
+    check readNewLines(file, offset) == @["one"]
     check offset == 4
 
-    let f = open(path, fmAppend)
-    f.write("o\n")
-    f.close()
-    check readNewLines(path, offset) == @["two"]
+    append(path, "o\n")
+    check readNewLines(file, offset) == @["two"]
 
   test "reads a big file in chunks":
     var offset: int64 = 0
     writeFile(path, "one\ntwo\nthree\n")
-    check readNewLines(path, offset, maxBytes = 9) == @["one", "two"]
-    check readNewLines(path, offset, maxBytes = 9) == @["three"]
+    check readNewLines(file, offset, maxBytes = 9) == @["one", "two"]
+    check readNewLines(file, offset, maxBytes = 9) == @["three"]
     check offset == 14
 
   test "a line longer than a chunk is skipped instead of getting stuck":
     var offset: int64 = 0
     writeFile(path, "0123456789")
-    check readNewLines(path, offset, maxBytes = 4).len == 0
+    check readNewLines(file, offset, maxBytes = 4).len == 0
     check offset == 4
 
   test "no complete line yet":
     var offset: int64 = 0
     writeFile(path, "partial")
-    check readNewLines(path, offset).len == 0
+    check readNewLines(file, offset).len == 0
     check offset == 0
+
+  test "lines written to a log after it was rotated are still read":
+    var offset: int64 = 0
+    writeFile(path, "one\n")
+    check readNewLines(file, offset) == @["one"]
+
+    # nginx keeps writing to the old file until it is told to open the new one
+    append(path, "two\n")
+    moveFile(path, path & ".1")
+    writeFile(path, "new\n")
+    append(path & ".1", "three\n")
+    check readNewLines(file, offset) == @["two", "three"]
+    removeFile(path & ".1")
 
 
 suite "offsetAfterLastInserted":
@@ -187,25 +206,26 @@ suite "offsetAfterLastInserted":
     a = """1.1.1.1 - - [13/Sep/2026:10:00:00 +0000] "GET /a HTTP/1.1" 200 1 "-" "curl/8.0""""
     b = """2.2.2.2 - - [13/Sep/2026:10:00:01 +0000] "GET /b HTTP/1.1" 200 1 "-" "curl/8.0""""
 
+  proc offsetIn(content: string, lastLog: Log): int64 =
+    writeFile(path, content)
+    let file = open(path)
+    defer: file.close()
+    offsetAfterLastInserted(file, lastLog)
+
   test "starts from the beginning when the database is empty":
-    writeFile(path, a & "\n" & b & "\n")
-    check offsetAfterLastInserted(path, Log()) == 0
+    check offsetIn(a & "\n" & b & "\n", Log()) == 0
 
   test "starts right after the last saved log":
-    writeFile(path, a & "\n" & b & "\n")
-    check offsetAfterLastInserted(path, parseLogEntry(a, "")) == a.len + 1
+    check offsetIn(a & "\n" & b & "\n", parseLogEntry(a, "")) == a.len + 1
 
   test "same request repeated in one second is matched from the end":
-    writeFile(path, a & "\n" & a & "\n" & b & "\n")
-    check offsetAfterLastInserted(path, parseLogEntry(a, "")) == 2 * (a.len + 1)
+    check offsetIn(a & "\n" & a & "\n" & b & "\n", parseLogEntry(a, "")) == 2 * (a.len + 1)
 
   test "nothing new":
-    writeFile(path, a & "\n")
-    check offsetAfterLastInserted(path, parseLogEntry(a, "")) == a.len + 1
+    check offsetIn(a & "\n", parseLogEntry(a, "")) == a.len + 1
 
   test "starts from the beginning when the last saved log is not in the file (rotated log)":
-    writeFile(path, b & "\n")
-    check offsetAfterLastInserted(path, parseLogEntry(a, "")) == 0
+    check offsetIn(b & "\n", parseLogEntry(a, "")) == 0
 
 
 suite "CDN CIDRs file":

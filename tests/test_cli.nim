@@ -1,9 +1,9 @@
 ## Runs the real nginwho binary
 
 import std/[unittest, os]
-from std/osproc import execCmdEx
+from std/osproc import execCmdEx, startProcess, terminate, waitForExit, close
 from std/strutils import splitLines, strip, contains
-from db_connector/db_sqlite import open, close
+from db_connector/db_sqlite import open, close, getValue, sql
 
 from nginwho import version, maintainer
 
@@ -84,3 +84,29 @@ suite "cli":
         " --logPath=" & quoteShell(tempDir / "access.log") & " --dbPath=" & quoteShell(dbPath))
     check exitCode == 1
     check ("Could not open database " & dbPath) in output
+
+  test "lines written to the log right before it is rotated are saved":
+    let logPath = tempDir / "rotate.log"
+    let dbPath = tempDir / "rotate.db"
+    proc line(uri: string): string =
+      "1.1.1.1 - - [13/Sep/2026:10:00:00 +0000] \"GET " & uri & " HTTP/1.1\" 200 1 \"-\" \"curl/8.0\"\n"
+
+    writeFile(logPath, line("/a"))
+    let p = startProcess(binary, args = ["--config=" & tempDir / "none.conf", "--processNginxLogs",
+        "--interval=1", "--logPath=" & logPath, "--dbPath=" & dbPath])
+    sleep(1500)
+
+    # a line nginx writes between two reads, then logrotate moves the file
+    let f = open(logPath, fmAppend)
+    f.write(line("/b"))
+    f.close()
+    moveFile(logPath, logPath & ".1")
+    writeFile(logPath, line("/c"))
+    sleep(3000)
+    p.terminate()
+    discard p.waitForExit()
+    p.close()
+
+    let db = open(dbPath, "", "", "")
+    check db.getValue(sql"SELECT COUNT(*) FROM nginwho") == "3"
+    db.close()

@@ -148,15 +148,13 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
   return log
 
 
-proc offsetAfterLastInserted*(path: string, lastLog: Log): int64 =
+proc offsetAfterLastInserted*(file: File, lastLog: Log): int64 =
   ## Returns the file offset right after the last line that matches `lastLog`,
   ## the last log saved in the database. Returns 0 when no line matches
   if lastLog.date == "":
     return 0
 
-  let file = open(path)
-  defer: file.close()
-
+  file.setFilePos(0)
   let prefix = lastLog.remoteIP & " "
   var line: string
   while file.readLine(line):
@@ -172,12 +170,10 @@ proc offsetAfterLastInserted*(path: string, lastLog: Log): int64 =
       result = file.getFilePos()
 
 
-proc readNewLines*(path: string, offset: var int64,
+proc readNewLines*(file: File, offset: var int64,
     maxBytes = readChunkBytes): seq[string] =
-  ## Reads the complete lines added to the file since `offset`, up to `maxBytes`, and moves `offset` forward
-  let file = open(path)
-  defer: file.close()
-
+  ## Reads the complete lines added to the file since `offset`, up to `maxBytes`, and moves `offset` forward.
+  ## The file stays open between reads, so lines written to it after a log rotation renamed it are still read
   # only allocate what was added, a full chunk for a few new lines wastes memory
   let toRead = min(maxBytes, file.getFileSize() - offset)
   if toRead <= 0:
