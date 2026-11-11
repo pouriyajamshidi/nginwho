@@ -78,15 +78,15 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
   ## Reads a line in nginx's "combined" format:
   ## `$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"`
   ## A line that does not fit is kept whole in `nonDefault`
-  var log: Log
-  log.nonDefault = logLine
+  # a line that does not fit is saved whole, with nothing else set
+  let nonDefault = Log(nonDefault: logLine)
 
   # the request, referrer and user agent are quoted and can have spaces in them.
   # nginx writes a quote inside them as \x22, so every quote is the edge of a field
   let parts = logLine.split('"')
   if parts.len != 7 or parts[4].strip != "" or parts[6].strip != "":
     error(fmt"Could not parse: {logLine}")
-    return log
+    return nonDefault
 
   let head = parts[0].splitWhitespace()
   let request = parts[1]
@@ -96,8 +96,9 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
   let protocolStart = request.rfind(' ')
   if head.len != 5 or status.len != 2 or protocolStart - methodEnd < 2:
     error(fmt"Could not parse: {logLine}")
-    return log
+    return nonDefault
 
+  var log: Log
   log.remoteIP = head[0]
   # nginx writes "-" when the request had no user in its Authorization header
   if head[2] != "-":
@@ -108,7 +109,7 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
     log.date = convertDateFormat(head[3].replace("[", "").replace("/", "-"))
   except ValueError as e:
     error(fmt"Failed parsing log date: {e.msg}")
-    return log
+    return nonDefault
 
   log.httpMethod = request[0 ..< methodEnd]
 
@@ -141,7 +142,6 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
   # an empty value breaks the insert of the whole batch
   if log.userAgent == "":
     log.userAgent = "-"
-  log.nonDefault = ""
 
   return log
 

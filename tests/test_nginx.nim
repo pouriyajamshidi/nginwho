@@ -104,6 +104,8 @@ suite "parseLogEntry":
     let bad = """203.0.113.7 - - [99/Foo/2026:10:15:32 +0000] "GET / HTTP/1.1" 200 1 "-" "curl/8.0""""
     let log = parseLogEntry(bad, "")
     check log.nonDefault == bad
+    # or the IP would be counted for a request that is not saved
+    check log.remoteIP == ""
 
   test "empty line":
     check parseLogEntry("", "").nonDefault == ""
