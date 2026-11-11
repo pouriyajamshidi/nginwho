@@ -206,6 +206,20 @@ suite "server with the trap":
     check probe.body != "home"
     check get("/?ref=example.com", port = trapPort).body == "home"
 
+  test "a POST is trapped, not answered with a 405":
+    proc postAndLeave(): Future[string] {.async.} =
+      let socket = newAsyncSocket()
+      defer: socket.close()
+      await socket.connect("127.0.0.1", trapPort)
+      await socket.send("POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\n\r\nq=1")
+      # the body never ends, so read the start and leave
+      return await socket.recv(4096)
+
+    check (waitFor postAndLeave()).startsWith("HTTP/1.1 200")
+    let db = getDbConnection(trapDb)
+    check db.getValue(sql"SELECT trap || ' ' || body FROM trap_hits ORDER BY id DESC LIMIT 1") ==
+        "post q=1"
+
   test "a listed user agent is trapped even on a real page":
     let page = get("/", "User-Agent: DeepSeekBot\r\n", port = trapPort)
     check page.startsWith("HTTP/1.1 200")

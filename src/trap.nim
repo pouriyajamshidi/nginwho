@@ -1,5 +1,5 @@
 ## Plays with bots that probe for files we do not have.
-## nginx hands its 403s and 404s to this server, the rest is up to us.
+## nginx hands its 403s, 404s and 405s to this server, the rest is up to us.
 ## User agents listed under [trap.agents] are trapped whatever they ask for.
 ## Every hit is saved in the `trap_hits` table with what we did about it
 
@@ -72,6 +72,7 @@ type
     apiDebug = "api"
     rce = "rce"
     listedAgent = "agent" # a listed user agent asking for a normal page
+    post = "post"         # a POST to a normal page, which a static site never takes
 
 
 const
@@ -218,7 +219,7 @@ proc fakeFile(trap: Trap, path: string, values: Table[string, string], rng: Rng)
     name = "actuator_env.json"
   of rce:
     (name, contentType, secret) = ("passwd.txt", "text/plain", "")
-  of configFile, backup, wordpress, adminPanel, listedAgent, noTrap:
+  of configFile, backup, wordpress, adminPanel, listedAgent, post, noTrap:
     discard
 
   let text = templates[name]
@@ -502,6 +503,7 @@ proc tacticForPath(trap: Trap, p: string): Tactic =
     if p.endsWith("/config") or p.endsWith("head"): drip else: maze
   of apiDebug:
     if p.anyOf(["actuator", "env", "config"]): drip else: endless
+  of post: endless
   else: drip
 
 
@@ -604,6 +606,10 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
   if agent.isNone and not miss and classifyQuery(req.query) == noTrap:
     return false
   var trap = classify(req.path, req.query)
+  # a static site takes only GET and HEAD, so anything else comes from a bot.
+  # nginx answers it with a 405 and sends it here, and --serve does the same
+  if trap == noTrap and req.httpMethod notin ["GET", "HEAD"]:
+    trap = post
   if agent.isNone and trap == noTrap:
     return false
   if active >= cfg.maxConnections:
@@ -635,8 +641,9 @@ proc trapRequest(client: AsyncSocket, req: Request, ip: string, cfg: TrapConfig,
   # the same bot asking for the same file twice sees the same fake content
   let rng = newRng(hash(ip & req.path))
   let started = epochTime()
-  # a POST body holds the password they tried, or the code they hoped to run
-  let body = if req.httpMethod == "POST": await client.readBody(req, maxBodyBytes) else: ""
+  # a POST or PUT body holds the password they tried, or the code they hoped to run
+  let body = if req.httpMethod notin ["GET", "HEAD"]: await client.readBody(req, maxBodyBytes)
+             else: ""
 
   # the hit is saved before the trap starts, so we know who tried what right away.
   # a slow drip can hold a bot that already hung up for a long time before a send fails

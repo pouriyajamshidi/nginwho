@@ -485,6 +485,24 @@ suite "live trap":
     check "<script>" notin maze
     check "&lt;script&gt;" in maze
 
+  test "a POST to a normal page gets an endless body, and its body is saved":
+    const postPort = 18100
+    let postDb = tempDir / ("trap_" & $postPort & ".db")
+    # max_seconds ends the endless body
+    asyncCheck trap(TrapConfig(enabled: true, port: postPort, maxConnections: 10,
+        maxSeconds: 1, dripMinMs: 10, dripMaxMs: 10, bombs: true, bombAfter: 100), postDb)
+    waitFor sleepAsync(200)
+
+    discard ask("POST", "/", "140.0.0.1", postPort, "Googlebot", "q=1")
+    discard ask("PUT", "/app", "140.0.0.1", postPort, "GPTBot", "x")
+    # a GET for the same page is not trapped
+    check get("/", "140.0.0.1", postPort) == "404 Not Found\n"
+
+    let hits = getDbConnection(postDb).getAllRows(
+        sql"SELECT http_method, request_uri, trap, tactic, body FROM trap_hits ORDER BY id")
+    check hits == @[@["POST", "/", "post", "endless", "q=1"],
+        @["PUT", "/app", "post", "endless", "x"]]
+
   test "a POST waiting on its body takes a place in the trap":
     const fullPort = 18097
     asyncCheck trap(TrapConfig(enabled: true, port: fullPort, maxConnections: 1,
