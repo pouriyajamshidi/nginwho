@@ -39,8 +39,10 @@ const
     Fastly: "Fastly-Client-IP"]
   timeoutMs = 10_000
   refreshMs = 6 * 60 * 60 * 1000
-  firewallCheckMs* = 5 * 60 * 1000
   retryMs = 60 * 1000
+
+# the ranges fetched last. The firewall check keeps using them while the CDN's API is down
+var lastCidrs: Option[Cidrs]
 
 # the ranges fetched last. --serve trusts the CDN's real IP header only from these,
 # and does not limit how many connections they open
@@ -114,9 +116,13 @@ proc getCdnCIDRs(cdn: Cdn): Future[Option[Cidrs]] {.async.} =
   return parseCidrsResponse(cdn, jsonResponse)
 
 
-proc blockOthers(cdn: Cdn, cidrs: Cidrs, ports: seq[int]) =
+proc blockOthers*(ports: seq[int]) =
+  ## Lets only the CDN's ranges fetched last reach `ports`. Nothing to do before the first fetch
+  if lastCidrs.isNone:
+    return
+  let cidrs = lastCidrs.get()
   try:
-    acceptOnly(NftSet(name: cdn.name, ipv4: cidrs.ipv4, ipv6: cidrs.ipv6, ports: ports))
+    acceptOnly(NftSet(name: cidrs.cdn.name, ipv4: cidrs.ipv4, ipv6: cidrs.ipv6, ports: ports))
   except NftError as e:
     # a firewall problem must not stop the real IPs or anything else nginwho runs
     error(e.msg)
@@ -193,9 +199,10 @@ proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
       continue
 
     let cidrs = fetched.get()
+    lastCidrs = fetched
 
     if blockUntrustedCidrs:
-      blockOthers(cdn, cidrs, webPorts)
+      blockOthers(webPorts)
 
     if serve:
       trustRanges(cidrs)
@@ -208,12 +215,7 @@ proc fetchAndProcessIPCidrs*(cdn: Cdn, showRealIPs,
       else:
         info(fmt"etag has not changed {currentEtag}")
 
-    # reloading the firewall with `flush ruleset` wipes our rules too, so they are checked
-    # every few minutes until the next fetch. Only what changed is applied, so this is cheap
-    for _ in 1 .. refreshMs div firewallCheckMs:
-      await sleepAsync(firewallCheckMs)
-      if blockUntrustedCidrs:
-        blockOthers(cdn, cidrs, webPorts)
+    await sleepAsync(refreshMs)
 
 
 proc samePrefix(a, b: openArray[uint8], bits: int): bool =

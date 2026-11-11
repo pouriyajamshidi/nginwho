@@ -15,7 +15,7 @@ from std/logging import addHandler, newConsoleLogger, info, error, warn,
 from nginx import Log, isStaticAsset, readChunkBytes, ensureNginxExists,
     ensureNginxLogExists, parseLogEntry, readNewLines, offsetAfterLastInserted
 from cdn import Cdn, fetchAndProcessIPCidrs, visitorIP, realIpHeaders, fromCdn,
-    firewallCheckMs
+    blockOthers
 from nftables import ensureNftExists, NftError, lockDown, findSshPorts
 from database import getDbConnection, closeDbConnection,
     createTables, insertLogs, getLastRow
@@ -36,6 +36,9 @@ const
   version* = nimbleVersion()
   maintainer* = "Pouriya Jamshidi"
   maxInsertAttempts = 3
+  # reloading the firewall with `flush ruleset` wipes our rules too, so they are checked
+  # this often. Only what changed is applied, so this is cheap
+  firewallCheckMs = 5 * 60 * 1000
 
 addHandler(newConsoleLogger(fmtStr = "[$date -- $time] - $levelname: "))
 
@@ -265,6 +268,15 @@ proc keepLockedDown(sshPort: int, webPorts, quicPorts: seq[int]) {.async.} =
     await sleepAsync(firewallCheckMs)
 
 
+proc keepCdnOnly(webPorts: seq[int]) {.async.} =
+  ## Checks every few minutes that only the CDN can reach the web ports, so the rules are
+  ## back soon after a firewall reload wipes them. It uses the ranges fetched last, so it
+  ## goes on while the CDN's API is down. The fetch applies new ranges right away itself
+  while true:
+    await sleepAsync(firewallCheckMs)
+    blockOthers(webPorts)
+
+
 proc raiseOpenFileLimit() =
   ## The usual limit of 1024 open files is low for a web server and a trap together.
   ## Must run before anything async, the event loop reads the limit once
@@ -346,6 +358,8 @@ proc main() =
     let webPorts = sorted(deduplicate(args.webPorts & args.quicPorts))
     asyncCheck fetchAndProcessIPCidrs(args.cdn, args.showRealIPs,
         args.blockUntrustedCidrs, args.serve, webPorts)
+    if args.blockUntrustedCidrs:
+      asyncCheck keepCdnOnly(webPorts)
 
   runForever()
 

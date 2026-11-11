@@ -606,7 +606,8 @@ Anyone else is dropped, and the drop is logged with the prefix `NGINWHO_DROPPED_
 `NGINWHO_DROPPED_v6`, at most 10 times a minute each, so a flood can't fill your logs. If the
 list can't be fetched, for example right after a boot with no network yet, it tries again
 every minute. The rules are also checked every five minutes, so if a firewall reload wipes
-them, they are back soon.
+them, they are back soon. This goes on with the last list fetched while the list can't be
+fetched.
 
 nginwho does not touch the rules you already have. It only adds its own parts next to them:
 
