@@ -25,9 +25,9 @@ const
 type
   Args* = object
     ## Settings from the config file and the command line. The values here are the defaults
-    logPath*: string        # empty means nginxLogPath, or serveLogPath with --serve
+    logPath*: string                 # empty means nginxLogPath, or serveLogPath with --serve
     dbPath*: string = defaultDbPath
-    interval*: int = 10_000 # milliseconds
+    interval*: int = 10_000          # milliseconds
     omitReferrer*: string
     cdn*: Cdn = Cloudflare
     showRealIPs*: bool
@@ -36,13 +36,13 @@ type
     serve*: bool
     root*: string = "/var/www/html"
     port*: int = 80
-    cert*: string           # both empty means plain HTTP
+    cert*: string                    # both empty means plain HTTP
     key*: string
     report*: bool
     lockdown*: bool
-    sshPort*: int           # 0 means the port sshd listens on
+    sshPort*: int                    # 0 means the port sshd listens on
     webPorts*: seq[int] = @[80, 443] # TCP
-    quicPorts*: seq[int]    # UDP, for HTTP/3
+    quicPorts*: seq[int]             # UDP, for HTTP/3
     trap*: TrapConfig
 
 
@@ -128,7 +128,8 @@ proc readConfigFile*(path: string, args: var Args) =
   args.processNginxLogs = config.get("logs", "process", args.processNginxLogs, parseBool)
   args.logPath = config.getString("logs", "path", args.logPath)
   args.interval = config.get("logs", "interval", args.interval, parseInterval)
-  args.omitReferrer = config.getString("logs", "omit_referrer", args.omitReferrer)
+  args.omitReferrer = config.getString("logs", "omit_referrer",
+      args.omitReferrer)
 
   args.cdn = config.get("cdn", "name", args.cdn, parseCdn)
   args.showRealIPs = config.get("cdn", "show_real_ips", args.showRealIPs, parseBool)
@@ -179,5 +180,6 @@ proc readConfigFile*(path: string, args: var Args) =
         try:
           agent.tactic = some(parseTactic(value))
         except ValueError as e:
-          raise newException(ValueError, fmt"Bad value '{value}' for {name} in [trap.agents]: {e.msg}")
+          raise newException(ValueError,
+              fmt"Bad value '{value}' for {name} in [trap.agents]: {e.msg}")
       args.trap.agents.add(agent)

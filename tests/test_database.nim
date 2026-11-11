@@ -1,10 +1,12 @@
 import std/[unittest, times, os]
 from std/strutils import parseInt
-from db_connector/db_sqlite import DbConn, Row, open, close, exec, getAllRows, getValue, sql
+from db_connector/db_sqlite import DbConn, Row, open, close, exec, getAllRows,
+    getValue, sql
 
 from nginx import Log, parseLogEntry, readNewLines, offsetAfterLastInserted
-from database import TrapHit, getDbConnection, closeDbConnection, createTables, insertLogs, getLastRow, getTopIPs,
-    getTopURIs, getTopReferrers, getTopUserAgents, getTopUnsuccessfulRequests, getNonDefaults, getTotalRequests,
+from database import TrapHit, getDbConnection, closeDbConnection, createTables,
+    insertLogs, getLastRow, getTopIPs, getTopURIs, getTopReferrers, getTopUserAgents,
+        getTopUnsuccessfulRequests, getNonDefaults, getTotalRequests,
     getTotalNonDefaults, getSpan, hasOldSchema, insertTrapHit
 
 
@@ -34,10 +36,11 @@ proc allLogs(db: DbConn): seq[Row] =
   """)
 
 
-proc log(ip = "1.1.1.1", uri = "/", status = "200", date = "2026-09-13 10:00:00",
-    referrer = "", userAgent = "curl/8.0"): Log =
-  Log(date: date, remoteIP: ip, httpMethod: "GET", requestURI: uri, statusCode: status,
-      responseSize: "10", referrer: referrer, userAgent: userAgent)
+proc log(ip = "1.1.1.1", uri = "/", status = "200",
+    date = "2026-09-13 10:00:00", referrer = "", userAgent = "curl/8.0"): Log =
+  Log(date: date, remoteIP: ip, httpMethod: "GET", requestURI: uri,
+      statusCode: status, responseSize: "10", referrer: referrer,
+          userAgent: userAgent)
 
 
 suite "database":
@@ -46,8 +49,8 @@ suite "database":
     let line = """203.0.113.7 - - [13/Sep/2026:10:15:32 +0000] "GET /blog HTTP/1.1" 404 5120 "https://example.com" "Mozilla/5.0 Firefox/130.0""""
     check insertLogs(db, @[parseLogEntry(line, "")])
 
-    check db.allLogs() == @[@["2026-09-13 10:15:32", "203.0.113.7", "GET", "/blog", "404",
-        "5120", "https://example.com", "Mozilla/5.0 Firefox/130.0"]]
+    check db.allLogs() == @[@["2026-09-13 10:15:32", "203.0.113.7", "GET",
+        "/blog", "404", "5120", "https://example.com", "Mozilla/5.0 Firefox/130.0"]]
 
   test "logs without a referrer are saved":
     let db = newDb()
@@ -57,7 +60,8 @@ suite "database":
 
   test "counts add up across inserts":
     let db = newDb()
-    check insertLogs(db, @[log(ip = "1.1.1.1"), log(ip = "1.1.1.1"), log(ip = "2.2.2.2")])
+    check insertLogs(db, @[log(ip = "1.1.1.1"), log(ip = "1.1.1.1"), log(
+        ip = "2.2.2.2")])
     check insertLogs(db, @[log(ip = "1.1.1.1")])
 
     check db.count("nginwho") == 4
@@ -71,7 +75,8 @@ suite "database":
 
   test "non-default logs are counted but not added to the nginwho table":
     let db = newDb()
-    check insertLogs(db, @[Log(nonDefault: "garbage"), Log(nonDefault: "garbage"), log()])
+    check insertLogs(db, @[Log(nonDefault: "garbage"), Log(
+        nonDefault: "garbage"), log()])
     check db.count("nginwho") == 1
     check db.getNonDefaults(10) == @[@["garbage", "2"]]
 
@@ -79,7 +84,8 @@ suite "database":
     let db = newDb()
     check db.getLastRow() == Log()
 
-    check insertLogs(db, @[log(uri = "/first"), log(uri = "/last", date = "2026-09-13 10:00:05")])
+    check insertLogs(db, @[log(uri = "/first"), log(uri = "/last",
+        date = "2026-09-13 10:00:05")])
     let last = db.getLastRow()
     check last.requestURI == "/last"
     check last.date == "2026-09-13 10:00:05"
@@ -148,15 +154,16 @@ suite "database":
 
   test "top lists are ordered and limited":
     let db = newDb()
-    check insertLogs(db, @[log(uri = "/a"), log(uri = "/b"), log(uri = "/b"), log(uri = "/c"),
-        log(uri = "/c"), log(uri = "/c")])
+    check insertLogs(db, @[log(uri = "/a"), log(uri = "/b"), log(uri = "/b"),
+        log(uri = "/c"), log(uri = "/c"), log(uri = "/c")])
     check db.getTopURIs(2) == @[@["/c", "3"], @["/b", "2"]]
 
-    check insertLogs(db, @[log(referrer = "https://x.com"), log(referrer = "https://y.com"),
-        log(referrer = "https://y.com")])
+    check insertLogs(db, @[log(referrer = "https://x.com"), log(
+        referrer = "https://y.com"), log(referrer = "https://y.com")])
     check db.getTopReferrers(1) == @[@["https://y.com", "2"]]
 
-    check insertLogs(db, @[log(userAgent = "bot/1.0"), log(userAgent = "bot/1.0")])
+    check insertLogs(db, @[log(userAgent = "bot/1.0"), log(
+        userAgent = "bot/1.0")])
     check db.getTopUserAgents(2) == @[@["curl/8.0", "9"], @["bot/1.0", "2"]]
 
   test "top unsuccessful requests only has recent failed GET requests":
@@ -165,7 +172,8 @@ suite "database":
     check insertLogs(db, @[
       log(uri = "/missing", status = "404", date = today),
       log(uri = "/missing", status = "404", date = today),
-      log(uri = "/missing", status = "404", date = today, userAgent = "bot/1.0"),
+      log(uri = "/missing", status = "404", date = today,
+          userAgent = "bot/1.0"),
       log(uri = "/broken", status = "500", date = today),
       log(uri = "/fine", status = "200", date = today),
       log(uri = "/moved", status = "301", date = today),
@@ -191,10 +199,14 @@ suite "database":
   test "time window only counts logs from that date on":
     let db = newDb()
     check insertLogs(db, @[
-      log(ip = "1.1.1.1", referrer = "https://old.com", date = "2026-08-01 10:00:00"),
-      log(ip = "1.1.1.1", referrer = "https://old.com", date = "2026-08-01 10:00:01"),
-      log(ip = "1.1.1.1", referrer = "https://old.com", date = "2026-08-01 10:00:02"),
-      log(ip = "2.2.2.2", uri = "/new", referrer = "https://new.com", date = "2026-09-13 10:00:00"),
+      log(ip = "1.1.1.1", referrer = "https://old.com",
+          date = "2026-08-01 10:00:00"),
+      log(ip = "1.1.1.1", referrer = "https://old.com",
+          date = "2026-08-01 10:00:01"),
+      log(ip = "1.1.1.1", referrer = "https://old.com",
+          date = "2026-08-01 10:00:02"),
+      log(ip = "2.2.2.2", uri = "/new", referrer = "https://new.com",
+          date = "2026-09-13 10:00:00"),
       log(ip = "2.2.2.2", uri = "/new", date = "2026-09-13 10:00:00"),
       log(ip = "1.1.1.1", uri = "/new", date = "2026-09-13 11:00:00"),
     ])
@@ -213,10 +225,11 @@ suite "database":
     check db.getSpan("nginwho") == (0, "", "")
     check db.getSpan("trap_hits") == (0, "", "")
 
-    check insertLogs(db, @[log(date = "2026-09-13 10:00:00"), log(date = "2024-11-01 08:30:00"),
-        log(date = "2026-09-26 23:59:59")])
-    discard db.insertTrapHit(TrapHit(date: "2026-09-20 12:00:00", remoteIP: "9.9.9.9",
-        httpMethod: "GET", requestURI: "/.env", userAgent: "bot", trap: "env", tactic: "drip"))
+    check insertLogs(db, @[log(date = "2026-09-13 10:00:00"), log(
+        date = "2024-11-01 08:30:00"), log(date = "2026-09-26 23:59:59")])
+    discard db.insertTrapHit(TrapHit(date: "2026-09-20 12:00:00",
+        remoteIP: "9.9.9.9", httpMethod: "GET", requestURI: "/.env",
+            userAgent: "bot", trap: "env", tactic: "drip"))
 
     check db.getSpan("nginwho") == (3, "2024-11-01 08:30:00", "2026-09-26 23:59:59")
     check db.getSpan("trap_hits") == (1, "2026-09-20 12:00:00", "2026-09-20 12:00:00")
@@ -243,8 +256,9 @@ suite "database":
 
   test "an old trap_hits table gets the body column without losing hits":
     let db = newDb()
-    discard db.insertTrapHit(TrapHit(date: "2026-09-20 12:00:00", remoteIP: "45.9.1.10",
-        httpMethod: "GET", requestURI: "/.env", userAgent: "x", trap: "env", tactic: "drip"))
+    discard db.insertTrapHit(TrapHit(date: "2026-09-20 12:00:00",
+        remoteIP: "45.9.1.10", httpMethod: "GET", requestURI: "/.env",
+            userAgent: "x", trap: "env", tactic: "drip"))
     db.exec(sql"ALTER TABLE trap_hits DROP COLUMN body")
 
     createTables(db)

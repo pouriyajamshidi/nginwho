@@ -2,8 +2,8 @@ import std/[unittest, json, os]
 from std/osproc import execCmdEx
 from std/strutils import contains
 
-from nftables import NftSet, NftAttrs, NftError, createRules, requiredChanges, validCidrs,
-    createLockdown, lockdownIsCurrent, parseSshPorts, lockDown
+from nftables import NftSet, NftAttrs, NftError, createRules, requiredChanges,
+    validCidrs, createLockdown, lockdownIsCurrent, parseSshPorts, lockDown
 
 const allChanges = NftAttrs(withV4Set: true, withV6Set: true,
     withNginwhoChain: true,
@@ -12,15 +12,16 @@ const allChanges = NftAttrs(withV4Set: true, withV6Set: true,
 let tempDir = getTempDir() / "nginwho_test_nftables"
 createDir(tempDir)
 
-let cidrs = NftSet(name: "Cloudflare", ipv4: %*["173.245.48.0/20", "103.21.244.0/22"],
-    ipv6: %*["2400:cb00::/32", "2606:4700::/32"])
+let cidrs = NftSet(name: "Cloudflare", ipv4: %*["173.245.48.0/20",
+    "103.21.244.0/22"], ipv6: %*["2400:cb00::/32", "2606:4700::/32"])
 
 
 proc canRunNft(): bool =
   execCmdEx("unshare -rn nft list ruleset").exitCode == 0
 
 
-proc applyInNamespace(rulesFiles: seq[JsonNode], setup = "nft add table inet filter"): JsonNode =
+proc applyInNamespace(rulesFiles: seq[JsonNode],
+    setup = "nft add table inet filter"): JsonNode =
   ## Applies the rules with the real nft in a throwaway network namespace and
   ## returns what `nft -j list ruleset` shows afterwards
   var script = setup
@@ -50,13 +51,15 @@ suite "nftables":
       check body["set"]["name"].getStr() == "Cloudflare_IPv6"
 
   test "invalid CIDRs are skipped instead of crashing":
-    let withJunk = NftSet(name: "Cloudflare", ipv4: %*["173.245.48.0/20", "junk", 42], ipv6: %*["2400:cb00::/32"])
-    let elems = createRules(withJunk, NftAttrs(withV4Set: true))["nftables"][^1]["add"]["set"]["elem"]
+    let withJunk = NftSet(name: "Cloudflare", ipv4: %*["173.245.48.0/20",
+        "junk", 42], ipv6: %*["2400:cb00::/32"])
+    let elems = createRules(withJunk, NftAttrs(withV4Set: true))["nftables"][
+        ^1]["add"]["set"]["elem"]
     check elems == %*[{"prefix": {"addr": "173.245.48.0", "len": 20}}]
 
   test "junk CIDRs are dropped":
-    check validCidrs(%*["1.2.3.0/24", "not-an-ip/8", "1.2.3.0/33", "1.2.3.0/abc", "1.2.3.0/24/1",
-        "2001:db8::/32"]) == @["1.2.3.0/24", "2001:db8::/32"]
+    check validCidrs(%*["1.2.3.0/24", "not-an-ip/8", "1.2.3.0/33",
+        "1.2.3.0/abc", "1.2.3.0/24/1", "2001:db8::/32"]) == @["1.2.3.0/24", "2001:db8::/32"]
 
   test "single IPs without a prefix length get one":
     check validCidrs(%*["1.2.3.4", "2001:db8::1"]) == @["1.2.3.4/32", "2001:db8::1/128"]
@@ -74,8 +77,8 @@ suite "nftables":
       skip()
     else:
       let ruleset = applyInNamespace(@[createRules(cidrs, allChanges)])
-      let newCidrs = NftSet(name: "Cloudflare", ipv4: %*["173.245.48.0/20", "103.21.244.0/22", "141.101.64.0/18"],
-          ipv6: cidrs.ipv6)
+      let newCidrs = NftSet(name: "Cloudflare", ipv4: %*["173.245.48.0/20",
+          "103.21.244.0/22", "141.101.64.0/18"], ipv6: cidrs.ipv6)
       check requiredChanges(ruleset, newCidrs) == NftAttrs(withV4Set: true)
 
   test "single IPs are applied and the next run sees nothing to change":
@@ -83,8 +86,8 @@ suite "nftables":
     if not canRunNft():
       skip()
     else:
-      let single = NftSet(name: "Cloudflare", ipv4: %*["1.2.3.4", "5.6.7.8/32", "173.245.48.0/20"],
-          ipv6: %*["2001:db8::1", "2400:cb00::/32"])
+      let single = NftSet(name: "Cloudflare", ipv4: %*["1.2.3.4", "5.6.7.8/32",
+          "173.245.48.0/20"], ipv6: %*["2001:db8::1", "2400:cb00::/32"])
       let ruleset = applyInNamespace(@[createRules(single, allChanges)])
       check requiredChanges(ruleset, single) == NftAttrs()
 
@@ -94,10 +97,12 @@ suite "nftables":
       skip()
     else:
       let first = applyInNamespace(@[createRules(cidrs, allChanges)])
-      let newCidrs = NftSet(name: "Cloudflare", ipv4: %*["173.245.48.0/20"], ipv6: %*["2606:4700::/32"])
+      let newCidrs = NftSet(name: "Cloudflare", ipv4: %*["173.245.48.0/20"],
+          ipv6: %*["2606:4700::/32"])
       let changes = requiredChanges(first, newCidrs)
 
-      let after = applyInNamespace(@[createRules(cidrs, allChanges), createRules(newCidrs, changes)])
+      let after = applyInNamespace(@[createRules(cidrs, allChanges),
+          createRules(newCidrs, changes)])
       check requiredChanges(after, newCidrs) == NftAttrs()
 
   test "switching CDN replaces the old CDN's rules":
@@ -108,16 +113,18 @@ suite "nftables":
       let fastly = NftSet(name: "Fastly", ipv4: %*["151.101.0.0/16"], ipv6: %*["2a04:4e42::/32"])
       let first = applyInNamespace(@[createRules(cidrs, allChanges)])
       let changes = requiredChanges(first, fastly)
-      check changes == NftAttrs(withV4Set: true, withV6Set: true, withNginwhoChain: true)
+      check changes == NftAttrs(withV4Set: true, withV6Set: true,
+          withNginwhoChain: true)
 
-      let after = applyInNamespace(@[createRules(cidrs, allChanges), createRules(fastly, changes)])
+      let after = applyInNamespace(@[createRules(cidrs, allChanges),
+          createRules(fastly, changes)])
       check requiredChanges(after, fastly) == NftAttrs()
 
       var rules: seq[string]
       for node in after:
         # the loopback rule has no Set
-        if node.contains("rule") and node["rule"]["chain"].getStr() == "nginwho" and
-            node["rule"]["expr"].len > 2:
+        if node.contains("rule") and node["rule"]["chain"].getStr() ==
+            "nginwho" and node["rule"]["expr"].len > 2:
           # the ports come first, then the Set
           rules.add(node["rule"]["expr"][2]["match"]["right"].getStr())
       # a rule that logs and a rule that drops for each
@@ -200,8 +207,8 @@ suite "nftables":
       skip()
     else:
       var ruleset = applyInNamespace(@[createRules(cidrs, allChanges)])
-      ruleset.add(%*{"rule": {"family": "inet", "table": "filter", "chain": "nginwho",
-          "expr": [{"drop": nil}]}})
+      ruleset.add(%*{"rule": {"family": "inet", "table": "filter",
+          "chain": "nginwho", "expr": [{"drop": nil}]}})
       check requiredChanges(ruleset, cidrs) == NftAttrs(withNginwhoChain: true)
 
   test "the nginwho chain of older versions is moved to the raw priority":
@@ -215,7 +222,8 @@ suite "nftables":
       let before = applyInNamespace(@[], setup)
       check requiredChanges(before, cidrs).withNginwhoChain
 
-      let after = applyInNamespace(@[createRules(cidrs, requiredChanges(before, cidrs))], setup)
+      let after = applyInNamespace(@[createRules(cidrs, requiredChanges(before,
+          cidrs))], setup)
       check requiredChanges(after, cidrs) == NftAttrs()
       for node in after:
         if node{"chain", "name"}.getStr() == "nginwho":
@@ -240,7 +248,8 @@ suite "nftables":
       var ruleset = applyInNamespace(@[createRules(others, allChanges)])
       check requiredChanges(ruleset, others) == NftAttrs()
       # the old ports are replaced in the nginwho chain. the input chain gets a rule for the new ones
-      check requiredChanges(ruleset, cidrs) == NftAttrs(withNginwhoChain: true, withInputPolicy: true)
+      check requiredChanges(ruleset, cidrs) == NftAttrs(withNginwhoChain: true,
+          withInputPolicy: true)
 
       others.ports = @[8080]
       ruleset = applyInNamespace(@[createRules(others, allChanges)])
@@ -274,7 +283,8 @@ LISTEN 0      4096         *:22          *:* users:(("systemd",pid=1,fd=86))
     if not canRunNft():
       skip()
     else:
-      var ruleset = applyInNamespace(@[createLockdown(@[65222], @[8080, 8443], @[])])
+      var ruleset = applyInNamespace(@[createLockdown(@[65222], @[8080, 8443],
+          @[])])
       check lockdownIsCurrent(ruleset, @[65222], @[8080, 8443], @[])
       check not lockdownIsCurrent(ruleset, @[65222], @[80, 443], @[])
       ruleset = applyInNamespace(@[createLockdown(@[65222], @[8080], @[])])
@@ -292,7 +302,8 @@ LISTEN 0      4096         *:22          *:* users:(("systemd",pid=1,fd=86))
     if not canRunNft():
       skip()
     else:
-      let ruleset = applyInNamespace(@[createLockdown(@[22], @[80, 443], @[]), createLockdown(@[65222], @[80, 443], @[])])
+      let ruleset = applyInNamespace(@[createLockdown(@[22], @[80, 443], @[]),
+          createLockdown(@[65222], @[80, 443], @[])])
       check lockdownIsCurrent(ruleset, @[65222], @[80, 443], @[])
 
   test "the lockdown leaves the user's input chain and the nginwho chain alone":
@@ -302,7 +313,8 @@ LISTEN 0      4096         *:22          *:* users:(("systemd",pid=1,fd=86))
       let setup = "nft add table inet filter && " &
           "nft 'add chain inet filter input { type filter hook input priority filter; policy accept; }' && " &
           "nft add rule inet filter input udp dport 51820 accept"
-      let ruleset = applyInNamespace(@[createRules(cidrs, allChanges), createLockdown(@[65222], @[80, 443], @[])], setup)
+      let ruleset = applyInNamespace(@[createRules(cidrs, allChanges),
+          createLockdown(@[65222], @[80, 443], @[])], setup)
       check requiredChanges(ruleset, cidrs) == NftAttrs()
       check lockdownIsCurrent(ruleset, @[65222], @[80, 443], @[])
       var userRule = false

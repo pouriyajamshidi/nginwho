@@ -20,8 +20,8 @@ from database import getDbConnection, closeDbConnection,
 from report import report
 from server import serve, RealIP, Request, header
 from trap import trap, trapHook
-from config import Args, readConfigFile, parsePort, parsePorts, parseInterval, parseCdn,
-    defaultConfigFile, defaultDbPath, oldDbPath, nginxLogPath, serveLogPath
+from config import Args, readConfigFile, parsePort, parsePorts, parseInterval,
+    parseCdn, defaultConfigFile, defaultDbPath, oldDbPath, nginxLogPath, serveLogPath
 
 
 proc nimbleVersion(): string =

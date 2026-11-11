@@ -1,11 +1,13 @@
 ## Runs the static server in this process and talks to it over a real socket
 
 import std/[unittest, asyncdispatch, os]
-from std/asyncnet import AsyncSocket, newAsyncSocket, connect, send, recv, close, wrapSocket,
+from std/asyncnet import AsyncSocket, newAsyncSocket, connect, send, recv,
+    close, wrapSocket,
     getPeerCertificates
 from std/net import Port, newContext
 from std/osproc import execCmd
-from std/strutils import split, splitLines, startsWith, endsWith, strip, contains, count,
+from std/strutils import split, splitLines, startsWith, endsWith, strip,
+    contains, count,
     repeat
 
 from db_connector/db_sqlite import getValue, sql
@@ -40,8 +42,9 @@ asyncCheck serve(root, logPath, port, "127.0.0.1")
 const trapPort = Port(18093)
 let trapLogPath = tempDir / "trap_access.log"
 let trapDb = tempDir / "trap.db"
-asyncCheck serve(root, trapLogPath, trapPort, "127.0.0.1", trapHook(TrapConfig(enabled: true,
-    maxConnections: 10, maxSeconds: 60, dripMinMs: 0, dripMaxMs: 0, bombs: true, bombAfter: 100,
+asyncCheck serve(root, trapLogPath, trapPort, "127.0.0.1", trapHook(TrapConfig(
+    enabled: true, maxConnections: 10, maxSeconds: 60, dripMinMs: 0,
+    dripMaxMs: 0, bombs: true, bombAfter: 100,
     agents: @[("deepseek", none(Tactic))]), trapDb))
 
 
@@ -61,7 +64,8 @@ proc request(raw: string, port = port): string =
 
 
 proc get(path: string, headers = "", port = port): string =
-  request("GET " & path & " HTTP/1.1\r\nHost: x\r\n" & headers & "Connection: close\r\n\r\n", port)
+  request("GET " & path & " HTTP/1.1\r\nHost: x\r\n" & headers &
+      "Connection: close\r\n\r\n", port)
 
 
 proc body(response: string): string =
@@ -127,7 +131,8 @@ suite "server":
     check request("hello\r\n\r\n").startsWith("HTTP/1.1 400")
     check request("GET / HTTP/1.1\r\nno colon\r\n\r\n").startsWith("HTTP/1.1 400")
     # the rest of a too long line must not be read as a header of its own
-    check request("GET / HTTP/1.1\r\nX: " & "a".repeat(8200) & "\r\nY: 1\r\n\r\n").startsWith("HTTP/1.1 400")
+    check request("GET / HTTP/1.1\r\nX: " & "a".repeat(8200) &
+        "\r\nY: 1\r\n\r\n").startsWith("HTTP/1.1 400")
     var headers = ""
     for i in 1 .. 10:
       headers.add("X" & $i & ": " & "a".repeat(4000) & "\r\n")
@@ -201,7 +206,8 @@ suite "server with the trap":
     check get("/../../../../../../../etc/passwd").startsWith("HTTP/1.1 400")
 
   test "a real page asked for with a probing query is trapped, a real link's query is not":
-    let probe = get("/?rest_route=/age-gate/v3/check&age_gate[lang]=../../wp-config", port = trapPort)
+    let probe = get("/?rest_route=/age-gate/v3/check&age_gate[lang]=../../wp-config",
+        port = trapPort)
     check probe.startsWith("HTTP/1.1 200")
     check probe.body != "home"
     check get("/?ref=example.com", port = trapPort).body == "home"
@@ -255,13 +261,15 @@ let key = tempDir / "key.pem"
 let trusted = tempDir / "trusted.pem" # the certificate the client trusts
 
 proc makeCert(name: string) =
-  doAssert execCmd("openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=" & name &
-      " -addext subjectAltName=IP:127.0.0.1 -keyout " & key & " -out " & cert &
+  doAssert execCmd("openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=" &
+      name & " -addext subjectAltName=IP:127.0.0.1 -keyout " & key & " -out " &
+      cert &
       " 2>/dev/null") == 0
   copyFile(cert, trusted)
 
 makeCert("first")
-asyncCheck serve(root, tempDir / "tls_access.log", tlsPort, "127.0.0.1", cert = cert, key = key)
+asyncCheck serve(root, tempDir / "tls_access.log", tlsPort, "127.0.0.1",
+    cert = cert, key = key)
 
 
 proc tlsGet(path: string): tuple[response, cert: string] =

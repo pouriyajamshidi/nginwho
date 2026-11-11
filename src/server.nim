@@ -185,7 +185,8 @@ proc resolve(root, urlPath: string): string =
     discard
 
 
-proc respond(client: AsyncSocket, req: Request, root, file: string, keepAlive: bool):
+proc respond(client: AsyncSocket, req: Request, root, file: string,
+    keepAlive: bool):
     Future[tuple[status: HttpCode, bytesSent: int]] {.async.} =
   ## `file` is what `resolve` found for the request
   if req.httpMethod notin ["GET", "HEAD"]:
@@ -333,7 +334,8 @@ proc handleClient(client: AsyncSocket, root, logPath: string,
       let remoteIP = if realIP != nil: realIP(peer, req) else: peer
 
       # found once, both the trap and the response need it
-      let file = if req.httpMethod in ["GET", "HEAD"]: resolve(root, req.path) else: ""
+      let file = if req.httpMethod in ["GET", "HEAD"]: resolve(root,
+          req.path) else: ""
 
       # the trap gets a look first: what would be a 404 or 405, and listed user agents.
       # it keeps its own record
@@ -425,7 +427,8 @@ proc serve*(root, logPath: string, port: Port, address = "::",
   except OSError as e:
     # ports below 1024 need root or CAP_NET_BIND_SERVICE
     raise newException(OSError, fmt"Could not listen on [{address}]:{port}: {e.msg}")
-  info(fmt"Serving {root} on [{address}]:{port}" & (if cert != "": " over HTTPS" else: ""))
+  info(fmt"Serving {root} on [{address}]:{port}" & (if cert !=
+      "": " over HTTPS" else: ""))
 
   while true:
     try:

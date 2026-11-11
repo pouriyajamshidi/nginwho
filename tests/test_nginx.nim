@@ -3,8 +3,8 @@ from std/options import isSome, isNone, get
 from std/strutils import contains
 
 from nginx import Log, parseLogEntry, isStaticAsset, isFromDomain, readNewLines, offsetAfterLastInserted
-from cdn import Cdn, Cidrs, getCurrentEtag, parseCidrsResponse, populateReverseProxyFile,
-    trustRanges, visitorIP
+from cdn import Cdn, Cidrs, getCurrentEtag, parseCidrsResponse,
+    populateReverseProxyFile, trustRanges, visitorIP
 
 let tempDir = getTempDir() / "nginwho_test_nginx"
 createDir(tempDir)
@@ -222,7 +222,8 @@ suite "offsetAfterLastInserted":
     check offsetIn(a & "\n" & b & "\n", parseLogEntry(a, "")) == a.len + 1
 
   test "same request repeated in one second is matched from the end":
-    check offsetIn(a & "\n" & a & "\n" & b & "\n", parseLogEntry(a, "")) == 2 * (a.len + 1)
+    check offsetIn(a & "\n" & a & "\n" & b & "\n", parseLogEntry(a, "")) == 2 *
+        (a.len + 1)
 
   test "nothing new":
     check offsetIn(a & "\n", parseLogEntry(a, "")) == a.len + 1
@@ -281,12 +282,16 @@ suite "CDN CIDRs file":
     check parseCidrsResponse(Cloudflare, sameRanges).get.etag != etag
 
   test "rejects failed or incomplete responses":
-    check parseCidrsResponse(Cloudflare, parseJson("""{"success": false, "result": {"ipv4_cidrs": [], "ipv6_cidrs": []}}""")).isNone
-    check parseCidrsResponse(Cloudflare, parseJson("""{"success": true, "result": {"ipv4_cidrs": []}}""")).isNone
+    check parseCidrsResponse(Cloudflare, parseJson(
+        """{"success": false, "result": {"ipv4_cidrs": [], "ipv6_cidrs": []}}""")).isNone
+    check parseCidrsResponse(Cloudflare, parseJson(
+        """{"success": true, "result": {"ipv4_cidrs": []}}""")).isNone
     check parseCidrsResponse(Cloudflare, parseJson("{}")).isNone
-    check parseCidrsResponse(Cloudflare, parseJson("""{"success": true, "result": {"ipv4_cidrs": ["1.1.1.0/24"], "ipv6_cidrs": []}}""")).isNone
+    check parseCidrsResponse(Cloudflare, parseJson(
+        """{"success": true, "result": {"ipv4_cidrs": ["1.1.1.0/24"], "ipv6_cidrs": []}}""")).isNone
     check parseCidrsResponse(Fastly, parseJson("{}")).isNone
-    check parseCidrsResponse(Fastly, parseJson("""{"addresses": ["1.1.1.0/24"], "ipv6_addresses": []}""")).isNone
+    check parseCidrsResponse(Fastly, parseJson(
+        """{"addresses": ["1.1.1.0/24"], "ipv6_addresses": []}""")).isNone
 
   test "the real IP header only counts when the CDN sent the request":
     # nothing is trusted before the ranges are fetched
@@ -307,8 +312,8 @@ suite "CDN CIDRs file":
     check parseCidrsResponse(Fastly, apiResponse).isNone
 
   test "a bad range from the CDN is skipped instead of crashing the check":
-    trustRanges(Cidrs(cdn: Fastly, ipv4: %*["23.235.32.0/40", "nope/20", "23.235.32.9"],
-        ipv6: %*["2a04:4e42::/200"]))
+    trustRanges(Cidrs(cdn: Fastly, ipv4: %*["23.235.32.0/40", "nope/20",
+        "23.235.32.9"], ipv6: %*["2a04:4e42::/200"]))
     check visitorIP("23.235.32.9", "203.0.113.7") == "203.0.113.7"
     check visitorIP("23.235.32.10", "203.0.113.7") == "23.235.32.10"
     check visitorIP("2a04:4e42::5", "2001:db8::1") == "2a04:4e42::5"

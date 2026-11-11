@@ -144,8 +144,8 @@ proc parseLogEntry*(logLine: string, omit: string): Log =
 
   # these columns are NOT NULL in the database. one empty value fails the insert of the
   # whole batch, so such a line is saved as non-default instead
-  if "" in [log.date, log.remoteIP, log.httpMethod, log.requestURI, log.statusCode,
-      log.responseSize, log.userAgent]:
+  if "" in [log.date, log.remoteIP, log.httpMethod, log.requestURI,
+      log.statusCode, log.responseSize, log.userAgent]:
     error(fmt"Could not parse: {logLine}")
     return nonDefault
 

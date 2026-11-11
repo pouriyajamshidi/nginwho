@@ -15,10 +15,12 @@ suite "report table":
 
   test "long values are cut so the table stays readable":
     let lines = formatTable(@["User agent"], @[@["x".repeat(80), "1"]], 1)
-    check lines[1] == "1  " & "x".repeat(49) & "…  " & "       1  100.0%  " & "█".repeat(20)
+    check lines[1] == "1  " & "x".repeat(49) & "…  " & "       1  100.0%  " &
+        "█".repeat(20)
 
   test "non-ASCII values line up":
-    let lines = formatTable(@["URI", "Status"], @[@["/café", "404", "2"], @["/ab", "500", "1"]], 3)
+    let lines = formatTable(@["URI", "Status"], @[@["/café", "404", "2"], @[
+        "/ab", "500", "1"]], 3)
     check lines[1].startsWith("1  /café  404     ")
     check lines[2].startsWith("2  /ab    500     ")
 
