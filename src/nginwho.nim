@@ -40,7 +40,6 @@ const
 addHandler(newConsoleLogger(fmtStr = "[$date -- $time] - $levelname: "))
 
 
-
 proc usage(errorCode: int = 0) =
   echo """
 
@@ -67,7 +66,7 @@ proc usage(errorCode: int = 0) =
   --cert                  : Certificate file to serve HTTPS with, like nginx's ssl_certificate.
                             Loaded again when it changes, so renewals need no restart
   --key                   : Key file for '--cert', like nginx's ssl_certificate_key
-  --report               : Enter report mode and query the database for statistics
+  --report                : Enter report mode and query the database for statistics
   --config                : Path to the config file (default: /etc/nginwho/nginwho.conf).
                             Command line flags win over it
   --trap                  : Play with bots that probe for files we do not have.
