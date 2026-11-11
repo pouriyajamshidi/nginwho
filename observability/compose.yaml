@@ -43,8 +43,10 @@ services:
     depends_on: [nginx]
     init: true
     restart: on-failure
-    # nginwho logs to stdout. on a real server that ends up in /var/log/syslog, so do the same
-    command: ["/bin/sh", "-c", "nginwho 2>&1 | while IFS= read -r line; do echo \"$$(date '+%b %e %T') web nginwho[1]: $$line\"; done | tee -a /var/log/syslog"]
+    # nginwho logs to stdout. on a real server that ends up in /var/log/syslog, so do the same.
+    # pipefail, or a crash of nginwho looks like a clean exit behind the pipe and it is not
+    # started again
+    command: ["/bin/bash", "-o", "pipefail", "-c", "nginwho 2>&1 | while IFS= read -r line; do echo \"$$(date '+%b %e %T') web nginwho[1]: $$line\"; done | tee -a /var/log/syslog"]
     volumes:
       - ./test/nginwho.conf:/etc/nginwho/nginwho.conf:ro
       - nginwho-db:/var/lib/nginwho
@@ -56,7 +58,7 @@ services:
     depends_on: [nginwho]
     init: true
     restart: on-failure
-    command: ["/bin/sh", "-c", "nginwho 2>&1 | while IFS= read -r line; do echo \"$$(date '+%b %e %T') web nginwho[2]: $$line\"; done | tee -a /var/log/syslog"]
+    command: ["/bin/bash", "-o", "pipefail", "-c", "nginwho 2>&1 | while IFS= read -r line; do echo \"$$(date '+%b %e %T') web nginwho[2]: $$line\"; done | tee -a /var/log/syslog"]
     volumes:
       - ./test/nginwho-serve.conf:/etc/nginwho/nginwho.conf:ro
       - ./test/site:/var/www/html:ro
